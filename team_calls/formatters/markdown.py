@@ -95,17 +95,20 @@ class CallMarkdownFormatter:
             Path to the saved markdown file
         """
         # Extract info for filename
+        generated_title = call_data.get("generatedTitle", "")
         customer = call_data.get("customer_name", "Unknown-Customer")
         date = call_data.get("date", "")
-        
-        # Clean customer name for filename
-        clean_customer = self._sanitize_filename(customer)
         
         # Format date for filename
         file_date = self._format_date_for_filename(date)
         
-        # Create filename
-        filename = f"{clean_customer}-{file_date}.md"
+        # Create filename - prefer generatedTitle, fallback to customer
+        if generated_title and generated_title.strip():
+            clean_title = self._sanitize_filename(generated_title)
+            filename = f"{clean_title}-{file_date}.md"
+        else:
+            clean_customer = self._sanitize_filename(customer)
+            filename = f"{clean_customer}-{file_date}.md"
         filepath = self.output_dir / filename
         
         # Generate markdown content
@@ -143,7 +146,7 @@ class CallMarkdownFormatter:
         if custom_dir_name:
             # Sanitize customer name for directory use
             sanitized_name = self._sanitize_filename(custom_dir_name)
-            dated_output_dir = Path(f"{sanitized_name}")
+            dated_output_dir = Path(f"ct_{sanitized_name}")
         else:
             today = datetime.now().strftime('%Y-%m-%d')
             dated_output_dir = Path(f"team-calls-{today}")
@@ -226,19 +229,22 @@ class CallMarkdownFormatter:
         if not filename:
             return "unnamed"
         
-        # Step 1: Remove problematic filename characters: < > : " / \ | ? *
-        sanitized = re.sub(r'[<>:"/\\|?*]', '', filename)
+        # Step 1: Keep only letters, numbers, spaces, and basic punctuation
+        sanitized = re.sub(r'[^a-zA-Z0-9\s\-._()]', '', filename)
         
-        # Step 2: Replace whitespace with hyphens
-        sanitized = re.sub(r'\s+', '-', sanitized)
+        # Step 2: Replace whitespace and parentheses with hyphens
+        sanitized = re.sub(r'[\s()]+', '-', sanitized)
         
-        # Step 3: Collapse multiple consecutive hyphens into single hyphens
+        # Step 3: Remove dots and underscores (keep only letters, numbers, hyphens)
+        sanitized = re.sub(r'[._]+', '-', sanitized)
+        
+        # Step 4: Collapse multiple consecutive hyphens into single hyphens
         sanitized = re.sub(r'-+', '-', sanitized)
         
-        # Step 4: Clean up and format
+        # Step 5: Clean up and format
         sanitized = sanitized.strip('-.').lower()
         
-        # Step 5: Limit length
+        # Step 6: Limit length
         if len(sanitized) > 50:
             sanitized = sanitized[:50].rstrip('-.')
         

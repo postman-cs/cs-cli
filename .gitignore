@@ -46,11 +46,9 @@ venv.bak/
 .AppleDouble
 .LSOverride
 
-# Output directories (customer-specific folders)
-fiserv/
-7-eleven/
-postman/
-7-11/
+# Output directories
+ct_*/
+team-calls-*/
 
 # Logs
 *.log

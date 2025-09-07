@@ -37,7 +37,6 @@ setup(
     entry_points={
         "console_scripts": [
             "customer-transcripts=team_calls.cli:cli",
-            "team-calls=team_calls.cli:cli",
         ],
     },
     include_package_data=True,

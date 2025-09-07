@@ -432,7 +432,7 @@ class TeamCallsExtractor:
         # Generate summary report in the same directory
         if customer_name:
             sanitized_name = self.formatter._sanitize_filename(customer_name)
-            summary_path = Path(f"{sanitized_name}") / "SUMMARY.md"
+            summary_path = Path(f"ct_{sanitized_name}") / "SUMMARY.md"
         else:
             today = datetime.now().strftime('%Y-%m-%d')
             summary_path = Path(f"team-calls-{today}") / "SUMMARY.md"

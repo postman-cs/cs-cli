@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Team Calls CLI Wrapper Script (alias for cs-transcript)
-# Automatically manages virtual environment and runs team-calls with all parameters
+# Customer Transcripts CLI Wrapper Script
+# Automatically manages virtual environment and runs customer-transcripts with all parameters
 
 set -e  # Exit on any error
 
@@ -19,19 +19,19 @@ NC='\033[0m' # No Color
 
 # Function to print colored output
 print_status() {
-    echo -e "${BLUE}[team-calls]${NC} $1"
+    echo -e "${BLUE}[cli]${NC} $1"
 }
 
 print_success() {
-    echo -e "${GREEN}[team-calls]${NC} $1"
+    echo -e "${GREEN}[cli]${NC} $1"
 }
 
 print_warning() {
-    echo -e "${YELLOW}[team-calls]${NC} $1"
+    echo -e "${YELLOW}[cli]${NC} $1"
 }
 
 print_error() {
-    echo -e "${RED}[team-calls]${NC} $1"
+    echo -e "${RED}[cli]${NC} $1"
 }
 
 # Check if Python 3 is available
@@ -54,9 +54,9 @@ fi
 print_status "Activating virtual environment..."
 source "$VENV_DIR/bin/activate"
 
-# Check if team-calls is installed, install if not
-if ! command -v team-calls &> /dev/null; then
-    print_status "Installing cs-transcript-cli package..."
+# Check if customer-transcripts is installed, install if not
+if ! command -v customer-transcripts &> /dev/null; then
+    print_status "Installing customer-transcripts-cli package..."
     pip install -e . >/dev/null 2>&1
     print_success "Package installed successfully."
 else
@@ -68,9 +68,9 @@ else
     fi
 fi
 
-# Run team-calls with all passed arguments
-print_status "Running team-calls $*"
+# Run customer-transcripts with all passed arguments
+print_status "Running customer-transcripts $*"
 echo ""  # Add blank line for cleaner output
 
-# Execute team-calls with all arguments passed to this script
-exec team-calls "$@"
+# Execute customer-transcripts with all arguments passed to this script
+exec customer-transcripts "$@"

@@ -1,0 +1,76 @@
+#!/bin/bash
+
+# Team Calls CLI Wrapper Script (alias for cs-transcript)
+# Automatically manages virtual environment and runs team-calls with all parameters
+
+set -e  # Exit on any error
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR="$SCRIPT_DIR/venv"
+PYTHON_CMD="python3"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Function to print colored output
+print_status() {
+    echo -e "${BLUE}[team-calls]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[team-calls]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[team-calls]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[team-calls]${NC} $1"
+}
+
+# Check if Python 3 is available
+if ! command -v python3 &> /dev/null; then
+    print_error "Python 3 is required but not found. Please install Python 3."
+    exit 1
+fi
+
+# Change to script directory
+cd "$SCRIPT_DIR"
+
+# Create virtual environment if it doesn't exist
+if [ ! -d "$VENV_DIR" ]; then
+    print_status "Creating virtual environment..."
+    $PYTHON_CMD -m venv venv
+    print_success "Virtual environment created."
+fi
+
+# Activate virtual environment
+print_status "Activating virtual environment..."
+source "$VENV_DIR/bin/activate"
+
+# Check if team-calls is installed, install if not
+if ! command -v team-calls &> /dev/null; then
+    print_status "Installing cs-transcript-cli package..."
+    pip install -e . >/dev/null 2>&1
+    print_success "Package installed successfully."
+else
+    # Check if package needs updating (simple check by trying to import)
+    if ! python -c "import team_calls" &> /dev/null; then
+        print_warning "Package appears outdated, reinstalling..."
+        pip install -e . >/dev/null 2>&1
+        print_success "Package updated successfully."
+    fi
+fi
+
+# Run team-calls with all passed arguments
+print_status "Running team-calls $*"
+echo ""  # Add blank line for cleaner output
+
+# Execute team-calls with all arguments passed to this script
+exec team-calls "$@"

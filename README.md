@@ -5,11 +5,9 @@ A standalone tool for extracting customer calls from Gong and saving them as mar
 ## Features
 
 - **One-click setup**: Installs everything automatically, including Python if needed
-- **Multi-browser authentication**: Automatically detects Gong cookies from Chrome, Firefox, Safari, Brave, Edge, Opera, or Chromium
-- **Flexible date ranges**: Extract calls by days back or custom date ranges  
-- **Rich markdown output**: Clean, formatted transcripts with attendee information
-- **High-performance**: Concurrent API calls with intelligent rate limiting
-- **Progress tracking**: Real-time progress bars for extraction status
+- Automatically detects Gong cookies from Chrome, Firefox, Safari, Brave, Edge, Opera, or Chromium
+- Extract calls by days back or custom date ranges  
+- Clean, formatted transcripts with attendee information
 
 ## Installation
 
@@ -48,15 +46,6 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -e .
 ```
-
-### Dependencies
-The tool requires these external packages:
-- `structlog` - Structured logging
-- `click` - Command line interface 
-- `rich` - Rich terminal output
-- `browser-cookie3` - Browser cookie extraction
-- `pydantic` - Data validation
-- `curl-cffi` - HTTP client with browser fingerprinting
 
 ## Usage
 
@@ -332,27 +321,3 @@ The tool uses intelligent defaults but can be tuned via environment variables fo
 - Ensure you're logged into Gong in a supported browser
 - Try refreshing your Gong session in the browser
 - Check browser permissions for cookie access
-
-### Rate Limiting
-- The tool includes automatic retry logic with exponential backoff
-- Reduce concurrency if experiencing rate limits: `GONG_HTTP_CONCURRENCY=20`
-
-### HTTP/3 Issues
-If you experience connection issues, HTTP/3 can be disabled by setting the debug flag or modifying config defaults.
-
-## Architecture
-
-The tool is built with a clean architecture:
-- **Authentication**: Multi-browser cookie extraction with CSRF token management
-- **HTTP Client**: High-performance client pool with intelligent retry logic  
-- **API Layer**: Gong API clients for library and transcript extraction
-- **Formatters**: Markdown generation with rich formatting
-- **CLI**: User-friendly command-line interface
-
-## Contributing
-
-This is a standalone extraction from a larger Gong pipeline project, optimized for team calls extraction specifically.
-
-## License
-
-MIT License

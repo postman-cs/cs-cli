@@ -1,7 +1,5 @@
 ![CS-Transcript-CLI Banner](banner.jpg)
 
-# Customer Transcripts CLI - Team Calls Extractor
-
 A standalone tool for extracting customer calls from Gong and saving them as markdown transcripts.
 
 ## Features

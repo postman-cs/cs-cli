@@ -5,7 +5,7 @@ A standalone tool for extracting customer calls from Gong and saving them as mar
 ## Features
 
 - **One-click setup**: Installs everything automatically, including Python if needed
-- Automatically detects Gong cookies from Chrome, Firefox, Safari, Brave, Edge, Opera, or Chromium
+- Automatically detects Gong authentication from Chrome, Firefox, Safari, Brave, Edge, Opera, or Chromium
 - Extract calls by days back or custom date ranges  
 - Clean, formatted transcripts with attendee information
 

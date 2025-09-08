@@ -269,6 +269,7 @@ class GongCustomerSearchClient:
                 call_info = {
                     "id": item.get("id") or item.get("callId") or item.get("call_id"),
                     "title": title,
+                    "generatedTitle": item.get("generatedTitle", ""),
                     "customer_name": customer_name,
                     "date": item.get("effectiveStartDateTime", "") or item.get("startDate", "") or item.get("date", ""),
                     "duration": item.get("duration", 0),

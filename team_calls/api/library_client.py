@@ -144,6 +144,7 @@ class GongLibraryClient:
                         call_info = {
                             "id": item.get("id"),
                             "title": item.get("title", ""),
+                            "generatedTitle": item.get("generatedTitle", ""),
                             "customer_name": clean_customer_name,
                             "date": item.get("effectiveStartDateTime", ""),
                             "duration": item.get("duration", 0),

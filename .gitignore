@@ -33,6 +33,9 @@ env/
 ENV/
 env.bak/
 venv.bak/
+.venv/
+
+# uv (note: .python-version is tracked to pin Python version)
 
 # IDEs
 .vscode/

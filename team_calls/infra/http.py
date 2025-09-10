@@ -19,7 +19,7 @@ logger = structlog.get_logger()
 
 
 class GongHTTPClient:
-    """High-performance HTTP client with Firefox impersonation."""
+    """High-performance HTTP client."""
     
     def __init__(self, config: Optional[HTTPConfig] = None) -> None:
         self.config = config or get_config().http

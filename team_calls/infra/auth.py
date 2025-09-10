@@ -1,4 +1,4 @@
-"""Multi-browser cookie extraction for Gong authentication."""
+"""Firefox cookie extraction for Gong authentication."""
 
 import asyncio
 import base64
@@ -23,69 +23,67 @@ class GongCookies(BaseModel):
     browser: str  # Track which browser was used
 
 
-class BrowserCookieExtractor:
-    """Extract cookies from any supported browser using browser_cookie3."""
+class FirefoxCookieExtractor:
+    """Extract cookies from Firefox using browser_cookie3."""
     
     def __init__(self) -> None:
-        # Define browser extraction functions in order of preference
-        self.browser_extractors = {
-            'chrome': browser_cookie3.chrome,
-            'firefox': browser_cookie3.firefox, 
-            'safari': browser_cookie3.safari,
-            'brave': browser_cookie3.brave,
-            'edge': browser_cookie3.edge,
-            'opera': browser_cookie3.opera,
-            'chromium': browser_cookie3.chromium,
-        }
+        pass
     
     async def extract_gong_cookies(self) -> Optional[GongCookies]:
-        """Extract Gong cookies from any available browser."""
-        for browser_name, extractor_func in self.browser_extractors.items():
-            try:
-                logger.info(f"Trying to extract Gong cookies from {browser_name}")
-                
-                # Use browser_cookie3 to get cookies for gong.io domain
-                cookies_jar = extractor_func(domain_name=".gong.io")
-                
-                # Convert to dictionary
-                cookies_dict = {}
-                for cookie in cookies_jar:
+        """Extract Gong cookies from Firefox."""
+        try:
+            logger.info("Extracting Gong cookies from Firefox")
+            
+            # Extract cookies from Firefox for Gong domains
+            cookies_dict = {}
+            cookie_domains = set()
+            
+            # Get all Firefox cookies, then filter for Gong domains
+            all_cookies = browser_cookie3.firefox()
+            for cookie in all_cookies:
+                # Include cookies from any gong.io domain
+                if 'gong.io' in cookie.domain.lower():
                     cookies_dict[cookie.name] = cookie.value
-                
-                logger.debug(f"Found {len(cookies_dict)} cookies in {browser_name}")
-                
-                if not cookies_dict:
-                    logger.debug(f"No .gong.io cookies found in {browser_name}")
-                    continue
-                
-                if "cell" not in cookies_dict:
-                    logger.debug(f"No 'cell' cookie found in {browser_name}")
-                    continue
-                
-                # Decode cell cookie to get the cell value
+                    cookie_domains.add(cookie.domain)
+            
+            logger.debug(f"Found {len(cookies_dict)} cookies in Firefox")
+            logger.debug(f"Cookie domains: {list(cookie_domains)}")
+            
+            if not cookies_dict:
+                logger.error("No .gong.io cookies found in Firefox")
+                return None
+            
+            cell_value = None
+            
+            # Method 1: Try to find and decode "cell" cookie (JWT)
+            if "cell" in cookies_dict:
                 cell_value = self._decode_cell_cookie(cookies_dict["cell"])
-                if not cell_value:
-                    logger.debug(f"Could not decode cell cookie from {browser_name}")
-                    continue
-                
-                logger.info(f"Successfully extracted Gong cookies from {browser_name}", 
-                           cell=cell_value, 
-                           cookies_count=len(cookies_dict))
-                
-                return GongCookies(
-                    cell=cell_value,
-                    session_cookies=cookies_dict,
-                    extracted_at=time.time(),
-                    browser=browser_name
-                )
-                
-            except Exception as e:
-                logger.debug(f"Failed to extract cookies from {browser_name}: {str(e)}")
-                continue
-        
-        logger.error("No valid Gong cookies found in any supported browser")
-        logger.info("Supported browsers: " + ", ".join(self.browser_extractors.keys()))
-        return None
+                logger.debug(f"Extracted cell from JWT cookie: {cell_value}")
+            
+            # Method 2: If no cell cookie, extract from domain names
+            if not cell_value:
+                cell_value = self._extract_cell_from_domains(cookie_domains)
+                logger.debug(f"Extracted cell from domain names: {cell_value}")
+            
+            if not cell_value:
+                logger.error("Could not determine cell value from Firefox cookies")
+                return None
+            
+            logger.info("Successfully extracted Gong cookies from Firefox", 
+                       cell=cell_value, 
+                       cookies_count=len(cookies_dict))
+            
+            return GongCookies(
+                cell=cell_value,
+                session_cookies=cookies_dict,
+                extracted_at=time.time(),
+                browser="firefox"
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to extract cookies from Firefox: {str(e)}")
+            logger.info("Make sure you're logged into Gong in Firefox")
+            return None
     
     def _decode_cell_cookie(self, cell_cookie: str) -> Optional[str]:
         """Decode JWT cell cookie to extract cell value."""
@@ -110,6 +108,54 @@ class BrowserCookieExtractor:
         except Exception as e:
             logger.debug("Failed to decode cell cookie", error=str(e))
             return None
+    
+    def _extract_cell_from_domains(self, domains: set) -> Optional[str]:
+        """Extract cell value from cookie domain names."""
+        try:
+            # Search in any domain containing "gong" for cell information
+            for domain in domains:
+                if "gong" not in domain.lower():
+                    continue
+                    
+                logger.debug(f"Analyzing domain for cell: {domain}")
+                
+                # Pattern 1: Direct cell domains like us-14496.app.gong.io
+                if ".app.gong" in domain and not domain.startswith("resource."):
+                    # Extract the cell part (everything before .app.gong...)
+                    cell_part = domain.split(".app.gong")[0].replace(".", "")
+                    # Skip generic prefixes
+                    if (cell_part and 
+                        not cell_part.startswith("resource") and 
+                        not cell_part.startswith("gcell") and
+                        cell_part not in ["app", "www", "api"]):
+                        logger.debug(f"Found cell from domain {domain}: {cell_part}")
+                        return cell_part
+                
+                # Pattern 2: gcell patterns like resource.gcell-nam-01.app.gong.io
+                if "gcell-" in domain:
+                    parts = domain.split(".")
+                    for part in parts:
+                        if part.startswith("gcell-"):
+                            cell_value = part.replace("gcell-", "")
+                            if cell_value:
+                                logger.debug(f"Found gcell from domain {domain}: {cell_value}")
+                                return cell_value
+                
+                # Pattern 3: Cell in any part of gong domain (e.g., cell-123.something.gong.com)
+                parts = domain.split(".")
+                for part in parts:
+                    # Look for cell-like patterns (alphanumeric with dashes)
+                    if (len(part) > 3 and 
+                        any(c.isdigit() for c in part) and 
+                        any(c.isalpha() for c in part) and
+                        part not in ["gong", "app", "www", "api", "resource"]):
+                        logger.debug(f"Found potential cell from domain {domain}: {part}")
+                        return part
+                            
+        except Exception as e:
+            logger.debug("Failed to extract cell from domains", error=str(e))
+            
+        return None
 
 
 class CSRFManager:
@@ -200,12 +246,12 @@ class CSRFManager:
 
 
 class GongAuthenticator:
-    """Main authentication manager for Gong API with multi-browser support."""
+    """Main authentication manager for Gong API with Firefox support."""
     
     def __init__(self, http_client, config: Optional[AuthConfig] = None) -> None:
         self.http_client = http_client
         self.config = config or get_config().auth
-        self.extractor = BrowserCookieExtractor()
+        self.extractor = FirefoxCookieExtractor()
         self.csrf_manager = CSRFManager(http_client, self.config)
         self.gong_cookies: Optional[GongCookies] = None
         self.base_url: Optional[str] = None
@@ -214,20 +260,22 @@ class GongAuthenticator:
         """Perform complete authentication flow."""
         logger.info("Starting Gong authentication")
         
-        # Extract cookies from any available browser
+        # Extract cookies from Firefox
         self.gong_cookies = await self.extractor.extract_gong_cookies()
         if not self.gong_cookies:
-            logger.error("Authentication failed: No valid Gong cookies found in any browser")
-            logger.info("Make sure you're logged into Gong in at least one supported browser:")
-            logger.info("Chrome, Firefox, Safari, Brave, Edge, Opera, or Chromium")
+            logger.error("Authentication failed: No valid Gong cookies found in Firefox")
+            logger.info("Make sure you're logged into Gong in Firefox")
             return False
         
         self.base_url = f"https://{self.gong_cookies.cell}.app.gong.io"
         
-        # Set cookies in HTTP client for both generic and specific domains
-        await self.http_client.set_cookies(self.gong_cookies.session_cookies, domain=".gong.io")
-        # Also set for specific cell domain  
-        await self.http_client.set_cookies(self.gong_cookies.session_cookies, domain=f".{self.gong_cookies.cell}.app.gong.io")
+        # Set cookies for all domains where they were originally found
+        # This ensures cell-specific authentication cookies are available
+        domains_to_set = {".gong.io", ".app.gong.io", f".{self.gong_cookies.cell}.app.gong.io"}
+        
+        for domain in domains_to_set:
+            await self.http_client.set_cookies(self.gong_cookies.session_cookies, domain=domain)
+            logger.debug(f"Set {len(self.gong_cookies.session_cookies)} cookies for domain: {domain}")
         
         # Get initial CSRF token
         csrf_token = await self.csrf_manager.get_csrf_token(self.gong_cookies.cell)
@@ -236,7 +284,7 @@ class GongAuthenticator:
         
         logger.info("Authentication successful", 
                    cell=self.gong_cookies.cell,
-                   browser=self.gong_cookies.browser)
+                   browser="firefox")
         return True
     
     async def get_read_headers(self) -> Dict[str, str]:

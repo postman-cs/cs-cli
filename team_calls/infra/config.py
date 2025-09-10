@@ -12,17 +12,17 @@ logger = structlog.get_logger()
 @dataclass
 class HTTPConfig:
     """HTTP client pool configuration."""
-    pool_size: int = 20
-    max_concurrency_per_client: int = 100
+    pool_size: int = 50
+    max_concurrency_per_client: int = 40
     timeout_seconds: float = 30.0
     max_clients: Optional[int] = None
     global_max_concurrency: Optional[int] = None
     
     # HTTP version configuration
-    enable_http3: bool = True
+    enable_http3: bool = False 
     force_http3: bool = False
     
-    # TLS configuration for HTTP/3
+    # TLS configuration  
     tls_version: Optional[str] = None
     impersonate_browser: str = "chrome"
     
@@ -35,7 +35,6 @@ class HTTPConfig:
 
 @dataclass
 class AuthConfig:
-    """Authentication configuration."""
     csrf_token_ttl_minutes: int = 30
     csrf_token_buffer_minutes: int = 5
     retry_attempts: int = 3
@@ -43,25 +42,28 @@ class AuthConfig:
     retry_backoff_seconds: float = 1.0
 
 
-@dataclass 
-class GongConfig:
-    """Team calls configuration."""
-    
+@dataclass
+class SimplifiedPerformanceConfig:
     http: HTTPConfig = field(default_factory=HTTPConfig)
     auth: AuthConfig = field(default_factory=AuthConfig)
     debug: bool = False
-    
+    max_concurrent_timeline_requests: int = 105
+    max_concurrent_email_requests: int = 135
+    max_concurrent_transcript_requests: int = 60
+    max_workers: int = 80
+    worker_idle_sleep_ms: int = 10
+
+
     @classmethod
-    def create_default(cls) -> 'GongConfig':
-        """Create default configuration."""
+    def create_default(cls) -> 'SimplifiedPerformanceConfig':
         return cls(
             http=HTTPConfig(
-                pool_size=10,
-                max_concurrency_per_client=25,
+                pool_size=50,
+                max_concurrency_per_client=40,
                 timeout_seconds=30.0,
                 enable_http3=False,
                 force_http3=False,
-                global_max_concurrency=150,
+                global_max_concurrency=2000,
             ),
             auth=AuthConfig(
                 csrf_token_ttl_minutes=30,
@@ -69,17 +71,19 @@ class GongConfig:
                 retry_attempts=3,
                 retry_backoff_base=2.0,
                 retry_backoff_seconds=1.0
-            )
+            ),
+            max_concurrent_timeline_requests=105,
+            max_concurrent_email_requests=135,
+            max_concurrent_transcript_requests=60,
+            max_workers=80,
+            worker_idle_sleep_ms=10,
         )
     
     @classmethod
-    def from_env(cls) -> 'GongConfig':
-        """Create configuration from environment variables."""
+    def from_env(cls) -> 'SimplifiedPerformanceConfig':
         config = cls.create_default()
-        
         if os.getenv("GONG_DEBUG", "").lower() in ("true", "1", "yes"):
             config.debug = True
-        
         if http_concurrency := os.getenv("GONG_HTTP_CONCURRENCY"):
             try:
                 total_concurrency = int(http_concurrency)
@@ -88,40 +92,29 @@ class GongConfig:
                 config.http.max_concurrency_per_client = per_client
             except ValueError:
                 logger.warning("Invalid GONG_HTTP_CONCURRENCY value", value=http_concurrency)
-        
-        if config.debug:
-            logger.info("Configuration loaded", 
-                       debug=config.debug,
-                       http_total_concurrency=config.http.pool_size * config.http.max_concurrency_per_client)
-        
         return config
     
     def validate(self) -> bool:
-        """Validate configuration settings."""
         if self.http.pool_size <= 0:
             raise ValueError("HTTP pool_size must be positive")
-        
         if self.http.max_concurrency_per_client <= 0:
             raise ValueError("HTTP max_concurrency_per_client must be positive")
-        
         return True
 
 
-# Singleton instance for global access
-_global_config: Optional[GongConfig] = None
+GongConfig = SimplifiedPerformanceConfig
+_global_config: Optional[SimplifiedPerformanceConfig] = None
 
 
-def get_config() -> GongConfig:
-    """Get the global configuration instance."""
+def get_config() -> SimplifiedPerformanceConfig:
     global _global_config
     if _global_config is None:
-        _global_config = GongConfig.from_env()
+        _global_config = SimplifiedPerformanceConfig.from_env()
         _global_config.validate()
     return _global_config
 
 
-def set_config(config: GongConfig) -> None:
-    """Set the global configuration instance."""
+def set_config(config: SimplifiedPerformanceConfig) -> None:
     global _global_config
     config.validate()
     _global_config = config
@@ -130,6 +123,5 @@ def set_config(config: GongConfig) -> None:
 
 
 def reset_config() -> None:
-    """Reset the global configuration (mainly for testing)."""
     global _global_config
     _global_config = None

@@ -4,12 +4,16 @@ import json
 from typing import Dict, List, Any, Optional
 
 import structlog
+from rich.console import Console
+from rich.prompt import Prompt
+from rich.table import Table
 
 from ..infra.http import HTTPClientPool
 from ..infra.auth import GongAuthenticator
 from ..infra.config import GongConfig
 
 logger = structlog.get_logger()
+console = Console()
 
 
 
@@ -71,7 +75,7 @@ class GongCustomerSearchClient:
                 logger.info(f"Found {len(company_names)} customer suggestions: {company_names[:5]}")
                 return company_names
             else:
-                logger.error(f"Customer search failed", 
+                logger.error("Customer search failed", 
                            status_code=response.status_code,
                            response_text=response.text[:500])
                 return []
@@ -106,10 +110,78 @@ class GongCustomerSearchClient:
         logger.info(f"Resolved customer '{customer_name}' to companies: {final_matches}")
         return final_matches
     
+    async def select_customer_company(self, customer_name: str, company_names: List[str]) -> Optional[str]:
+        """
+        Prompt user to select the correct company when multiple matches are found.
+        
+        Args:
+            customer_name: Original customer name searched for
+            company_names: List of matching company names
+            
+        Returns:
+            Selected company name or None if cancelled
+        """
+        if not company_names:
+            return None
+            
+        if len(company_names) == 1:
+            # Only one match, use it automatically
+            console.print(f"\n[green]Found customer:[/green] {company_names[0]}")
+            return company_names[0]
+        
+        # Multiple matches - show selection table
+        console.print(f"\n[yellow]I found {len(company_names)} companies matching '{customer_name}'[/yellow]")
+        console.print("[dim]Which one are you looking for?[/dim]\n")
+        
+        # Create a nice table for selection
+        table = Table(show_header=False, show_edge=False)
+        table.add_column("", style="bright_cyan", width=4)
+        table.add_column("", style="white")
+        
+        # Show up to 10 options
+        display_count = min(len(company_names), 10)
+        for idx, company in enumerate(company_names[:display_count], 1):
+            table.add_row(f"{idx}.", company)
+        
+        console.print(table)
+        
+        if len(company_names) > 10:
+            console.print(f"\n[dim]Showing first 10 of {len(company_names)} matches[/dim]")
+        
+        # Add option to search again
+        console.print(f"\n[dim]{display_count + 1}. None of these - search again[/dim]")
+        console.print("[dim]0. Cancel and exit[/dim]\n")
+        
+        # Get user choice
+        while True:
+            choice = Prompt.ask(
+                "Type a number and press Enter",
+                default="1"
+            )
+            
+            try:
+                choice_num = int(choice)
+                
+                if choice_num == 0:
+                    console.print("\n[yellow]Cancelled - no files will be extracted.[/yellow]")
+                    return None
+                elif choice_num == display_count + 1:
+                    # User wants to search again
+                    return "SEARCH_AGAIN"
+                elif 1 <= choice_num <= display_count:
+                    selected = company_names[choice_num - 1]
+                    console.print(f"\n[green]✓ Selected:[/green] {selected}\n")
+                    return selected
+                else:
+                    console.print("[red]Please enter a number from the list above.[/red]")
+            except ValueError:
+                console.print("[red]Please enter a number (like 1 or 2).[/red]")
+    
     async def get_customer_calls(self, 
                                customer_name: str,
                                page_size: int = 10,
-                               calls_offset: int = 0) -> Dict[str, Any]:
+                               calls_offset: int = 0,
+                               interactive: bool = True) -> Dict[str, Any]:
         """
         Get calls filtered by customer name with pagination.
         
@@ -117,6 +189,7 @@ class GongCustomerSearchClient:
             customer_name: Customer name to filter by
             page_size: Number of calls per page (default 10, same as Gong UI)
             calls_offset: Offset for pagination
+            interactive: Whether to prompt for selection when multiple matches found
             
         Returns:
             Dictionary containing calls data and pagination info
@@ -126,7 +199,24 @@ class GongCustomerSearchClient:
         
         if not company_names:
             logger.warning(f"Could not resolve customer name: {customer_name}")
+            console.print(f"[red]No customers found matching '{customer_name}'[/red]")
             return {"calls": [], "hasMore": False, "totalCount": 0}
+        
+        # Handle interactive selection if enabled
+        if interactive:
+            selected_company = await self.select_customer_company(customer_name, company_names)
+            
+            if selected_company is None:
+                # User cancelled
+                return {"calls": [], "hasMore": False, "totalCount": 0}
+            elif selected_company == "SEARCH_AGAIN":
+                # User wants to search for a different customer
+                console.print("\n[cyan]Let's try a different search.[/cyan]")
+                new_customer = Prompt.ask("Enter the customer name")
+                return await self.get_customer_calls(new_customer, page_size, calls_offset, interactive)
+            else:
+                # Use the selected company
+                company_names = [selected_company]
         
         # Build the search filter payload
         search_filter = {
@@ -151,6 +241,10 @@ class GongCustomerSearchClient:
         params = {
             "workspace-id": self.workspace_id
         }
+        
+        # Show progress to user
+        if calls_offset == 0:  # Only show on first page
+            console.print("[dim]Downloading calls and emails...[/dim]")
         
         logger.info("Fetching customer calls", 
                    customer=customer_name,
@@ -188,7 +282,7 @@ class GongCustomerSearchClient:
                     "companies": company_names
                 }
             else:
-                logger.error(f"Customer calls API request failed",
+                logger.error("Customer calls API request failed",
                            status_code=response.status_code, 
                            response_text=response.text[:500])
                 return {"calls": [], "hasMore": False, "totalCount": 0}
@@ -256,7 +350,7 @@ class GongCustomerSearchClient:
                     if " - " in title:
                         potential_customer = title.split(" - ")[0].strip()
                         # Only use if it looks like a company name (not just a generic word)
-                        if len(potential_customer) > 3 and not potential_customer.lower() in ["call", "meeting", "sync", "demo"]:
+                        if len(potential_customer) > 3 and potential_customer.lower() not in ["call", "meeting", "sync", "demo"]:
                             customer_name = potential_customer
                     elif "with " in title.lower():
                         # Try to extract after "with"

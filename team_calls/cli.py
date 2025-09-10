@@ -5,12 +5,14 @@ import asyncio
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 import click
 import structlog
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
+from rich.prompt import Prompt
+from rich.table import Table
 
 from .infra.auth import GongAuthenticator
 from .infra.config import GongConfig
@@ -18,7 +20,10 @@ from .infra.http import HTTPClientPool
 
 from .api.library_client import GongLibraryClient, CallDetailsFetcher
 from .api.customer_search import GongCustomerSearchClient
+from .api.timeline_extractor import TimelineExtractor
+from .api.email_enhancer import EmailEnhancer
 from .formatters.markdown import CallMarkdownFormatter, CallSummaryReporter
+from .models import Email
 
 # Setup logging and console
 console = Console()
@@ -42,6 +47,8 @@ class TeamCallsExtractor:
         self.library_client: GongLibraryClient = None
         self.details_fetcher: CallDetailsFetcher = None
         self.customer_search_client: GongCustomerSearchClient = None
+        self.timeline_extractor: TimelineExtractor = None
+        self.email_enhancer: EmailEnhancer = None
         self.formatter = CallMarkdownFormatter()
         self.summary_reporter = CallSummaryReporter()
     
@@ -71,6 +78,18 @@ class TeamCallsExtractor:
         )
         
         self.customer_search_client = GongCustomerSearchClient(
+            http_client=self.http,
+            auth=self.auth,
+            config=self.config
+        )
+        
+        self.timeline_extractor = TimelineExtractor(
+            http_client=self.http,
+            auth=self.auth,
+            config=self.config
+        )
+        
+        self.email_enhancer = EmailEnhancer(
             http_client=self.http,
             auth=self.auth,
             config=self.config
@@ -419,6 +438,189 @@ class TeamCallsExtractor:
         
         console.print(f"[green]Successfully extracted details for {len(detailed_calls)} calls for customer '{customer_name}'[/green]")
         return detailed_calls
+
+    async def extract_customer_communications(self, 
+                                            customer_name: str,
+                                            days_back: int = None,
+                                            from_date: str = None,
+                                            to_date: str = None,
+                                            include_emails: bool = True,
+                                            emails_only: bool = False,
+                                            fetch_email_bodies: bool = False) -> Tuple[List[Dict[str, Any]], List[Email]]:
+        """
+        Extract both calls and emails for a customer using timeline extraction.
+        
+        Args:
+            customer_name: Customer/company name to search for
+            days_back: Number of days back (ignored if from_date/to_date provided)
+            from_date: Start date (YYYY-MM-DD format, optional)
+            to_date: End date (YYYY-MM-DD format, optional)
+            include_emails: Whether to include emails in results
+            emails_only: Whether to extract only emails (no calls)
+            fetch_email_bodies: Whether to fetch full email body content
+            
+        Returns:
+            Tuple of (calls, emails)
+        """
+        # For customer searches, default to 60 days (not 7 like folder searches)
+        if from_date or to_date:
+            date_range_desc = f"from {from_date or 'beginning'} to {to_date or 'now'}"
+        else:
+            days_back = days_back or 60  # Customer searches default to 60 days
+            date_range_desc = f"last {days_back} days"
+
+        console.print(f"[cyan]Extracting communications for customer '{customer_name}' from {date_range_desc}...[/cyan]")
+        if emails_only:
+            console.print("[yellow]Extracting only emails (calls will be ignored)[/yellow]")
+        elif include_emails:
+            console.print("[yellow]Including emails with advanced BDR/SPAM filtering[/yellow]")
+
+        # Step 1: Calculate date range
+        from datetime import datetime, timedelta
+        
+        if from_date or to_date:
+            start_date = None
+            end_date = None
+            
+            if from_date:
+                try:
+                    start_date = datetime.strptime(from_date, "%Y-%m-%d")
+                except ValueError:
+                    console.print(f"[red]Invalid from_date format: {from_date}. Using beginning of time.[/red]")
+                    start_date = None
+                    
+            if to_date:
+                try:
+                    end_date = datetime.strptime(to_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+                except ValueError:
+                    console.print(f"[red]Invalid to_date format: {to_date}. Using current time.[/red]")
+                    end_date = None
+        else:
+            if days_back and days_back > 0:
+                start_date = datetime.now() - timedelta(days=days_back)
+                end_date = None  # Up to now
+            else:
+                start_date = None
+                end_date = None
+
+        # Step 2: Find customer accounts using existing search functionality
+        customer_response = await self.customer_search_client.get_customer_calls(
+            customer_name=customer_name,
+            page_size=1,  # We just need to find the accounts
+            calls_offset=0
+        )
+        
+        if not customer_response or not customer_response.get("calls"):
+            console.print(f"[red]No customer found matching '{customer_name}'[/red]")
+            return [], []
+        
+        # Extract unique account IDs from the customer search results
+        account_ids = set()
+        for call in customer_response["calls"][:20]:  # Limit to first 20 calls to get account IDs
+            if call.get("accountId"):
+                account_ids.add(call["accountId"])
+        
+        if not account_ids:
+            console.print(f"[red]No accounts found for customer '{customer_name}'[/red]")
+            return [], []
+        
+        console.print(f"[green]Found {len(account_ids)} accounts for customer '{customer_name}'[/green]")
+        
+        # Step 3: Use timeline extractor to get communications from these accounts
+        all_calls = []
+        all_emails = []
+        
+        for account_id in account_ids:
+            try:
+                calls, emails = await self.timeline_extractor.extract_account_timeline(
+                    account_id=account_id,
+                    start_date=start_date or datetime.now() - timedelta(days=60),
+                    end_date=end_date
+                )
+                
+                if not emails_only:
+                    all_calls.extend(calls)
+                if include_emails or emails_only:
+                    all_emails.extend(emails)
+                    
+            except Exception as e:
+                logger.error(f"Failed to extract timeline for account {account_id}: {e}")
+                continue
+        
+        console.print(f"[green]Timeline extraction complete: {len(all_calls)} calls, {len(all_emails)} emails[/green]")
+        
+        # Step 4: Enhance email bodies if requested
+        if (include_emails or emails_only) and fetch_email_bodies and all_emails:
+            console.print("[cyan]Fetching email body content...[/cyan]")
+            all_emails = await self.email_enhancer.enhance_emails_with_bodies(
+                all_emails, fetch_bodies=True
+            )
+            console.print(f"[green]Email body enhancement complete[/green]")
+        
+        # Step 5: For calls, get detailed information (transcripts) if not emails-only
+        detailed_calls = []
+        if not emails_only and all_calls:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TimeElapsedColumn(),
+                console=console
+            ) as progress:
+                
+                details_task = progress.add_task(
+                    "Fetching call details...", 
+                    total=len(all_calls)
+                )
+                
+                for i, call in enumerate(all_calls):
+                    progress.update(details_task, 
+                                  description=f"Fetching details for call {i+1}/{len(all_calls)}")
+                    
+                    # Convert Call model to dict format expected by existing code
+                    call_dict = {
+                        "id": call.id,
+                        "accountId": call.account_id,
+                        "title": call.title,
+                        "duration": call.duration,
+                        "scheduledStart": call.scheduled_start,
+                        "participants": [
+                            {
+                                "name": p.name,
+                                "email": p.email,
+                                "title": p.title,
+                                "company": p.company
+                            }
+                            for p in call.participants
+                        ] if call.participants else [],
+                        "attendees": [
+                            {
+                                "name": p.name,
+                                "email": p.email,
+                                "title": p.title,
+                                "company": p.company
+                            }
+                            for p in call.participants
+                        ] if call.participants else []
+                    }
+                    
+                    # Get detailed call information (mainly for transcript)
+                    details = await self.details_fetcher.get_call_details(call.id)
+                    
+                    if details:
+                        if details.get("transcript"):
+                            call_dict["transcript"] = details["transcript"]
+                        else:
+                            call_dict["transcript"] = "No transcript available."
+                    else:
+                        call_dict["transcript"] = "No transcript available."
+                    
+                    detailed_calls.append(call_dict)
+                    progress.update(details_task, advance=1)
+        
+        console.print(f"[green]Successfully extracted {len(detailed_calls)} calls and {len(all_emails)} emails for customer '{customer_name}'[/green]")
+        return detailed_calls, all_emails
     
     async def save_calls_as_markdown(self, calls: List[Dict[str, Any]], customer_name: str = None) -> List[Path]:
         """Save calls as individual markdown files."""
@@ -442,65 +644,138 @@ class TeamCallsExtractor:
         
         return saved_files
     
+    async def save_emails_as_markdown(self, emails: List[Email], customer_name: str = None) -> List[Path]:
+        """Save emails as individual markdown files in batches."""
+        console.print("[cyan]Generating email markdown files...[/cyan]")
+        
+        # Use the formatter's email saving functionality
+        saved_files = self.formatter.save_emails_as_markdown(emails, customer_name or "Unknown-Customer", custom_dir_name=customer_name)
+        
+        console.print(f"[green]Saved {len(emails)} emails across {len(saved_files)} batch files[/green]")
+        
+        return saved_files
+    
     async def cleanup(self) -> None:
         """Cleanup resources."""
         if self.http:
             await self.http.__aexit__(None, None, None)
 
 
-@click.command()
-@click.option(
-    "--folder-id",
-    default="195005774106634129",
-    help="Gong library folder ID to extract calls from",
-)
-@click.option(
-    "--days",
-    default=7,
-    help="Number of days back to extract calls from (ignored if --from-date/--to-date provided)",
-    type=int,
-)
-@click.option(
-    "--from-date",
-    default=None,
-    help="Start date for call extraction (YYYY-MM-DD format, overrides --days)",
-    type=str,
-)
-@click.option(
-    "--to-date", 
-    default=None,
-    help="End date for call extraction (YYYY-MM-DD format, overrides --days)",
-    type=str,
-)
-@click.option(
-    "--debug",
-    is_flag=True,
-    help="Enable debug logging",
-)
-@click.option(
-    "--output-dir",
-    default=None,
-    help="Output directory for markdown files",
-    type=click.Path(),
-)
-@click.option(
-    "--customer",
-    default=None,
-    help="Extract calls for a specific customer (e.g., '7-11', 'Postman'). Overrides --folder-id.",
-    type=str,
-)
-def main(folder_id: str, days: int, from_date: str, to_date: str, debug: bool, output_dir: str, customer: str) -> None:
-    """Extract team calls from Gong and save as markdown files.
+def interactive_mode() -> Tuple[str, int, str]:
+    """Interactive mode for users who don't provide command-line arguments."""
+    console.print("\n[bold cyan]CS-CLI: Customer Success Deep Research Tool[/bold cyan]")
+    console.print("[dim]Let's find insights from your customer conversations[/dim]\n")
     
-    Extract calls either by folder ID (default) or by customer name.
+    # Get customer name
+    customer = Prompt.ask("[cyan]What customer are you looking for?[/cyan]")
+    
+    # Get days with a sensible default
+    console.print("\n[cyan]How far back should I look?[/cyan]")
+    console.print("[dim]Common choices: 30 days (1 month), 90 days (3 months), 180 days (6 months)[/dim]")
+    days_str = Prompt.ask("Number of days", default="90")
+    
+    try:
+        days = int(days_str)
+    except ValueError:
+        console.print("[yellow]Using default: 90 days[/yellow]")
+        days = 90
+    
+    # Get content type with a menu
+    console.print("\n[cyan]What would you like to analyze?[/cyan]\n")
+    
+    table = Table(show_header=False, show_edge=False)
+    table.add_column("", style="bright_cyan", width=4)
+    table.add_column("", style="white")
+    
+    table.add_row("1.", "Calls only")
+    table.add_row("2.", "Emails only")
+    table.add_row("3.", "Both calls and emails (recommended)")
+    
+    console.print(table)
+    
+    choice = Prompt.ask("\nType a number and press Enter", default="3")
+    
+    content_map = {
+        "1": "calls",
+        "2": "emails", 
+        "3": "calls emails"
+    }
+    
+    content_type = content_map.get(choice, "calls emails")
+    
+    # Show summary
+    console.print(f"\n[green]✓ Looking for:[/green] {customer}")
+    console.print(f"[green]✓ Time period:[/green] Last {days} days")
+    content_display = "Calls and emails" if content_type == "calls emails" else content_type.capitalize()
+    console.print(f"[green]✓ Content:[/green] {content_display}\n")
+    
+    return customer, days, content_type
+
+
+@click.command()
+@click.argument('customer', type=str, required=False)
+@click.argument('days', type=int, required=False)
+@click.argument('content_type', type=str, required=False)
+@click.option('--debug', is_flag=True, hidden=True, help="Enable debug logging")
+def main(customer: str = None, days: int = None, content_type: str = None, debug: bool = False) -> None:
+    """Extract customer communications from Gong and save as markdown files.
+    
+    Run without arguments for interactive mode: just type 'cs-cli' and press Enter!
+    
+    CUSTOMER: Company or customer name (use quotes for multi-word names)
+    DAYS: Number of days back to search (e.g., 30, 90, 365)  
+    CONTENT: What to extract - "calls", "emails", or "calls emails"
+    
     Examples:
-      customer-transcripts --customer "7-11" --days 30
-      customer-transcripts --folder-id "123456789" --from-date 2024-01-01
+      cs-cli                              ✓ Interactive mode (recommended for beginners)
+      cs-cli fiserv 180 emails            ✓ Command-line mode
+      cs-cli "7-Eleven" 365 calls         ✓ Multi-word names need quotes
+      cs-cli Postman 30 calls emails      ✓ Get both calls and emails
+    
+    IMPORTANT: Use quotes around customer names with spaces or special characters:
+      cs-cli "TD Bank" 60 emails          ✓ Correct
+      cs-cli TD Bank 60 emails            ✗ Wrong (treated as separate arguments)
     """
     
     async def async_main():
+        nonlocal customer, days, content_type
+        
+        # If no arguments provided, launch interactive mode
+        if customer is None:
+            customer, days, content_type = interactive_mode()
+        
+        # Simple validation for common quoting mistakes (only for command-line mode)
+        elif " " in customer and not customer.startswith('"'):
+            console.print(f"[red]Error: Multi-word customer name detected without quotes[/red]")
+            console.print(f"[yellow]You provided: {customer}[/yellow]")
+            console.print()
+            console.print("[dim]Try this instead:[/dim]")
+            console.print(f"[dim]./cli \"{customer}\" {days} {content_type}[/dim]")
+            console.print()
+            console.print("[dim]Or just run 'cs-cli' for interactive mode![/dim]")
+            return
+        
+        # Parse content type
+        content_type_clean = content_type.lower()
+        valid_types = ["calls", "emails", "calls emails", "emails calls"]
+        if content_type_clean not in valid_types:
+            console.print(f"[red]Error: Content type must be one of: {', '.join(valid_types)}[/red]")
+            console.print(f"[yellow]You provided: '{content_type}'[/yellow]")
+            console.print()
+            console.print("[dim]Common mistakes:[/dim]")
+            console.print("[dim]• Multi-word customer names need quotes: ./cli \"TD Bank\" 60 calls[/dim]")
+            console.print("[dim]• Check argument order: ./cli [CUSTOMER] [DAYS] [CONTENT][/dim]")
+            console.print("[dim]• Run ./cli --help for examples[/dim]")
+            console.print()
+            console.print("[green]TIP: Just run 'cs-cli' (no arguments) for interactive mode![/green]")
+            return
+        
+        # Determine what to extract
+        extract_calls = "calls" in content_type_clean
+        extract_emails = "emails" in content_type_clean
+        emails_only = content_type_clean == "emails"
+        
         if debug:
-            # Enable debug logging
             logging.root.setLevel(logging.DEBUG)
             structlog.configure(
                 wrapper_class=structlog.make_filtering_bound_logger(logging.DEBUG),
@@ -518,63 +793,65 @@ def main(folder_id: str, days: int, from_date: str, to_date: str, debug: bool, o
             # Setup components
             await extractor.setup()
             
-            # Determine extraction strategy: customer vs folder
-            if customer:
-                # Extract calls by customer name
-                console.print(f"[cyan]Using customer-based extraction for: {customer}[/cyan]")
-                if from_date is not None or to_date is not None:
-                    calls = await extractor.extract_customer_calls(
-                        customer_name=customer,
-                        from_date=from_date,
-                        to_date=to_date
-                    )
-                else:
-                    calls = await extractor.extract_customer_calls(
-                        customer_name=customer,
-                        days_back=days
-                    )
+            # Extract communications using timeline extraction (always for emails)
+            if extract_emails:
+                console.print(f"[cyan]Extracting {content_type_clean} for '{customer}' (last {days} days)[/cyan]")
+                console.print("[yellow]Using timeline extraction with advanced BDR/SPAM filtering[/yellow]")
+                
+                calls, emails = await extractor.extract_customer_communications(
+                    customer_name=customer,
+                    days_back=days,
+                    include_emails=extract_emails,
+                    emails_only=emails_only,
+                    fetch_email_bodies=True  # Always fetch email bodies when emails requested
+                )
             else:
-                # Extract calls by folder (original method)
-                console.print(f"[cyan]Using folder-based extraction[/cyan]")
-                if from_date is not None or to_date is not None:
-                    # Use custom date range (including empty strings for unlimited range)
-                    display_from = from_date if from_date else 'beginning'
-                    display_to = to_date if to_date else 'now'
-                    console.print(f"[cyan]Using custom date range: {display_from} to {display_to}[/cyan]")
-                    calls = await extractor.extract_team_calls(
-                        call_stream_id=folder_id,
-                        from_date=from_date,
-                        to_date=to_date
-                    )
-                else:
-                    # Use days back from today
-                    console.print(f"[cyan]Using {days} days back from today[/cyan]")
-                    calls = await extractor.extract_team_calls(
-                        call_stream_id=folder_id,
-                        days_back=days
-                    )
+                # Calls only - use faster call-specific extraction
+                console.print(f"[cyan]Extracting calls for '{customer}' (last {days} days)[/cyan]")
+                calls = await extractor.extract_customer_calls(
+                    customer_name=customer,
+                    days_back=days
+                )
+                emails = []
             
-            if not calls:
-                console.print("[yellow]No calls to process[/yellow]")
+            # Check if we found anything
+            if not calls and not emails:
+                console.print(f"[yellow]No {content_type_clean} found for '{customer}' in the last {days} days[/yellow]")
                 return
             
-            # Set custom output directory if provided
-            if output_dir:
-                extractor.formatter.output_dir = Path(output_dir)
+            if emails_only and not emails:
+                console.print(f"[yellow]No emails found for '{customer}' in the last {days} days[/yellow]")
+                return
             
-            # Save as markdown with customer name for directory naming if available
-            saved_files = await extractor.save_calls_as_markdown(calls, customer_name=customer)
+            # Save results
+            saved_files = []
+            
+            # Save calls
+            if calls and extract_calls:
+                call_files = await extractor.save_calls_as_markdown(calls, customer_name=customer)
+                saved_files.extend(call_files)
+            
+            # Save emails  
+            if emails and extract_emails:
+                email_files = await extractor.save_emails_as_markdown(emails, customer_name=customer)
+                saved_files.extend(email_files)
             
             # Display results
             console.print("\\n[bold green]Extraction Complete![/bold green]")
-            if customer:
-                console.print(f"Extracted {len(calls)} calls for customer '{customer}'")
+            
+            if emails_only:
+                console.print(f"Extracted {len(emails)} emails for '{customer}'")
+                if emails:
+                    emails_with_bodies = sum(1 for email in emails if email.body_text and email.body_text.strip())
+                    console.print(f"[dim]{emails_with_bodies}/{len(emails)} emails have full body content[/dim]")
+            elif extract_calls and extract_emails:
+                console.print(f"Extracted {len(calls)} calls and {len(emails)} emails for '{customer}'")
+                if emails:
+                    emails_with_bodies = sum(1 for email in emails if email.body_text and email.body_text.strip())
+                    console.print(f"[dim]Advanced BDR/SPAM filtering applied - {emails_with_bodies}/{len(emails)} emails have full content[/dim]")
             else:
-                if from_date or to_date:
-                    date_range = f"{from_date or 'beginning'} to {to_date or 'now'}"
-                    console.print(f"Extracted {len(calls)} calls from {date_range}")
-                else:
-                    console.print(f"Extracted {len(calls)} calls from last {days} days")
+                console.print(f"Extracted {len(calls)} calls for '{customer}'")
+            
             console.print(f"Saved {len(saved_files)} markdown files")
             
             if saved_files:

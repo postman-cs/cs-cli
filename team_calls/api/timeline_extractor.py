@@ -187,7 +187,7 @@ class TimelineExtractor:
         params = chunk.to_api_params(account_id)
         
         # Add required workspace parameters
-        workspace_id = "5562739194953732039"  # Default workspace ID
+        workspace_id = self.auth.get_workspace_id_sync() or "5562739194953732039"  # Dynamic or default workspace ID
         team_id = "5359555372180789967"  # Default team ID
         
         if self.config and hasattr(self.config, 'extraction'):
@@ -720,10 +720,14 @@ class TimelineExtractor:
             # Extract subject and snippet
             subject = extended_data.get("subject") or extended_data.get("contentTitle", "No Subject")
             snippet = extended_data.get("synopsis") or extended_data.get("categoryPassiveVoice", "")
+            
+            # Get the correct account ID from the activity
+            email_account_id = activity.get("accountId") or account_id
+            email_id = activity.get("id")
 
             return {
-                "activity_id": activity.get("id"),
-                "account_id": account_id,
+                "activity_id": email_id,
+                "account_id": email_account_id,  # Use activity's accountId first
                 "subject": subject,
                 "snippet": snippet,
                 "sender": sender,

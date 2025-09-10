@@ -7,11 +7,15 @@ set -e  # Exit on any error
 
 echo "Setting up CS-Transcript-CLI..."
 echo ""
+echo "NOTE: This installer may prompt for your password to install required software."
+echo "This is normal and secure - it's needed to install Homebrew and system tools."
+echo ""
 
 # Check if Homebrew is installed
 if ! command -v brew &> /dev/null; then
     echo "[INSTALL] Installing Homebrew (this manages software on your Mac)..."
-    echo "NOTE: You'll be asked for your Mac password - this is normal and secure!"
+    echo "[SUDO] You'll be asked for your Mac password to install Homebrew."
+    echo "      This is required for system-level software installation."
     echo ""
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
     
@@ -51,10 +55,27 @@ else
     cd cs-cli
 fi
 
-# Make setup executable and run it
-chmod +x setup || true
-echo "[SETUP] Running setup..."
-./setup
+# Setup Python dependencies using uv
+echo "[SETUP] Installing Python dependencies..."
+
+# Ensure Python 3.12 is available
+echo "[SETUP] Ensuring Python 3.12 is available..."
+uv python install 3.12 >/dev/null 2>&1 || true
+
+# Initialize uv project and install dependencies
+echo "[SETUP] Installing project dependencies..."
+if [ ! -f "uv.lock" ]; then
+    # First time setup - create lock file
+    uv sync
+else
+    # Already initialized - just sync dependencies
+    uv sync
+fi
+
+# Make cli executable
+chmod +x cli || true
+
+echo "[SETUP] Dependencies installed successfully!"
 
 # Create a wrapper script that runs from Desktop
 echo "[CONFIG] Creating global 'cs-cli' command..."
@@ -83,7 +104,13 @@ if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
 fi
 
 echo ""
-echo "Installation complete!"
+echo "[SUCCESS] Installation complete!"
+echo ""
+echo "All required software has been installed:"
+echo "  - Homebrew (package manager)"
+echo "  - Git (version control)"
+echo "  - UV (Python environment manager)"
+echo "  - Python 3.12 and all dependencies"
 echo ""
 echo "You're ready to find customer insights!"
 echo ""

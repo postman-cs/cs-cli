@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import json
+import re
 import time
 from typing import Dict, Optional
 
@@ -255,6 +256,7 @@ class GongAuthenticator:
         self.csrf_manager = CSRFManager(http_client, self.config)
         self.gong_cookies: Optional[GongCookies] = None
         self.base_url: Optional[str] = None
+        self.workspace_id: Optional[str] = None
     
     async def authenticate(self) -> bool:
         """Perform complete authentication flow."""
@@ -282,9 +284,15 @@ class GongAuthenticator:
         if not csrf_token:
             return False
         
+        # Extract workspace ID from home page
+        self.workspace_id = await self.get_workspace_id()
+        if self.workspace_id:
+            logger.info("Extracted workspace ID", workspace_id=self.workspace_id)
+        
         logger.info("Authentication successful", 
                    cell=self.gong_cookies.cell,
-                   browser="firefox")
+                   browser="firefox",
+                   workspace_id=self.workspace_id)
         return True
     
     async def get_read_headers(self) -> Dict[str, str]:
@@ -368,3 +376,48 @@ class GongAuthenticator:
         if not self.base_url:
             raise RuntimeError("Not authenticated")
         return self.base_url
+    
+    async def get_workspace_id(self) -> Optional[str]:
+        """Extract workspace ID from Gong home page."""
+        if not self.base_url:
+            logger.warning("Cannot get workspace ID without base URL")
+            return None
+        
+        try:
+            # Fetch the home page
+            url = f"{self.base_url}/home"
+            headers = await self.get_read_headers()
+            response = await self.http_client.get(url, headers=headers)
+            
+            if response.status_code != 200:
+                logger.warning("Failed to fetch home page for workspace ID", status=response.status_code)
+                return None
+            
+            # Parse the HTML to find the pageContext script
+            html_content = response.text
+            
+            # Look for the pageContext JavaScript object
+            pattern = r'workspaceId:\s*"(\d+)"'
+            match = re.search(pattern, html_content)
+            
+            if match:
+                workspace_id = match.group(1)
+                return workspace_id
+            else:
+                # Try alternative pattern
+                pattern = r'"workspaceId"\s*:\s*"(\d+)"'
+                match = re.search(pattern, html_content)
+                if match:
+                    workspace_id = match.group(1)
+                    return workspace_id
+                
+                logger.warning("Could not find workspace ID in home page")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error extracting workspace ID: {e}")
+            return None
+    
+    def get_workspace_id_sync(self) -> Optional[str]:
+        """Get the cached workspace ID."""
+        return self.workspace_id

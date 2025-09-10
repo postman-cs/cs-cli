@@ -86,7 +86,8 @@ class EmailEnhancer:
                 email_id = batch[i].id
                 if isinstance(result, Exception):
                     logger.error("Email enhancement failed", email_id=email_id, error=str(result))
-                elif result and result.body_text:
+                elif result:
+                    # Consider email enhanced even if body_text is None (e.g., calendar invites)
                     enhanced_emails[email_id] = result
 
         # Update original emails list with enhanced data
@@ -117,7 +118,7 @@ class EmailEnhancer:
                 "id": email.id,
                 "account-id": email.account_id,
                 "customer-type": "ACCOUNT",
-                "workspace-id": self.config.extraction.workspace_id if self.config else "5562739194953732039",
+                "workspace-id": self.auth.get_workspace_id_sync() or "5562739194953732039",  # Dynamic or default workspace ID
             }
 
             response = await self.http.get(endpoint, params=params, headers=headers)
@@ -138,7 +139,8 @@ class EmailEnhancer:
                         email_id=email.id,
                         status_code=response.status_code,
                     )
-                    return None
+                    # Return the original email instead of None
+                    return email
 
             content = response.json()
 
@@ -155,6 +157,14 @@ class EmailEnhancer:
                     converted_text = await self.html_processor.process_content(html_content)
                     if converted_text:
                         email.body_text = converted_text
+                else:
+                    # Body is None or empty - use snippet as fallback
+                    if email.snippet and email.snippet.strip():
+                        email.body_text = email.snippet
+                        logger.debug(
+                            "Email has no body content, using snippet",
+                            email_id=email.id
+                        )
 
             # Update metadata if available
             if content.get("subject"):
@@ -171,4 +181,5 @@ class EmailEnhancer:
                 error=str(e),
                 error_type=type(e).__name__,
             )
-            return None
+            # Return the original email instead of None
+            return email

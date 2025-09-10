@@ -2,6 +2,7 @@
 """CLI for team calls extraction."""
 
 import asyncio
+import logging
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -30,7 +31,6 @@ console = Console()
 logger = structlog.get_logger()
 
 # Configure quiet logging by default
-import logging
 logging.basicConfig(level=logging.WARNING)
 structlog.configure(
     wrapper_class=structlog.make_filtering_bound_logger(logging.WARNING),
@@ -249,7 +249,7 @@ class TeamCallsExtractor:
         if from_date or to_date:
             date_range_desc = f"from {from_date or 'beginning'} to {to_date or 'now'}"
         else:
-            days_back = days_back or 60  # Customer searches default to 60 days
+            days_back = days_back or 90  # Customer searches default to 90 days
             date_range_desc = f"last {days_back} days"
         
         console.print(f"[cyan]Extracting calls for customer '{customer_name}' from {date_range_desc}...[/cyan]")
@@ -368,7 +368,7 @@ class TeamCallsExtractor:
             
             # Stop pagination if we've hit calls that are too old
             if should_stop_pagination:
-                console.print(f"[yellow]Stopping pagination - reached calls outside date range[/yellow]")
+                console.print("[yellow]Stopping pagination - reached calls outside date range[/yellow]")
                 break
             
             # Check if there are more calls to fetch
@@ -466,7 +466,7 @@ class TeamCallsExtractor:
         if from_date or to_date:
             date_range_desc = f"from {from_date or 'beginning'} to {to_date or 'now'}"
         else:
-            days_back = days_back or 60  # Customer searches default to 60 days
+            days_back = days_back or 90  # Customer searches default to 90 days
             date_range_desc = f"last {days_back} days"
 
         console.print(f"[cyan]Extracting communications for customer '{customer_name}' from {date_range_desc}...[/cyan]")
@@ -504,21 +504,19 @@ class TeamCallsExtractor:
                 end_date = None
 
         # Step 2: Find customer accounts using existing search functionality
+        # Fetch a few calls to extract account IDs from their CRM data
         customer_response = await self.customer_search_client.get_customer_calls(
             customer_name=customer_name,
-            page_size=1,  # We just need to find the accounts
+            page_size=10,  # Get 10 calls to extract account IDs from
             calls_offset=0
         )
         
-        if not customer_response or not customer_response.get("calls"):
+        if not customer_response:
             console.print(f"[red]No customer found matching '{customer_name}'[/red]")
             return [], []
         
-        # Extract unique account IDs from the customer search results
-        account_ids = set()
-        for call in customer_response["calls"][:20]:  # Limit to first 20 calls to get account IDs
-            if call.get("accountId"):
-                account_ids.add(call["accountId"])
+        # Use account IDs from the autocomplete endpoint
+        account_ids = customer_response.get("account_ids", [])
         
         if not account_ids:
             console.print(f"[red]No accounts found for customer '{customer_name}'[/red]")
@@ -555,7 +553,7 @@ class TeamCallsExtractor:
             all_emails = await self.email_enhancer.enhance_emails_with_bodies(
                 all_emails, fetch_bodies=True
             )
-            console.print(f"[green]Email body enhancement complete[/green]")
+            console.print("[green]Email body enhancement complete[/green]")
         
         # Step 5: For calls, get detailed information (transcripts) if not emails-only
         detailed_calls = []
@@ -712,60 +710,104 @@ def interactive_mode() -> Tuple[str, int, str]:
     return customer, days, content_type
 
 
+def parse_arguments(args: tuple) -> Tuple[str, int, str]:
+    """
+    Smart parsing: Last non-hyphenated number is days
+    Returns: (customer, days, content_type)
+    """
+    if not args:
+        return None, None, ""
+    
+    # Step 1: Extract content keywords
+    content_keywords = []
+    remaining_args = []
+    
+    for arg in args:
+        if arg.lower() in ['calls', 'emails']:
+            content_keywords.append(arg.lower())
+        else:
+            remaining_args.append(arg)
+    
+    # Step 2: Smart number detection with hyphen awareness
+    days = None
+    days_index = None
+    
+    for i in reversed(range(len(remaining_args))):
+        if remaining_args[i].isdigit():
+            # Check if this is part of a hyphenated customer name
+            # Look for pattern: number - number (like "7 - 11")
+            is_hyphenated = False
+            
+            # Check if preceded by a hyphen (with potential number before it)
+            if i > 0 and remaining_args[i-1] in ['-', '–', '—']:
+                # Check if there's a number before the hyphen
+                if i > 1 and remaining_args[i-2].isdigit():
+                    is_hyphenated = True
+            
+            # Also check if this number is followed by a hyphen and another number
+            if i < len(remaining_args) - 2:
+                if remaining_args[i+1] in ['-', '–', '—'] and remaining_args[i+2].isdigit():
+                    is_hyphenated = True
+            
+            if is_hyphenated:
+                continue  # Part of customer name like "7 - 11"
+            
+            days = int(remaining_args[i])
+            days_index = i
+            break
+    
+    # Step 3: Everything else is the customer name
+    if days_index is not None:
+        customer_parts = remaining_args[:days_index] + remaining_args[days_index+1:]
+    else:
+        customer_parts = remaining_args
+    
+    customer = " ".join(customer_parts) if customer_parts else None
+    content_type = " ".join(content_keywords)
+    
+    return customer, days, content_type
+
+
 @click.command()
-@click.argument('customer', type=str, required=False)
-@click.argument('days', type=int, required=False)
-@click.argument('content_type', type=str, required=False)
+@click.argument('args', nargs=-1, required=False)
 @click.option('--debug', is_flag=True, hidden=True, help="Enable debug logging")
-def main(customer: str = None, days: int = None, content_type: str = None, debug: bool = False) -> None:
+def main(args: tuple = None, debug: bool = False) -> None:
     """Extract customer communications from Gong and save as markdown files.
     
     Run without arguments for interactive mode: just type 'cs-cli' and press Enter!
     
-    CUSTOMER: Company or customer name (use quotes for multi-word names)
-    DAYS: Number of days back to search (e.g., 30, 90, 365)  
-    CONTENT: What to extract - "calls", "emails", or "calls emails"
+    Arguments can be in any order - the last number is always treated as days:
+      cs-cli                              ✓ Interactive mode
+      cs-cli Fiserv 180 emails            ✓ Standard order
+      cs-cli 180 Fiserv emails            ✓ Days first
+      cs-cli emails Fiserv 180            ✓ Content first
+      cs-cli 7 - 11 365 calls             ✓ Customer with numbers
+      cs-cli Fortune 500 30               ✓ Customer with numbers
     
     Examples:
-      cs-cli                              ✓ Interactive mode (recommended for beginners)
-      cs-cli fiserv 180 emails            ✓ Command-line mode
-      cs-cli "7-Eleven" 365 calls         ✓ Multi-word names need quotes
-      cs-cli Postman 30 calls emails      ✓ Get both calls and emails
-    
-    IMPORTANT: Use quotes around customer names with spaces or special characters:
-      cs-cli "TD Bank" 60 emails          ✓ Correct
-      cs-cli TD Bank 60 emails            ✗ Wrong (treated as separate arguments)
+      cs-cli Postman 30                   Get last 30 days of Postman
+      cs-cli Wells Fargo calls 90         Get last 90 days of Wells Fargo calls
+      cs-cli emails 7 - 11 365            Get last 365 days of 7-Eleven emails
     """
     
     async def async_main():
-        nonlocal customer, days, content_type
+        # Parse arguments using smart parser
+        customer, days, content_type = parse_arguments(args)
         
         # If no arguments provided, launch interactive mode
         if customer is None:
             customer, days, content_type = interactive_mode()
         
-        # Simple validation for common quoting mistakes (only for command-line mode)
-        elif " " in customer and not customer.startswith('"'):
-            console.print(f"[red]Error: Multi-word customer name detected without quotes[/red]")
-            console.print(f"[yellow]You provided: {customer}[/yellow]")
-            console.print()
-            console.print("[dim]Try this instead:[/dim]")
-            console.print(f"[dim]./cli \"{customer}\" {days} {content_type}[/dim]")
-            console.print()
-            console.print("[dim]Or just run 'cs-cli' for interactive mode![/dim]")
-            return
+        # Default to 90 days if not specified
+        if days is None and customer is not None:
+            days = 90
         
         # Parse content type
-        content_type_clean = content_type.lower()
-        valid_types = ["calls", "emails", "calls emails", "emails calls"]
+        content_type_clean = content_type.lower() if content_type else ""
+        valid_types = ["", "calls", "emails", "calls emails", "emails calls"]
         if content_type_clean not in valid_types:
-            console.print(f"[red]Error: Content type must be one of: {', '.join(valid_types)}[/red]")
+            console.print("[red]Error: Content type must be 'calls', 'emails', or both[/red]")
             console.print(f"[yellow]You provided: '{content_type}'[/yellow]")
-            console.print()
-            console.print("[dim]Common mistakes:[/dim]")
-            console.print("[dim]• Multi-word customer names need quotes: ./cli \"TD Bank\" 60 calls[/dim]")
-            console.print("[dim]• Check argument order: ./cli [CUSTOMER] [DAYS] [CONTENT][/dim]")
-            console.print("[dim]• Run ./cli --help for examples[/dim]")
             console.print()
             console.print("[green]TIP: Just run 'cs-cli' (no arguments) for interactive mode![/green]")
             return
@@ -837,7 +879,7 @@ def main(customer: str = None, days: int = None, content_type: str = None, debug
                 saved_files.extend(email_files)
             
             # Display results
-            console.print("\\n[bold green]Extraction Complete![/bold green]")
+            console.print("\n[bold green]Extraction Complete![/bold green]")
             
             if emails_only:
                 console.print(f"Extracted {len(emails)} emails for '{customer}'")
@@ -859,7 +901,7 @@ def main(customer: str = None, days: int = None, content_type: str = None, debug
                 console.print(f"Output directory: [bold]{output_directory}[/bold]")
             
         except KeyboardInterrupt:
-            console.print("\\n[yellow]Extraction interrupted[/yellow]")
+            console.print("\n[yellow]Extraction interrupted[/yellow]")
             sys.exit(1)
         except Exception as e:
             console.print(f"[red]Extraction failed: {e}[/red]")

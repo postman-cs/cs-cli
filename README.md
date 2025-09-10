@@ -37,7 +37,7 @@ Press Enter. That's it! The installer will handle everything else.
 
 **If the installer says to run `source ~/.zshrc`:** Just copy and paste that command and press Enter. This makes the `cs-cli` command available immediately.
 
-**Important:** Before using the tool, make sure you're logged into Gοng in Firefox (your regular browser). The tool needs use Gοng to access your customer conversations.
+**Important:** Before using the tool, make sure you're logged into Gοng in Firefox (your regular browser). The tool needs use Gοng to download your customer conversations.
 
 ### Step 2: Find Customer Insights
 
@@ -54,11 +54,12 @@ That's it! The tool will ask you everything it needs:
 **No quotes needed. No complex commands. Just answer the questions.**
 
 #### Advanced: Command-Line Mode
-If you prefer, you can also use direct commands:
+Arguments can be in any order. If you don't specify days, it defaults to 90:
 ```bash
 cs-cli Postman 90 calls emails        # Last 3 months of Postman
-cs-cli "Wells Fargo" 180 calls        # Last 6 months of Wells Fargo calls
-cs-cli Stripe 30 emails               # Last month of Stripe emails
+cs-cli Wells Fargo calls              # Last 90 days (default) of Wells Fargo calls
+cs-cli 7 - 11 365                     # Last year of 7-Eleven
+cs-cli emails Stripe 30                # Last month of Stripe emails
 ```
 
 ### Step 3: Find Your Results

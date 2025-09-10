@@ -263,7 +263,6 @@ class CallMarkdownFormatter:
         if '**' in cleaned and ':**' in cleaned:
             # Already formatted by the API client, just return with minimal cleaning
             # Remove excessive blank lines (more than 2 consecutive)
-            import re
             cleaned = re.sub(r'\n\n\n+', '\n\n', cleaned)
             return cleaned
         
@@ -504,7 +503,6 @@ class CallMarkdownFormatter:
         cleaned = body_text.strip()
         
         # Remove excessive whitespace but preserve paragraph breaks
-        import re
         cleaned = re.sub(r'\n\s*\n\s*\n+', '\n\n', cleaned)
         cleaned = re.sub(r'[ \t]+', ' ', cleaned)
         

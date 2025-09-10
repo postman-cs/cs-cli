@@ -1,7 +1,7 @@
 """Gong Customer Search API client for finding calls by customer name."""
 
 import json
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
 import structlog
 from rich.console import Console
@@ -16,8 +16,6 @@ logger = structlog.get_logger()
 console = Console()
 
 
-
-
 class GongCustomerSearchClient:
     """Client for Gong Customer Search and Call Filtering APIs."""
     
@@ -28,10 +26,10 @@ class GongCustomerSearchClient:
         self.http = http_client
         self.auth = auth
         self.config = config
-        # TODO: Make workspace_id configurable - extract from existing config or env
-        self.workspace_id = "5562739194953732039"
+        # Get workspace ID from authenticator or use default
+        self.workspace_id = auth.get_workspace_id_sync() or "5562739194953732039"
     
-    async def search_customers(self, partial_name: str) -> List[str]:
+    async def search_customers(self, partial_name: str) -> List[Dict[str, Any]]:
         """
         Search for customers using autocomplete API.
         
@@ -39,7 +37,7 @@ class GongCustomerSearchClient:
             partial_name: Partial customer/company name to search for
             
         Returns:
-            List of company names matching the search
+            List of customer dictionaries with company names and account IDs
         """
         base_url = self.auth.get_base_url()
         url = f"{base_url}/conversations/ajax/text-filter-suggestions"
@@ -68,12 +66,21 @@ class GongCustomerSearchClient:
             
             if response.status_code == 200:
                 data = response.json()
-                # Extract company names from suggestions
+                # Extract full suggestion data including account IDs
                 suggestions = data.get("suggestions", [])
-                company_names = [item.get("text", "") for item in suggestions if item.get("text")]
                 
-                logger.info(f"Found {len(company_names)} customer suggestions: {company_names[:5]}")
-                return company_names
+                # Return full suggestion data, not just company names
+                customer_data = []
+                for item in suggestions:
+                    if isinstance(item, dict):
+                        customer_data.append({
+                            "name": item.get("text", ""),
+                            "id": item.get("id") or item.get("value") or item.get("accountId"),
+                            "raw": item  # Keep raw data for debugging
+                        })
+                
+                logger.info(f"Found {len(customer_data)} customer suggestions with IDs")
+                return customer_data
             else:
                 logger.error("Customer search failed", 
                            status_code=response.status_code,
@@ -84,31 +91,38 @@ class GongCustomerSearchClient:
             logger.error(f"Error searching customers: {e}")
             return []
     
-    async def resolve_customer_companies(self, customer_name: str) -> List[str]:
+    async def resolve_customer_companies(self, customer_name: str) -> Tuple[List[str], List[str]]:
         """
-        Resolve customer name to list of possible company names for filtering.
+        Resolve customer name to list of possible company names and account IDs.
         
         Args:
             customer_name: Customer name to resolve
             
         Returns:
-            List of company names that can be used in call filtering
+            Tuple of (company_names, account_ids) that can be used in filtering
         """
-        # Search for customer - API returns company names directly
-        company_names = await self.search_customers(customer_name)
+        # Search for customer - API now returns full data with IDs
+        customer_data = await self.search_customers(customer_name)
         
-        if not company_names:
+        if not customer_data:
             logger.warning(f"No results found for customer: {customer_name}")
-            return []
+            return [], []
         
         # Find best matches - exact match first, then partial matches
-        exact_matches = [name for name in company_names if customer_name.lower() in name.lower()]
+        exact_matches = []
+        for customer in customer_data:
+            if customer_name.lower() in customer["name"].lower():
+                exact_matches.append(customer)
         
-        # If we have exact matches, prefer those, otherwise return all suggestions
-        final_matches = exact_matches if exact_matches else company_names
+        # If we have exact matches, prefer those, otherwise use all suggestions
+        final_matches = exact_matches if exact_matches else customer_data
         
-        logger.info(f"Resolved customer '{customer_name}' to companies: {final_matches}")
-        return final_matches
+        # Extract company names and account IDs
+        company_names = [c["name"] for c in final_matches if c["name"]]
+        account_ids = [c["id"] for c in final_matches if c["id"]]
+        
+        logger.info(f"Resolved customer '{customer_name}' to {len(company_names)} companies with {len(account_ids)} account IDs")
+        return company_names, account_ids
     
     async def select_customer_company(self, customer_name: str, company_names: List[str]) -> Optional[str]:
         """
@@ -194,13 +208,13 @@ class GongCustomerSearchClient:
         Returns:
             Dictionary containing calls data and pagination info
         """
-        # First resolve customer name to company names
-        company_names = await self.resolve_customer_companies(customer_name)
+        # First resolve customer name to company names and account IDs
+        company_names, account_ids = await self.resolve_customer_companies(customer_name)
         
         if not company_names:
             logger.warning(f"Could not resolve customer name: {customer_name}")
             console.print(f"[red]No customers found matching '{customer_name}'[/red]")
-            return {"calls": [], "hasMore": False, "totalCount": 0}
+            return {"calls": [], "hasMore": False, "totalCount": 0, "account_ids": []}
         
         # Handle interactive selection if enabled
         if interactive:
@@ -208,15 +222,19 @@ class GongCustomerSearchClient:
             
             if selected_company is None:
                 # User cancelled
-                return {"calls": [], "hasMore": False, "totalCount": 0}
+                return {"calls": [], "hasMore": False, "totalCount": 0, "account_ids": []}
             elif selected_company == "SEARCH_AGAIN":
                 # User wants to search for a different customer
                 console.print("\n[cyan]Let's try a different search.[/cyan]")
                 new_customer = Prompt.ask("Enter the customer name")
                 return await self.get_customer_calls(new_customer, page_size, calls_offset, interactive)
             else:
-                # Use the selected company
+                # Use the selected company - need to find its account ID
+                selected_index = company_names.index(selected_company) if selected_company in company_names else 0
                 company_names = [selected_company]
+                # Keep only the corresponding account ID
+                if selected_index < len(account_ids):
+                    account_ids = [account_ids[selected_index]]
         
         # Build the search filter payload
         search_filter = {
@@ -275,21 +293,33 @@ class GongCustomerSearchClient:
                 
                 logger.info(f"Successfully retrieved {len(calls)} calls for customer {customer_name}")
                 
+                # Extract unique account IDs from the calls we just retrieved
+                extracted_account_ids = set()
+                for call in calls:
+                    if call.get("accountId"):
+                        extracted_account_ids.add(call["accountId"])
+                
+                # Use extracted account IDs if we found any, otherwise fall back to what we had
+                if extracted_account_ids:
+                    logger.info(f"Extracted {len(extracted_account_ids)} unique account IDs from calls")
+                    account_ids = list(extracted_account_ids)
+                
                 return {
                     "calls": calls,
                     "hasMore": len(calls) == page_size,  # Assume more if we got a full page
                     "totalCount": len(calls),  # This might be available in response
-                    "companies": company_names
+                    "companies": company_names,
+                    "account_ids": account_ids
                 }
             else:
                 logger.error("Customer calls API request failed",
                            status_code=response.status_code, 
                            response_text=response.text[:500])
-                return {"calls": [], "hasMore": False, "totalCount": 0}
+                return {"calls": [], "hasMore": False, "totalCount": 0, "account_ids": []}
                 
         except Exception as e:
             logger.error(f"Error fetching customer calls: {e}")
-            return {"calls": [], "hasMore": False, "totalCount": 0}
+            return {"calls": [], "hasMore": False, "totalCount": 0, "account_ids": []}
     
     def _extract_calls_from_response(self, api_response: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -323,26 +353,30 @@ class GongCustomerSearchClient:
         
         for item in calls_data if isinstance(calls_data, list) else []:
             if isinstance(item, dict):
-                # Log available fields for debugging
-                logger.debug(f"Call item fields: {list(item.keys())}")
-                
                 # Extract title and customer info
                 title = item.get("title", "") or item.get("name", "")
                 customer_name = item.get("customerAccountName", "") or item.get("accountName", "") or item.get("customer", "")
                 
-                # Check for customer info in CRM data (primary source)
-                if not customer_name and "crmData" in item:
+                # Extract account ID from crmData > accounts > gongId
+                account_id = None
+                
+                # Check for customer info and account ID in CRM data
+                if "crmData" in item:
                     crm_data = item["crmData"]
                     if isinstance(crm_data, dict):
                         # Look for accounts array
                         if "accounts" in crm_data and isinstance(crm_data["accounts"], list) and len(crm_data["accounts"]) > 0:
                             first_account = crm_data["accounts"][0]
                             if isinstance(first_account, dict):
-                                customer_name = first_account.get("name", "")
+                                # Extract the gongId from the account
+                                account_id = first_account.get("gongId")
+                                if not customer_name:
+                                    customer_name = first_account.get("name", "")
                         
                         # Fallback to other CRM data fields
                         if not customer_name:
                             customer_name = crm_data.get("accountName", "") or crm_data.get("companyName", "")
+                
                 
                 # If still no customer name, extract from title (many titles contain customer names)
                 if not customer_name and title:
@@ -362,6 +396,7 @@ class GongCustomerSearchClient:
                 
                 call_info = {
                     "id": item.get("id") or item.get("callId") or item.get("call_id"),
+                    "accountId": account_id,  # Add the extracted account ID
                     "title": title,
                     "generatedTitle": item.get("generatedTitle", ""),
                     "customer_name": customer_name,

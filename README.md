@@ -35,6 +35,8 @@ curl -s https://raw.githubusercontent.com/jaredboynton/cs-cli/main/install.sh | 
 
 Press Enter. That's it! The installer will handle everything else.
 
+**If the installer says to run `source ~/.zshrc`:** Just copy and paste that command and press Enter. This makes the `cs-cli` command available immediately.
+
 ### Step 2: Find Customer Insights
 
 Just type:
@@ -79,7 +81,7 @@ You'll get specific problems to solve, exact quotes, and a clear action plan.
 Perfect! This tool was built for you. Terminal is just a text-based way to talk to your computer. Copy and paste the commands exactly as shown - you'll be fine.
 
 **"What if it asks for my password?"**  
-That's normal! When you type your password, you won't see any characters appear. Just type your Mac login password and press Enter.
+That's normal! The installer needs to install software on your Mac, which requires your permission. When you type your password, you won't see any characters appear - just type your Mac login password and press Enter.
 
 **"What if I mess up?"**  
 You can't break anything. If something doesn't work, just close Terminal, open it again, and try once more.

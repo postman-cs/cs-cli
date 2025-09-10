@@ -232,7 +232,7 @@ class TeamCallsExtractor:
                                    customer_name: str,
                                    days_back: int = None,
                                    from_date: str = None,
-                                   to_date: str = None) -> List[Dict[str, Any]]:
+                                   to_date: str = None) -> Tuple[List[Dict[str, Any]], str]:
         """
         Extract calls for a specific customer with pagination support.
         
@@ -243,7 +243,7 @@ class TeamCallsExtractor:
             to_date: End date (YYYY-MM-DD format, optional)
             
         Returns:
-            List of detailed call information for the customer
+            Tuple of (detailed call information, resolved customer name from text-suggestions)
         """
         # For customer searches, default to 60 days (not 7 like folder searches)
         if from_date or to_date:
@@ -288,6 +288,7 @@ class TeamCallsExtractor:
         
         # Step 2: Get customer calls with smart pagination (stop when dates get too old)
         filtered_calls = []
+        resolved_customer_name = customer_name  # Default fallback
         offset = 0
         api_page_size = 10  # Same as folder API
         
@@ -298,6 +299,12 @@ class TeamCallsExtractor:
                 page_size=api_page_size,
                 calls_offset=offset
             )
+            
+            # Capture resolved customer name from first response
+            if offset == 0 and customer_response.get("companies"):
+                # Use the first resolved company name as the authoritative customer name
+                resolved_customer_name = customer_response["companies"][0]
+                console.print(f"[green]Resolved customer name: '{resolved_customer_name}'[/green]")
             
             # Break if no response or no calls returned
             if not customer_response or not customer_response.get("calls"):
@@ -436,8 +443,8 @@ class TeamCallsExtractor:
                 
                 progress.update(details_task, advance=1)
         
-        console.print(f"[green]Successfully extracted details for {len(detailed_calls)} calls for customer '{customer_name}'[/green]")
-        return detailed_calls
+        console.print(f"[green]Successfully extracted details for {len(detailed_calls)} calls for customer '{resolved_customer_name}'[/green]")
+        return detailed_calls, resolved_customer_name
 
     async def extract_customer_communications(self, 
                                             customer_name: str,
@@ -446,7 +453,7 @@ class TeamCallsExtractor:
                                             to_date: str = None,
                                             include_emails: bool = True,
                                             emails_only: bool = False,
-                                            fetch_email_bodies: bool = False) -> Tuple[List[Dict[str, Any]], List[Email]]:
+                                            fetch_email_bodies: bool = False) -> Tuple[List[Dict[str, Any]], List[Email], str]:
         """
         Extract both calls and emails for a customer using timeline extraction.
         
@@ -460,7 +467,7 @@ class TeamCallsExtractor:
             fetch_email_bodies: Whether to fetch full email body content
             
         Returns:
-            Tuple of (calls, emails)
+            Tuple of (calls, emails, resolved_customer_name)
         """
         # For customer searches, default to 60 days (not 7 like folder searches)
         if from_date or to_date:
@@ -513,7 +520,13 @@ class TeamCallsExtractor:
         
         if not customer_response:
             console.print(f"[red]No customer found matching '{customer_name}'[/red]")
-            return [], []
+            return [], [], customer_name
+        
+        # Capture resolved customer name from text-suggestions endpoint
+        resolved_customer_name = customer_name  # Default fallback
+        if customer_response.get("companies"):
+            resolved_customer_name = customer_response["companies"][0]
+            console.print(f"[green]Resolved customer name: '{resolved_customer_name}'[/green]")
         
         # Use account IDs from the autocomplete endpoint
         account_ids = customer_response.get("account_ids", [])
@@ -617,8 +630,8 @@ class TeamCallsExtractor:
                     detailed_calls.append(call_dict)
                     progress.update(details_task, advance=1)
         
-        console.print(f"[green]Successfully extracted {len(detailed_calls)} calls and {len(all_emails)} emails for customer '{customer_name}'[/green]")
-        return detailed_calls, all_emails
+        console.print(f"[green]Successfully extracted {len(detailed_calls)} calls and {len(all_emails)} emails for customer '{resolved_customer_name}'[/green]")
+        return detailed_calls, all_emails, resolved_customer_name
     
     async def save_calls_as_markdown(self, calls: List[Dict[str, Any]], customer_name: str = None) -> List[Path]:
         """Save calls as individual markdown files."""
@@ -637,7 +650,34 @@ class TeamCallsExtractor:
             today = datetime.now().strftime('%Y-%m-%d')
             summary_path = Path(f"team-calls-{today}") / "SUMMARY.md"
         
+        # Note: resolved_customer_name not available here for folder extractions, 
+        # will use fallback extraction from call titles
         self.summary_reporter.generate_summary_report(calls, summary_path)
+        console.print(f"[green]Summary report saved to {summary_path}[/green]")
+        
+        return saved_files
+    
+    async def save_calls_as_markdown_with_resolved_name(self, calls: List[Dict[str, Any]], 
+                                                        customer_name: str = None, 
+                                                        resolved_customer_name: str = None) -> List[Path]:
+        """Save calls as individual markdown files using resolved customer name for summary."""
+        console.print("[cyan]Generating markdown files...[/cyan]")
+        
+        # Use customer name for directory if provided
+        saved_files = self.formatter.save_multiple_calls(calls, custom_dir_name=customer_name)
+        
+        console.print(f"[green]Saved {len(saved_files)} markdown files[/green]")
+        
+        # Generate summary report in the same directory with resolved customer name
+        if customer_name:
+            sanitized_name = self.formatter._sanitize_filename(customer_name)
+            summary_path = Path(f"ct_{sanitized_name}") / "SUMMARY.md"
+        else:
+            today = datetime.now().strftime('%Y-%m-%d')
+            summary_path = Path(f"team-calls-{today}") / "SUMMARY.md"
+        
+        # Use resolved customer name for better summary accuracy
+        self.summary_reporter.generate_summary_report(calls, summary_path, resolved_customer_name)
         console.print(f"[green]Summary report saved to {summary_path}[/green]")
         
         return saved_files
@@ -840,7 +880,7 @@ def main(args: tuple = None, debug: bool = False) -> None:
                 console.print(f"[cyan]Extracting {content_type_clean} for '{customer}' (last {days} days)[/cyan]")
                 console.print("[yellow]Using timeline extraction with advanced BDR/SPAM filtering[/yellow]")
                 
-                calls, emails = await extractor.extract_customer_communications(
+                calls, emails, resolved_customer_name = await extractor.extract_customer_communications(
                     customer_name=customer,
                     days_back=days,
                     include_emails=extract_emails,
@@ -850,7 +890,7 @@ def main(args: tuple = None, debug: bool = False) -> None:
             else:
                 # Calls only - use faster call-specific extraction
                 console.print(f"[cyan]Extracting calls for '{customer}' (last {days} days)[/cyan]")
-                calls = await extractor.extract_customer_calls(
+                calls, resolved_customer_name = await extractor.extract_customer_calls(
                     customer_name=customer,
                     days_back=days
                 )
@@ -858,11 +898,11 @@ def main(args: tuple = None, debug: bool = False) -> None:
             
             # Check if we found anything
             if not calls and not emails:
-                console.print(f"[yellow]No {content_type_clean} found for '{customer}' in the last {days} days[/yellow]")
+                console.print(f"[yellow]No {content_type_clean} found for '{resolved_customer_name}' in the last {days} days[/yellow]")
                 return
             
             if emails_only and not emails:
-                console.print(f"[yellow]No emails found for '{customer}' in the last {days} days[/yellow]")
+                console.print(f"[yellow]No emails found for '{resolved_customer_name}' in the last {days} days[/yellow]")
                 return
             
             # Save results
@@ -870,29 +910,33 @@ def main(args: tuple = None, debug: bool = False) -> None:
             
             # Save calls
             if calls and extract_calls:
-                call_files = await extractor.save_calls_as_markdown(calls, customer_name=customer)
+                call_files = await extractor.save_calls_as_markdown_with_resolved_name(
+                    calls, 
+                    customer_name=resolved_customer_name, 
+                    resolved_customer_name=resolved_customer_name
+                )
                 saved_files.extend(call_files)
             
             # Save emails  
             if emails and extract_emails:
-                email_files = await extractor.save_emails_as_markdown(emails, customer_name=customer)
+                email_files = await extractor.save_emails_as_markdown(emails, customer_name=resolved_customer_name)
                 saved_files.extend(email_files)
             
             # Display results
             console.print("\n[bold green]Extraction Complete![/bold green]")
             
             if emails_only:
-                console.print(f"Extracted {len(emails)} emails for '{customer}'")
+                console.print(f"Extracted {len(emails)} emails for '{resolved_customer_name}'")
                 if emails:
                     emails_with_bodies = sum(1 for email in emails if email.body_text and email.body_text.strip())
                     console.print(f"[dim]{emails_with_bodies}/{len(emails)} emails have full body content[/dim]")
             elif extract_calls and extract_emails:
-                console.print(f"Extracted {len(calls)} calls and {len(emails)} emails for '{customer}'")
+                console.print(f"Extracted {len(calls)} calls and {len(emails)} emails for '{resolved_customer_name}'")
                 if emails:
                     emails_with_bodies = sum(1 for email in emails if email.body_text and email.body_text.strip())
                     console.print(f"[dim]Advanced BDR/SPAM filtering applied - {emails_with_bodies}/{len(emails)} emails have full content[/dim]")
             else:
-                console.print(f"Extracted {len(calls)} calls for '{customer}'")
+                console.print(f"Extracted {len(calls)} calls for '{resolved_customer_name}'")
             
             console.print(f"Saved {len(saved_files)} markdown files")
             

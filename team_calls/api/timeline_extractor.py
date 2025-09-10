@@ -3,7 +3,7 @@
 import asyncio
 import re
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 import structlog
@@ -266,6 +266,7 @@ class TimelineExtractor:
             and call.duration is not None and call.duration >= 60  # 1 minute minimum
         )
 
+
     def _process_emails_with_filtering(self, email_activities: List[Tuple[dict, str]]) -> List[Email]:
         """
         Process emails with advanced BDR/SPAM/Automation filtering.
@@ -342,7 +343,8 @@ class TimelineExtractor:
             snippet = email_data["snippet"]
             
             # CRITICAL: Use unified automation detection
-            is_automated, is_template = self._is_automated_content(subject, snippet, sender_email)
+            sender_title = email_data.get("sender_title", "")
+            is_automated, is_template = self._is_automated_content(subject, snippet, sender_email, sender_title)
 
             # Check similarity against other emails from same sender
             if not is_automated and len(sender_email_data) > 1:
@@ -377,7 +379,7 @@ class TimelineExtractor:
         return processed_emails
 
     def _is_automated_content(
-        self, subject: str, snippet: str, sender_email: str
+        self, subject: str, snippet: str, sender_email: str, sender_title: str = ""
     ) -> Tuple[bool, bool]:
         """
         CRITICAL: Unified automation and template detection.
@@ -386,9 +388,24 @@ class TimelineExtractor:
         if not subject and not snippet:
             return False, False
 
+        # Check for specific filtered senders and roles (highest confidence)
+        sender_email_lower = sender_email.lower()
+        sender_title_lower = sender_title.lower()
+        
+        # Filter out sales@postman.com
+        if sender_email_lower == "sales@postman.com":
+            logger.debug("Filtering out email from sales@postman.com", sender_email=sender_email)
+            return True, True
+        
+        # Filter out anyone with "Account Development" in their title
+        if "account development" in sender_title_lower:
+            logger.debug("Filtering out email from Account Development role", 
+                       sender_email=sender_email, sender_title=sender_title)
+            return True, True
+
         # Check for known automated senders (highest confidence)
         automated_domains = {"academy@postman.com", "help@postman.com", "noreply@", "no-reply@"}
-        if any(domain in sender_email.lower() for domain in automated_domains):
+        if any(domain in sender_email_lower for domain in automated_domains):
             return True, True
 
         # Check for auto-reply patterns (high-confidence automation)
@@ -477,7 +494,10 @@ class TimelineExtractor:
                 1
                 for email in sender_emails
                 if self._is_automated_content(
-                    email.get("subject", ""), email.get("snippet", ""), sender_email
+                    email.get("subject", ""), 
+                    email.get("snippet", ""), 
+                    sender_email,
+                    email.get("sender", {}).get("title", "")
                 )[1]  # Use is_template result
             )
 
@@ -732,6 +752,7 @@ class TimelineExtractor:
                 "snippet": snippet,
                 "sender": sender,
                 "sender_email": sender.email,
+                "sender_title": sender.title or "",
                 "recipients": recipients,
                 "direction": direction,
                 "sent_at": sent_at,

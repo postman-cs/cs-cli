@@ -526,13 +526,15 @@ class CallSummaryReporter:
     
     def generate_summary_report(self, 
                               calls_data: List[Dict[str, Any]], 
-                              output_path: Optional[Path] = None) -> str:
+                              output_path: Optional[Path] = None,
+                              resolved_customer_name: str = None) -> str:
         """
         Generate a summary report of all extracted calls.
         
         Args:
             calls_data: List of call details
             output_path: Optional path to save summary report
+            resolved_customer_name: Resolved customer name from text-suggestions endpoint
             
         Returns:
             Summary report markdown content
@@ -555,11 +557,17 @@ Generated on {datetime.now().strftime('%B %d, %Y at %I:%M %p')}
         
         # Group calls by customer
         customer_calls = {}
-        for call in calls_data:
-            customer = call.get("customer_name") or "Unknown Customer"
-            if customer not in customer_calls:
-                customer_calls[customer] = []
-            customer_calls[customer].append(call)
+        
+        # If we have a resolved customer name from text-suggestions, use it for all calls
+        if resolved_customer_name:
+            customer_calls[resolved_customer_name] = list(calls_data)
+        else:
+            # Fallback to extracting from individual call data (for folder extractions)
+            for call in calls_data:
+                customer = self._extract_customer_name(call)
+                if customer not in customer_calls:
+                    customer_calls[customer] = []
+                customer_calls[customer].append(call)
         
         # Add customer sections (handle None values in sorting)
         for customer, calls in sorted(customer_calls.items(), key=lambda x: x[0] or ""):
@@ -567,7 +575,7 @@ Generated on {datetime.now().strftime('%B %d, %Y at %I:%M %p')}
             
             for call in calls:
                 title = call.get("title", "Untitled Call")
-                date = call.get("date", "Unknown Date")
+                date = self._extract_call_date(call)
                 formatted_date = self._format_date_summary(date)
                 call_id = call.get("id", "")
                 
@@ -586,23 +594,92 @@ Generated on {datetime.now().strftime('%B %d, %Y at %I:%M %p')}
         
         return summary_content
     
+    def _extract_customer_name(self, call: Dict[str, Any]) -> str:
+        """Extract customer name from call data with intelligent fallbacks."""
+        # Try explicit customer_name field first
+        customer_name = call.get("customer_name")
+        if customer_name and customer_name.strip() and customer_name != "Unknown Customer":
+            return customer_name.strip()
+        
+        # Fallback: Extract from title
+        title = call.get("title", "")
+        if title:
+            # Pattern 1: "Customer + Something - Meeting" -> "Customer"
+            if " + " in title and " - " in title:
+                # Extract everything before the first " + "
+                customer_part = title.split(" + ")[0].strip()
+                if customer_part and len(customer_part) > 1:
+                    return customer_part
+            
+            # Pattern 2: "Customer - Something" -> "Customer"  
+            elif " - " in title:
+                parts = title.split(" - ")
+                if len(parts) >= 2:
+                    customer_part = parts[0].strip()
+                    if customer_part and len(customer_part) > 1:
+                        return customer_part
+            
+            # Pattern 3: Look for known patterns like "Postman + X"
+            if title.startswith("Postman + "):
+                # Extract the part after "Postman + " and before " - "
+                remaining = title[len("Postman + "):]
+                if " - " in remaining:
+                    customer_part = remaining.split(" - ")[0].strip()
+                    if customer_part:
+                        return customer_part
+                
+        return "Unknown Customer"
+    
+    def _extract_call_date(self, call: Dict[str, Any]) -> str:
+        """Extract call date from multiple possible fields."""
+        # Try multiple date fields in order of preference
+        date_fields = [
+            "date",
+            "effectiveStartDateTime", 
+            "userTimezoneActivityTime",
+            "scheduledStart",
+            "started_at",
+            "startTime"
+        ]
+        
+        for field in date_fields:
+            date_value = call.get(field)
+            if date_value and str(date_value).strip():
+                return str(date_value).strip()
+        
+        return "Unknown Date"
+    
     def _format_date_summary(self, date_str: str) -> str:
-        """Format date for summary display."""
-        if not date_str:
+        """Format date for summary display with extended format support."""
+        if not date_str or date_str == "Unknown Date":
             return "Unknown Date"
         
         try:
-            for fmt in [
-                "%Y-%m-%dT%H:%M:%S.%fZ",
-                "%Y-%m-%dT%H:%M:%SZ",
-                "%Y-%m-%d %H:%M:%S",
-                "%Y-%m-%d",
-            ]:
+            # Extended list of date formats to try
+            date_formats = [
+                "%Y-%m-%dT%H:%M:%S.%fZ",  # ISO with microseconds
+                "%Y-%m-%dT%H:%M:%SZ",     # ISO without microseconds
+                "%Y-%m-%d %H:%M:%S",      # Standard format
+                "%Y-%m-%d",               # Date only
+                "%Y/%m/%d %H:%M:%S",      # Gong userTimezoneActivityTime format
+                "%Y/%m/%d",               # Gong date only
+                "%m/%d/%Y",               # US format
+                "%m/%d/%Y %H:%M:%S",      # US format with time
+                "%B %d, %Y",              # Long format
+                "%B %d, %Y at %I:%M %p",  # Very long format
+            ]
+            
+            for fmt in date_formats:
                 try:
                     dt = datetime.strptime(date_str, fmt)
                     return dt.strftime("%m/%d/%Y")
                 except ValueError:
                     continue
-            return date_str
+            
+            # If no format matches but it looks like a date, return as-is
+            if any(char.isdigit() for char in date_str):
+                return date_str
+            
+            return "Unknown Date"
         except Exception:
             return "Unknown Date"

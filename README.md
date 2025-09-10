@@ -37,6 +37,8 @@ Press Enter. That's it! The installer will handle everything else.
 
 **If the installer says to run `source ~/.zshrc`:** Just copy and paste that command and press Enter. This makes the `cs-cli` command available immediately.
 
+**Important:** Before using the tool, make sure you're logged into Gοng in Firefox (your regular browser). The tool needs use Gοng to access your customer conversations.
+
 ### Step 2: Find Customer Insights
 
 Just type:
@@ -108,6 +110,9 @@ Type a number and press Enter [3]: 3
 
 **"How do I know it's working?"**  
 You'll see progress messages like "Downloading transcripts..." When it's done, check your Desktop - you'll find a new folder with your customer's name (like `ct_postman`).
+
+**"What if it says 'No customers found'?"**  
+Make sure you're logged into Gοng in Firefox first. The tool can only see data you have access to.
 
 **"Where do the files go?"**  
 Always on your Desktop! Each customer gets their own folder: `ct_postman`, `ct_stripe`, etc. Easy to find, easy to share.

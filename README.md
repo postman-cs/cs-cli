@@ -16,6 +16,10 @@ Every day, critical customer issues hide in a sea of data. By the time they surf
 
 ## Get Started in 3 Minutes
 
+<div align="center">
+  <img src="demo.gif" alt="Demo Gif">
+</div>
+
 ### Step 1: Set It Up (One Time Only)
 
 First, open Terminal (it's just a text window):

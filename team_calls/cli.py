@@ -533,7 +533,7 @@ class TeamCallsExtractor:
         
         if not account_ids:
             console.print(f"[red]No accounts found for customer '{customer_name}'[/red]")
-            return [], []
+            return [], [], customer_name
         
         console.print(f"[green]Found {len(account_ids)} accounts for customer '{customer_name}'[/green]")
         

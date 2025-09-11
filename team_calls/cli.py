@@ -596,6 +596,10 @@ class TeamCallsExtractor:
                         "title": call.title,
                         "duration": call.duration,
                         "scheduledStart": call.scheduled_start,
+                        # Add fields expected by markdown formatter
+                        "customer_name": resolved_customer_name,
+                        "date": call.scheduled_start,
+                        "call_url": "",  # Timeline extraction doesn't have call URLs
                         "participants": [
                             {
                                 "name": p.name,

@@ -258,12 +258,12 @@ class TimelineExtractor:
             return [], []
 
     def _should_include_call(self, call: Call) -> bool:
-        """Advanced call filtering logic."""
-        # Only include completed calls with meaningful duration
+        """Call filtering logic - match behavior of direct customer search."""
+        # Include all calls with basic validity checks to match option 1 behavior
         return (
-            hasattr(call, "status") and call.status == "COMPLETED"
-            and hasattr(call, "call_type") and call.call_type is not None
-            and call.duration is not None and call.duration >= 60  # 1 minute minimum
+            call is not None and 
+            hasattr(call, "id") and call.id is not None and
+            hasattr(call, "title") and call.title is not None
         )
 
 

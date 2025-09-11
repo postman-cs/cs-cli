@@ -642,13 +642,14 @@ class TeamCallsExtractor:
         
         console.print(f"[green]Saved {len(saved_files)} markdown files[/green]")
         
-        # Generate summary report in the same directory
+        # Generate summary report in the same directory on desktop
+        desktop_path = Path.home() / "Desktop"
         if customer_name:
             sanitized_name = self.formatter._sanitize_filename(customer_name)
-            summary_path = Path(f"ct_{sanitized_name}") / "SUMMARY.md"
+            summary_path = desktop_path / f"ct_{sanitized_name}" / "SUMMARY.md"
         else:
             today = datetime.now().strftime('%Y-%m-%d')
-            summary_path = Path(f"team-calls-{today}") / "SUMMARY.md"
+            summary_path = desktop_path / f"team-calls-{today}" / "SUMMARY.md"
         
         # Note: resolved_customer_name not available here for folder extractions, 
         # will use fallback extraction from call titles
@@ -668,13 +669,14 @@ class TeamCallsExtractor:
         
         console.print(f"[green]Saved {len(saved_files)} markdown files[/green]")
         
-        # Generate summary report in the same directory with resolved customer name
+        # Generate summary report in the same directory with resolved customer name on desktop
+        desktop_path = Path.home() / "Desktop"
         if customer_name:
             sanitized_name = self.formatter._sanitize_filename(customer_name)
-            summary_path = Path(f"ct_{sanitized_name}") / "SUMMARY.md"
+            summary_path = desktop_path / f"ct_{sanitized_name}" / "SUMMARY.md"
         else:
             today = datetime.now().strftime('%Y-%m-%d')
-            summary_path = Path(f"team-calls-{today}") / "SUMMARY.md"
+            summary_path = desktop_path / f"team-calls-{today}" / "SUMMARY.md"
         
         # Use resolved customer name for better summary accuracy
         self.summary_reporter.generate_summary_report(calls, summary_path, resolved_customer_name)

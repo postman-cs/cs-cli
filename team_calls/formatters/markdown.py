@@ -15,7 +15,12 @@ class CallMarkdownFormatter:
     """Formats call data into markdown reports."""
     
     def __init__(self, output_dir: Optional[Path] = None):
-        self.output_dir = output_dir or Path("team-calls-output")
+        if output_dir:
+            self.output_dir = output_dir
+        else:
+            # Default to desktop for easy access
+            desktop_path = Path.home() / "Desktop"
+            self.output_dir = desktop_path / "team-calls-output"
         # Don't create directory here - only when actually saving files
     
     def format_call_to_markdown(self, call_data: Dict[str, Any]) -> str:
@@ -144,13 +149,15 @@ class CallMarkdownFormatter:
         saved_files = []
         
         # Create output directory - use custom name if provided, otherwise use dated format
+        # Always create on desktop for easy access
+        desktop_path = Path.home() / "Desktop"
         if custom_dir_name:
             # Sanitize customer name for directory use
             sanitized_name = self._sanitize_filename(custom_dir_name)
-            dated_output_dir = Path(f"ct_{sanitized_name}")
+            dated_output_dir = desktop_path / f"ct_{sanitized_name}"
         else:
             today = datetime.now().strftime('%Y-%m-%d')
-            dated_output_dir = Path(f"team-calls-{today}")
+            dated_output_dir = desktop_path / f"team-calls-{today}"
         
         dated_output_dir.mkdir(exist_ok=True)
         
@@ -336,7 +343,7 @@ class CallMarkdownFormatter:
         
         # Add automation/template info if applicable
         if email.is_automated or email.is_template:
-            markdown_content += f"\n**Type:** "
+            markdown_content += "\n**Type:** "
             if email.is_template:
                 markdown_content += "Template/Automated"
             else:
@@ -428,13 +435,14 @@ class CallMarkdownFormatter:
             logger.info("No emails to save")
             return []
         
-        # Create output directory
+        # Create output directory on desktop
+        desktop_path = Path.home() / "Desktop"
         if custom_dir_name:
             sanitized_name = self._sanitize_filename(custom_dir_name)
-            output_dir = Path(f"ct_{sanitized_name}")
+            output_dir = desktop_path / f"ct_{sanitized_name}"
         else:
             sanitized_name = self._sanitize_filename(customer_name)
-            output_dir = Path(f"ct_{sanitized_name}")
+            output_dir = desktop_path / f"ct_{sanitized_name}"
         
         output_dir.mkdir(exist_ok=True)
         

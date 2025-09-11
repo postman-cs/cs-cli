@@ -214,6 +214,10 @@ class TeamCallsExtractor:
                     # Use attendees from detailed call data (which has actual names)
                     if details.get("attendees"):
                         merged_call["attendees"] = details["attendees"]
+                    
+                    # Add generatedTitle for intelligent file naming (if not already present)
+                    if details.get("generatedTitle") and not merged_call.get("generatedTitle"):
+                        merged_call["generatedTitle"] = details["generatedTitle"]
                 else:
                     merged_call["transcript"] = "No transcript available."
                 
@@ -432,6 +436,10 @@ class TeamCallsExtractor:
                     # Use attendees from detailed call data (which has actual names)
                     if details.get("attendees"):
                         merged_call["attendees"] = details["attendees"]
+                    
+                    # Add generatedTitle for intelligent file naming (if not already present)
+                    if details.get("generatedTitle") and not merged_call.get("generatedTitle"):
+                        merged_call["generatedTitle"] = details["generatedTitle"]
                 else:
                     merged_call["transcript"] = "No transcript available."
                 
@@ -651,6 +659,10 @@ class TeamCallsExtractor:
                             call_dict["transcript"] = details["transcript"]
                         else:
                             call_dict["transcript"] = "No transcript available."
+                        
+                        # Add generatedTitle for intelligent file naming
+                        if details.get("generatedTitle"):
+                            call_dict["generatedTitle"] = details["generatedTitle"]
                     else:
                         call_dict["transcript"] = "No transcript available."
                     

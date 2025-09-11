@@ -1,6 +1,5 @@
 """Gong Library API client for extracting call data."""
 
-import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 
@@ -108,7 +107,7 @@ class GongLibraryClient:
                     "calls": calls
                 }
             else:
-                logger.error(f"Call stream API request failed", 
+                logger.error("Call stream API request failed", 
                            status_code=response.status_code,
                            response_text=response.text[:500])  # Truncate for readability
                 return {"calls": []}
@@ -303,6 +302,7 @@ class CallDetailsFetcher:
         call_info = {
             "id": call_id,
             "title": "",
+            "generatedTitle": "",  # Add generatedTitle for intelligent file naming
             "customer_name": "",
             "date": "",
             "attendees": [],
@@ -311,9 +311,23 @@ class CallDetailsFetcher:
         
         # Navigate the actual API response structure
         if api_response:
-            # Extract title
+            # Extract title and generatedTitle
             if "callTitle" in api_response:
                 call_info["title"] = api_response["callTitle"]
+            
+            # Try to extract generatedTitle from various fields
+            # Priority: generatedTitle > callTitle > callBrief
+            generated_title = (api_response.get("generatedTitle") or 
+                             api_response.get("callTitle") or 
+                             api_response.get("callBrief") or "")
+            call_info["generatedTitle"] = generated_title
+            
+            logger.debug("Call title extraction", 
+                        call_id=call_id,
+                        callTitle=api_response.get("callTitle"),
+                        generatedTitle=api_response.get("generatedTitle"),
+                        callBrief=api_response.get("callBrief"),
+                        extracted_title=generated_title)
             
             # Extract customer name from callCustomers
             if "callCustomers" in api_response and api_response["callCustomers"]:

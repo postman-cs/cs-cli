@@ -109,12 +109,15 @@ class CallMarkdownFormatter:
         file_date = self._format_date_for_filename(date)
         
         # Create filename - prefer generatedTitle, fallback to customer
+        call_id = call_data.get("id", "")
+        call_id_suffix = f"-{call_id[:8]}" if call_id else ""  # Use first 8 chars of call ID
+        
         if generated_title and generated_title.strip():
             clean_title = self._sanitize_filename(generated_title)
-            filename = f"{clean_title}-{file_date}.md"
+            filename = f"{clean_title}-{file_date}{call_id_suffix}.md"
         else:
             clean_customer = self._sanitize_filename(customer)
-            filename = f"{clean_customer}-{file_date}.md"
+            filename = f"{clean_customer}-{file_date}{call_id_suffix}.md"
         filepath = self.output_dir / filename
         
         # Generate markdown content

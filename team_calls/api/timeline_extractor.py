@@ -619,9 +619,32 @@ class TimelineExtractor:
         try:
             extended_data = activity.get("extendedData", {})
             
-            # Convert epoch time to datetime
+            # Debug: Log available fields to identify correct call ID
+            logger.debug("Timeline call activity fields", 
+                        activity_keys=list(activity.keys()),
+                        extended_data_keys=list(extended_data.keys()),
+                        activity_id=activity.get("id"))
+            
+            # Convert epoch time to datetime with fallbacks
             epoch_time = activity.get("epochTime")
-            scheduled_start = datetime.fromtimestamp(epoch_time) if epoch_time else None
+            if epoch_time:
+                scheduled_start = datetime.fromtimestamp(epoch_time)
+            else:
+                # Fallback to effectiveDateTime or date field
+                date_str = activity.get("effectiveDateTime") or activity.get("date")
+                if date_str:
+                    try:
+                        scheduled_start = datetime.strptime(date_str, "%Y-%m-%d")
+                    except (ValueError, TypeError):
+                        scheduled_start = None
+                        logger.warning("Could not parse date", date_str=date_str)
+                else:
+                    scheduled_start = None
+            
+            logger.debug("Timeline date extraction", 
+                        epoch_time=epoch_time,
+                        effective_date=activity.get("effectiveDateTime"),
+                        scheduled_start=scheduled_start)
 
             # Parse participants
             participants = []
@@ -656,8 +679,20 @@ class TimelineExtractor:
             if dir_str in CallDirection.__members__:
                 direction = CallDirection[dir_str]
 
+            # Try multiple fields for call ID like customer search does
+            call_id = (activity.get("id") or 
+                      activity.get("callId") or 
+                      activity.get("call_id") or
+                      extended_data.get("callId") or
+                      extended_data.get("id"))
+            
+            logger.debug("Timeline call ID extraction", 
+                        activity_id=activity.get("id"),
+                        extracted_call_id=call_id,
+                        activity_type=activity.get("type"))
+            
             call = Call(
-                callId=activity.get("id"),
+                callId=call_id,
                 accountId=account_id,
                 title=extended_data.get("title", extended_data.get("contentTitle", "Call")),
                 direction=direction,

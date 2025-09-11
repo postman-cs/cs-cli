@@ -33,7 +33,7 @@ class EmailEnhancer:
         self.html_processor = HTMLProcessor()
 
     async def enhance_emails_with_bodies(
-        self, emails: List[Email], fetch_bodies: bool = True
+        self, emails: List[Email], fetch_bodies: bool = True, progress_callback=None
     ) -> List[Email]:
         """
         Enhance emails with full body content.
@@ -41,6 +41,7 @@ class EmailEnhancer:
         Args:
             emails: List of emails to enhance
             fetch_bodies: Whether to fetch full email bodies
+            progress_callback: Optional callback function to report progress (batch_count, total_batches)
             
         Returns:
             List of enhanced emails with body content
@@ -64,12 +65,14 @@ class EmailEnhancer:
 
         # Process in batches to control memory usage
         enhanced_emails = {}
+        
         for batch_start in range(0, len(emails_to_enhance), self.batch_size):
             batch_end = min(batch_start + self.batch_size, len(emails_to_enhance))
             batch = emails_to_enhance[batch_start:batch_end]
+            batch_num = batch_start // self.batch_size + 1
 
             logger.debug(
-                f"Processing email batch {batch_start // self.batch_size + 1}", 
+                f"Processing email batch {batch_num}", 
                 batch_size=len(batch)
             )
 
@@ -89,6 +92,10 @@ class EmailEnhancer:
                 elif result:
                     # Consider email enhanced even if body_text is None (e.g., calendar invites)
                     enhanced_emails[email_id] = result
+                    
+            # Report progress if callback provided
+            if progress_callback:
+                progress_callback(batch_end, len(emails_to_enhance))
 
         # Update original emails list with enhanced data
         for i, email in enumerate(emails):

@@ -563,9 +563,32 @@ class TeamCallsExtractor:
         # Step 4: Enhance email bodies if requested
         if (include_emails or emails_only) and fetch_email_bodies and all_emails:
             console.print("[cyan]Fetching email body content...[/cyan]")
-            all_emails = await self.email_enhancer.enhance_emails_with_bodies(
-                all_emails, fetch_bodies=True
-            )
+            
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TimeElapsedColumn(),
+                console=console
+            ) as progress:
+                
+                email_task = progress.add_task(
+                    "Fetching email bodies...", 
+                    total=len(all_emails)
+                )
+                
+                # Progress callback to update the progress bar
+                def update_progress(completed_count, total_count):
+                    progress.update(email_task, completed=completed_count)
+                
+                all_emails = await self.email_enhancer.enhance_emails_with_bodies(
+                    all_emails, fetch_bodies=True, progress_callback=update_progress
+                )
+                
+                # Ensure progress bar shows 100% complete
+                progress.update(email_task, completed=len(all_emails))
+            
             console.print("[green]Email body enhancement complete[/green]")
         
         # Step 5: For calls, get detailed information (transcripts) if not emails-only
@@ -598,7 +621,7 @@ class TeamCallsExtractor:
                         "scheduledStart": call.scheduled_start,
                         # Add fields expected by markdown formatter
                         "customer_name": resolved_customer_name,
-                        "date": call.scheduled_start,
+                        "date": call.scheduled_start.isoformat() if call.scheduled_start else None,
                         "call_url": "",  # Timeline extraction doesn't have call URLs
                         "participants": [
                             {

@@ -391,7 +391,7 @@ class TeamCallsExtractor:
         
         if not filtered_calls:
             console.print(f"[red]No calls found for customer '{customer_name}' in the specified date range![/red]")
-            return []
+            return [], resolved_customer_name
         
         console.print(f"[green]Found {len(filtered_calls)} calls for customer '{customer_name}'[/green]")
         
@@ -804,8 +804,12 @@ def parse_arguments(args: tuple) -> Tuple[str, int, str]:
     remaining_args = []
     
     for arg in args:
-        if arg.lower() in ['calls', 'emails']:
-            content_keywords.append(arg.lower())
+        arg_lower = arg.lower()
+        if arg_lower in ['calls', 'emails']:
+            content_keywords.append(arg_lower)
+        elif arg_lower in ['call', 'email']:
+            # Handle singular forms by converting to plural
+            content_keywords.append(arg_lower + 's')
         else:
             remaining_args.append(arg)
     

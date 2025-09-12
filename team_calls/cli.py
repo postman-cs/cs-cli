@@ -791,14 +791,35 @@ def interactive_mode() -> Tuple[str, int, str]:
     return customer, days, content_type
 
 
-def parse_arguments(args: tuple) -> Tuple[str, int, str]:
+def parse_arguments(args: tuple) -> Tuple[str, str, int, str]:
     """
-    Smart parsing: Last non-hyphenated number is days
-    Returns: (customer, days, content_type)
+    Smart parsing: Handles both customer and team commands
+    Returns: (command_type, customer_or_call_stream_id, days, content_type)
+    command_type: 'customer' or 'team'
     """
     if not args:
-        return None, None, ""
+        return "customer", None, None, ""
     
+    # Check if first argument is 'team'
+    if args[0].lower() == 'team':
+        # Team command - remaining args are for team extraction
+        remaining_args = list(args[1:])  # Skip 'team'
+        
+        # For team command, extract days and use default call stream ID
+        days = None
+        
+        # Look for a number (days parameter)
+        for i, arg in enumerate(remaining_args):
+            if arg.isdigit():
+                days = int(arg)
+                break
+        
+        # Default call stream ID for team calls
+        call_stream_id = "195005774106634129"
+        
+        return "team", call_stream_id, days, "calls"
+    
+    # Original customer parsing logic
     # Step 1: Extract content keywords
     content_keywords = []
     remaining_args = []
@@ -850,18 +871,18 @@ def parse_arguments(args: tuple) -> Tuple[str, int, str]:
     customer = " ".join(customer_parts) if customer_parts else None
     content_type = " ".join(content_keywords)
     
-    return customer, days, content_type
+    return "customer", customer, days, content_type
 
 
 @click.command()
 @click.argument('args', nargs=-1, required=False)
 @click.option('--debug', is_flag=True, hidden=True, help="Enable debug logging")
 def main(args: tuple = None, debug: bool = False) -> None:
-    """Extract customer communications from Gong and save as markdown files.
+    """Extract customer communications or team calls from Gong and save as markdown files.
     
     Run without arguments for interactive mode: just type 'cs-cli' and press Enter!
     
-    Arguments can be in any order - the last number is always treated as days:
+    Customer Mode - Arguments can be in any order, last number is days:
       cs-cli                              ✓ Interactive mode
       cs-cli Fiserv 180 emails            ✓ Standard order
       cs-cli 180 Fiserv emails            ✓ Days first
@@ -869,38 +890,59 @@ def main(args: tuple = None, debug: bool = False) -> None:
       cs-cli 7 - 11 365 calls             ✓ Customer with numbers
       cs-cli Fortune 500 30               ✓ Customer with numbers
     
+    Team Mode - Extract team calls from call stream:
+      cs-cli team                         ✓ Extract last 7 days of team calls
+      cs-cli team 14                      ✓ Extract last 14 days of team calls
+    
     Examples:
       cs-cli Postman 30                   Get last 30 days of Postman
       cs-cli Wells Fargo calls 90         Get last 90 days of Wells Fargo calls
       cs-cli emails 7 - 11 365            Get last 365 days of 7-Eleven emails
+      cs-cli team                         Get last 7 days of team calls
+      cs-cli team 30                      Get last 30 days of team calls
     """
     
     async def async_main():
         # Parse arguments using smart parser
-        customer, days, content_type = parse_arguments(args)
+        command_type, target, days, content_type = parse_arguments(args)
         
-        # If no arguments provided, launch interactive mode
-        if customer is None:
-            customer, days, content_type = interactive_mode()
+        # If no arguments provided, launch interactive mode (customer mode)
+        if command_type == "customer" and target is None:
+            target, days, content_type = interactive_mode()
+            command_type = "customer"
         
-        # Default to 90 days if not specified
-        if days is None and customer is not None:
-            days = 90
+        # Default to 90 days for customer, 7 days for team if not specified
+        if days is None and target is not None:
+            if command_type == "team":
+                days = 7  # Team calls default to 7 days
+            else:
+                days = 90  # Customer calls default to 90 days
         
-        # Parse content type
-        content_type_clean = content_type.lower() if content_type else ""
-        valid_types = ["", "calls", "emails", "calls emails", "emails calls"]
-        if content_type_clean not in valid_types:
-            console.print("[red]Error: Content type must be 'calls', 'emails', or both[/red]")
-            console.print(f"[yellow]You provided: '{content_type}'[/yellow]")
-            console.print()
-            console.print("[green]TIP: Just run 'cs-cli' (no arguments) for interactive mode![/green]")
-            return
+        # Handle team command
+        if command_type == "team":
+            # Team extraction only supports calls
+            console.print(f"[cyan]Extracting team calls (last {days} days)[/cyan]")
+            console.print(f"[yellow]Using call stream ID: {target}[/yellow]")
+        else:
+            # Parse content type for customer commands
+            content_type_clean = content_type.lower() if content_type else ""
+            valid_types = ["", "calls", "emails", "calls emails", "emails calls"]
+            if content_type_clean not in valid_types:
+                console.print("[red]Error: Content type must be 'calls', 'emails', or both[/red]")
+                console.print(f"[yellow]You provided: '{content_type}'[/yellow]")
+                console.print()
+                console.print("[green]TIP: Just run 'cs-cli' (no arguments) for interactive mode![/green]")
+                return
         
         # Determine what to extract
-        extract_calls = "calls" in content_type_clean
-        extract_emails = "emails" in content_type_clean
-        emails_only = content_type_clean == "emails"
+        if command_type == "team":
+            extract_calls = True
+            extract_emails = False
+            emails_only = False
+        else:
+            extract_calls = "calls" in content_type_clean
+            extract_emails = "emails" in content_type_clean
+            emails_only = content_type_clean == "emails"
         
         if debug:
             logging.root.setLevel(logging.DEBUG)
@@ -920,13 +962,22 @@ def main(args: tuple = None, debug: bool = False) -> None:
             # Setup components
             await extractor.setup()
             
-            # Extract communications using timeline extraction (always for emails)
-            if extract_emails:
-                console.print(f"[cyan]Extracting {content_type_clean} for '{customer}' (last {days} days)[/cyan]")
+            # Route to appropriate extraction method
+            if command_type == "team":
+                # Team extraction
+                calls = await extractor.extract_team_calls(
+                    call_stream_id=target,
+                    days_back=days
+                )
+                emails = []
+                resolved_customer_name = "Team"  # Use "Team" as the resolved name
+            elif extract_emails:
+                # Customer extraction with emails
+                console.print(f"[cyan]Extracting {content_type_clean} for '{target}' (last {days} days)[/cyan]")
                 console.print("[yellow]Using timeline extraction with advanced BDR/SPAM filtering[/yellow]")
                 
                 calls, emails, resolved_customer_name = await extractor.extract_customer_communications(
-                    customer_name=customer,
+                    customer_name=target,
                     days_back=days,
                     include_emails=extract_emails,
                     emails_only=emails_only,
@@ -934,16 +985,19 @@ def main(args: tuple = None, debug: bool = False) -> None:
                 )
             else:
                 # Calls only - use faster call-specific extraction
-                console.print(f"[cyan]Extracting calls for '{customer}' (last {days} days)[/cyan]")
+                console.print(f"[cyan]Extracting calls for '{target}' (last {days} days)[/cyan]")
                 calls, resolved_customer_name = await extractor.extract_customer_calls(
-                    customer_name=customer,
+                    customer_name=target,
                     days_back=days
                 )
                 emails = []
             
             # Check if we found anything
             if not calls and not emails:
-                console.print(f"[yellow]No {content_type_clean} found for '{resolved_customer_name}' in the last {days} days[/yellow]")
+                if command_type == "team":
+                    console.print(f"[yellow]No team calls found in the last {days} days[/yellow]")
+                else:
+                    console.print(f"[yellow]No {content_type_clean} found for '{resolved_customer_name}' in the last {days} days[/yellow]")
                 return
             
             if emails_only and not emails:
@@ -970,7 +1024,9 @@ def main(args: tuple = None, debug: bool = False) -> None:
             # Display results
             console.print("\n[bold green]Extraction Complete![/bold green]")
             
-            if emails_only:
+            if command_type == "team":
+                console.print(f"Extracted {len(calls)} team calls")
+            elif emails_only:
                 console.print(f"Extracted {len(emails)} emails for '{resolved_customer_name}'")
                 if emails:
                     emails_with_bodies = sum(1 for email in emails if email.body_text and email.body_text.strip())

@@ -1,9 +1,11 @@
 ![CS-Transcript-CLI Banner](banner.jpg)
 
 ---
+
 <div align="center">
 Turn 6 months of customer calls into actionable insights in 5 minutes. 
 </div>
+
 ---
 
 Just type `cs-cli` and answer 3 simple questions.

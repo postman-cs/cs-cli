@@ -7,22 +7,31 @@ set -e  # Exit on any error
 
 echo "Setting up CS-Transcript-CLI..."
 echo ""
-echo "NOTE: This installer may prompt for your password to install required software."
-echo "This is normal and secure - it's needed to install Homebrew and system tools."
+echo "=================================================================================="
+echo "IMPORTANT: You will be asked for your password ONCE at the beginning."
+echo "This is needed to install system software (Homebrew, git, etc.)"
+echo "=================================================================================="
 echo ""
 
 # Verify sudo access upfront
-echo "This installer requires administrator privileges for system software installation."
-echo "Please enter your MABCOOK password when prompted:"
+echo "Please enter your Mac password to begin installation:"
 sudo -v
+
+# Keep sudo alive until script finishes
+# This prevents multiple password prompts during installation
+(while true; do sudo -n true; sleep 50; kill -0 "$$" || exit; done 2>/dev/null) &
+SUDO_PID=$!
+
+# Ensure we kill the sudo keepalive on exit
+trap "kill $SUDO_PID 2>/dev/null" EXIT
+
+echo ""
+echo "Password accepted! Starting installation..."
 echo ""
 
 # Check if Homebrew is installed
 if ! command -v brew &> /dev/null; then
     echo "[INSTALL] Installing Homebrew (this manages software on your Mac)..."
-    echo "[SUDO] You'll be asked for your Mac password to install Homebrew."
-    echo "      This is required for system-level software installation."
-    echo ""
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
     
     # Add Homebrew to PATH for M1/M2 Macs

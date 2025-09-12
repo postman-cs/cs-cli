@@ -4,18 +4,6 @@
 # One-command setup for non-technical users
 
 set -e  # Exit on any error
-# Check if Homebrew is installed
-if ! command -v brew &> /dev/null; then
-    echo "[INSTALL] Installing Homebrew (this manages software on your Mac)..."
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    
-    # Add Homebrew to PATH for M1/M2 Macs
-    if [[ -f "/opt/homebrew/bin/brew" ]]; then
-        eval "$(/opt/homebrew/bin/brew shellenv)"
-    elif [[ -f "/usr/local/bin/brew" ]]; then
-        eval "$(/usr/local/bin/brew shellenv)"
-    fi
-fi
 
 # Install git if not present
 if ! command -v git &> /dev/null; then
@@ -97,7 +85,6 @@ echo ""
 echo "[SUCCESS] Installation complete!"
 echo ""
 echo "All required software has been installed:"
-echo "  - Homebrew (package manager)"
 echo "  - Git (version control)"
 echo "  - UV (Python environment manager)"
 echo "  - Python 3.12 and all dependencies"

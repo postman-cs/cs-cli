@@ -1,12 +1,14 @@
 ![CS-Transcript-CLI Banner](banner.jpg)
 
-# Find Hidden Customer Issues Before They Explode
+# CS Deep Research CLI
 
-Turn 6 months of customer calls into actionable insights in 5 minutes. Just type `cs-cli` and answer 3 simple questions.
+Turn 6 months of customer calls into actionable insights in 5 minutes. 
+
+Just type `cs-cli` and answer 3 simple questions.
 
 ## Why This Matters to You
 
-Every day, critical customer issues hide in a sea of data. By the time they surface, it's often too late. This tool changes that.
+Critical customer issues hide in a sea of data; by the time they surface, most of the time you're too late. This tool changes that.
 
 **What you'll discover:**
 - Issues your customer forgot to follow up on
@@ -20,7 +22,7 @@ Every day, critical customer issues hide in a sea of data. By the time they surf
   <img src="demo.gif" alt="Demo Gif">
 </div>
 
-### Step 1: Set It Up (One Time Only)
+### Step 1: Set It Up - Only need to do it Once
 
 First, open Terminal (it's just a text window):
 - Press `Command + Space` 

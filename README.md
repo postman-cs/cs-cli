@@ -1,15 +1,9 @@
 ![CS-Transcript-CLI Banner](banner.jpg)
 
----
+# CS Deep Research CLI
 
-<div align="center">
 Turn 6 months of customer calls into actionable insights in 5 minutes. 
 Just type `cs-cli` and answer 3 simple questions.
-</div>
-
----
-
-
 
 ## Why This Matters to You
 

@@ -805,7 +805,7 @@ def parse_arguments(args: tuple) -> Tuple[str, str, int, str]:
         # Team command - remaining args are for team extraction
         remaining_args = list(args[1:])  # Skip 'team'
         
-        # For team command, extract days and use default call stream ID
+        # For team command, extract days but prompt for call stream ID
         days = None
         
         # Look for a number (days parameter)
@@ -814,10 +814,8 @@ def parse_arguments(args: tuple) -> Tuple[str, str, int, str]:
                 days = int(arg)
                 break
         
-        # Default call stream ID for team calls
-        call_stream_id = "195005774106634129"
-        
-        return "team", call_stream_id, days, "calls"
+        # Will prompt for call stream ID in main function
+        return "team", None, days, "calls"
     
     # Original customer parsing logic
     # Step 1: Extract content keywords
@@ -890,7 +888,7 @@ def main(args: tuple = None, debug: bool = False) -> None:
       cs-cli 7 - 11 365 calls             ✓ Customer with numbers
       cs-cli Fortune 500 30               ✓ Customer with numbers
     
-    Team Mode - Extract team calls from call stream:
+    Team Mode - Extract team calls from call stream (will prompt for stream ID):
       cs-cli team                         ✓ Extract last 7 days of team calls
       cs-cli team 14                      ✓ Extract last 14 days of team calls
     
@@ -898,18 +896,35 @@ def main(args: tuple = None, debug: bool = False) -> None:
       cs-cli Postman 30                   Get last 30 days of Postman
       cs-cli Wells Fargo calls 90         Get last 90 days of Wells Fargo calls
       cs-cli emails 7 - 11 365            Get last 365 days of 7-Eleven emails
-      cs-cli team                         Get last 7 days of team calls
-      cs-cli team 30                      Get last 30 days of team calls
+      cs-cli team                         Get last 7 days of team calls (prompts for stream ID)
+      cs-cli team 30                      Get last 30 days of team calls (prompts for stream ID)
     """
     
     async def async_main():
         # Parse arguments using smart parser
         command_type, target, days, content_type = parse_arguments(args)
         
-        # If no arguments provided, launch interactive mode (customer mode)
+        # Handle different modes
         if command_type == "customer" and target is None:
+            # If no arguments provided, launch interactive mode (customer mode)
             target, days, content_type = interactive_mode()
             command_type = "customer"
+        elif command_type == "team" and target is None:
+            # Team mode - prompt for call stream ID
+            console.print("\n[bold cyan]Team Calls Extraction[/bold cyan]")
+            console.print("[dim]Extract calls from a specific call stream in your Gong library[/dim]\n")
+            
+            console.print("[yellow]To find your call stream ID:[/yellow]")
+            console.print("1. In Gong, go to [bold]Conversations > Your Library[/bold]")
+            console.print("2. Create a call stream to filter by your team members")
+            console.print("3. The stream ID will be at the end of the URL as folder-id:")
+            console.print("   [dim]https://xxxxxx.app.gong.io/library/private?workspace-id=xxxxxxxxxxxxxxx&folder-id=[your-stream-id][/dim]\n")
+            
+            target = Prompt.ask("[cyan]Enter your call stream ID[/cyan]")
+            
+            if not target or not target.strip():
+                console.print("[red]Error: Call stream ID is required for team extraction[/red]")
+                return
         
         # Default to 90 days for customer, 7 days for team if not specified
         if days is None and target is not None:
@@ -921,7 +936,7 @@ def main(args: tuple = None, debug: bool = False) -> None:
         # Handle team command
         if command_type == "team":
             # Team extraction only supports calls
-            console.print(f"[cyan]Extracting team calls (last {days} days)[/cyan]")
+            console.print(f"\n[cyan]Extracting team calls (last {days} days)[/cyan]")
             console.print(f"[yellow]Using call stream ID: {target}[/yellow]")
         else:
             # Parse content type for customer commands

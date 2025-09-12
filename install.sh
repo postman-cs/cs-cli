@@ -94,16 +94,15 @@ echo ""
 
 # Try to source the shell config to make cs-cli immediately available
 if [ "$PATH_ADDED" = true ]; then
-    echo "To use cs-cli right now, run one of these commands:"
-    echo "  source ~/.zshrc        (if you use zsh - most common)"
-    echo "  source ~/.bash_profile (if you use bash)"
+    echo "To get started right now, type:"
+    echo "  source ~/.zshrc && cs-cli        (if you use zsh - most common)"
+    echo "  source ~/.bash_profile && cs-cli (if you use bash)"
     echo ""
-    echo "Or simply restart Terminal and the command will be available."
-    echo ""
+    echo "Or simply restart Terminal and then type 'cs-cli'"
+else
+    echo "To get started, type:"
+    echo "  cs-cli"
 fi
-
-echo "To get started, type:"
-echo "  cs-cli"
 echo ""
 echo "The tool will ask you 3 simple questions:"
 echo "  1. What customer are you looking for?"

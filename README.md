@@ -1,8 +1,8 @@
 ![CS-Transcript-CLI Banner](banner.jpg)
 
-# Find Hidden Customer Issues Before They Explode
+Turn 6 months of customer calls into actionable insights in 5 minutes. 
 
-Turn 6 months of customer calls into actionable insights in 5 minutes. Just type `cs-cli` and answer 3 simple questions.
+Just type `cs-cli` and answer 3 simple questions.
 
 ## Why This Matters to You
 

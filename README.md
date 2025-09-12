@@ -13,7 +13,7 @@ Just type `cs-cli` and answer 3 simple questions.
 
 ## Why This Matters to You
 
-Every day, critical customer issues hide in a sea of data. By the time they surface, it's often too late. This tool changes that.
+Critical customer issues hide in a sea of data; by the time they surface, most of the time you're too late. This tool changes that.
 
 **What you'll discover:**
 - Issues your customer forgot to follow up on

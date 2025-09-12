@@ -2,11 +2,12 @@
 """CLI for team calls extraction."""
 
 import asyncio
+import json
 import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 
 import click
 import structlog
@@ -35,6 +36,46 @@ logging.basicConfig(level=logging.WARNING)
 structlog.configure(
     wrapper_class=structlog.make_filtering_bound_logger(logging.WARNING),
 )
+
+# Config file path for storing user preferences
+CONFIG_FILE = Path.home() / ".cs-cli-config.json"
+
+
+def load_saved_stream_id() -> Optional[str]:
+    """Load previously saved call stream ID from config file."""
+    try:
+        if CONFIG_FILE.exists():
+            with open(CONFIG_FILE, 'r') as f:
+                config = json.load(f)
+                return config.get('team_call_stream_id')
+    except (json.JSONDecodeError, OSError):
+        # If config file is corrupted or unreadable, ignore and return None
+        pass
+    return None
+
+
+def save_stream_id(stream_id: str) -> None:
+    """Save call stream ID to config file for future use."""
+    try:
+        # Load existing config or start with empty dict
+        config = {}
+        if CONFIG_FILE.exists():
+            try:
+                with open(CONFIG_FILE, 'r') as f:
+                    config = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                config = {}
+        
+        # Update with new stream ID
+        config['team_call_stream_id'] = stream_id
+        
+        # Save back to file
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config, f, indent=2)
+            
+    except OSError:
+        # If we can't save config, that's okay - just continue without saving
+        pass
 
 
 class TeamCallsExtractor:
@@ -914,17 +955,43 @@ def main(args: tuple = None, debug: bool = False) -> None:
             console.print("\n[bold cyan]Team Calls Extraction[/bold cyan]")
             console.print("[dim]Extract calls from a specific call stream in your Gong library[/dim]\n")
             
-            console.print("[yellow]To find your call stream ID:[/yellow]")
-            console.print("1. In Gong, go to [bold]Conversations > Your Library[/bold]")
-            console.print("2. Create a call stream to filter by your team members")
-            console.print("3. The stream ID will be at the end of the URL as folder-id:")
-            console.print("   [dim]https://xxxxxx.app.gong.io/library/private?workspace-id=xxxxxxxxxxxxxxx&folder-id=[your-stream-id][/dim]\n")
+            # Check for previously saved stream ID
+            saved_stream_id = load_saved_stream_id()
             
-            target = Prompt.ask("[cyan]Enter your call stream ID[/cyan]")
-            
-            if not target or not target.strip():
-                console.print("[red]Error: Call stream ID is required for team extraction[/red]")
-                return
+            if saved_stream_id:
+                # Show reuse option
+                console.print(f"[green]Previously used stream ID: {saved_stream_id}[/green]\n")
+                target = Prompt.ask(
+                    f"[cyan]Enter call stream ID (leave blank to reuse {saved_stream_id})[/cyan]", 
+                    default="", 
+                    show_default=False
+                ).strip()
+                
+                if not target:
+                    # User chose to reuse saved stream ID
+                    target = saved_stream_id
+                    console.print(f"[green]Reusing previous stream ID: {target}[/green]")
+                else:
+                    # User entered new stream ID, save it
+                    save_stream_id(target)
+                    console.print(f"[green]Saved new stream ID for future use[/green]")
+            else:
+                # First time - show instructions and prompt
+                console.print("[yellow]To find your call stream ID:[/yellow]")
+                console.print("1. In Gong, go to [bold]Conversations > Your Library[/bold]")
+                console.print("2. Create a call stream to filter by your team members")
+                console.print("3. The stream ID will be at the end of the URL as folder-id:")
+                console.print("   [dim]https://xxxxxx.app.gong.io/library/private?workspace-id=xxxxxxxxxxxxxxx&folder-id=[your-stream-id][/dim]\n")
+                
+                target = Prompt.ask("[cyan]Enter your call stream ID[/cyan]")
+                
+                if not target or not target.strip():
+                    console.print("[red]Error: Call stream ID is required for team extraction[/red]")
+                    return
+                
+                # Save the stream ID for future use
+                save_stream_id(target)
+                console.print(f"[green]Stream ID saved for future use[/green]")
         
         # Default to 90 days for customer, 7 days for team if not specified
         if days is None and target is not None:

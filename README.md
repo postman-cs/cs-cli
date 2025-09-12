@@ -4,6 +4,8 @@
 
 Turn 6 months of customer calls into actionable insights in 5 minutes. 
 
+---
+
 Just type `cs-cli` and answer 3 simple questions.
 
 ## Why This Matters to You

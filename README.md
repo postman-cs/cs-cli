@@ -22,7 +22,7 @@ Critical customer issues hide in a sea of data; by the time they surface, most o
   <img src="demo.gif" alt="Demo Gif">
 </div>
 
-### Step 1: Set It Up (One Time Only)
+### Step 1: Set It Up - Only need to do it Once
 
 First, open Terminal (it's just a text window):
 - Press `Command + Space` 

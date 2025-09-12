@@ -11,6 +11,12 @@ echo "NOTE: This installer may prompt for your password to install required soft
 echo "This is normal and secure - it's needed to install Homebrew and system tools."
 echo ""
 
+# Verify sudo access upfront
+echo "This installer requires administrator privileges for system software installation."
+echo "Please enter your MABCOOK password when prompted:"
+sudo -v
+echo ""
+
 # Check if Homebrew is installed
 if ! command -v brew &> /dev/null; then
     echo "[INSTALL] Installing Homebrew (this manages software on your Mac)..."

@@ -3,9 +3,14 @@
 import asyncio
 import base64
 import json
+import os
 import re
+import shutil
+import sqlite3
+import tempfile
 import time
-from typing import Dict, Optional
+from pathlib import Path
+from typing import Dict, List, Optional
 
 import browser_cookie3
 import structlog
@@ -30,28 +35,121 @@ class FirefoxCookieExtractor:
     def __init__(self) -> None:
         pass
     
-    async def extract_gong_cookies(self) -> Optional[GongCookies]:
-        """Extract Gong cookies from Firefox."""
+    def _find_firefox_profiles(self) -> List[Path]:
+        """Find all Firefox profiles on the system."""
+        profiles = []
+        
+        # Determine Firefox profile directory based on OS
+        home = Path.home()
+        if os.name == 'posix':
+            if os.uname().sysname == 'Darwin':  # macOS
+                profile_dir = home / "Library" / "Application Support" / "Firefox" / "Profiles"
+            else:  # Linux
+                profile_dir = home / ".mozilla" / "firefox"
+        elif os.name == 'nt':  # Windows
+            profile_dir = home / "AppData" / "Roaming" / "Mozilla" / "Firefox" / "Profiles"
+        else:
+            logger.warning(f"Unknown OS: {os.name}")
+            return profiles
+        
+        if not profile_dir.exists():
+            logger.warning(f"Firefox profile directory not found: {profile_dir}")
+            return profiles
+        
+        # Find all profile directories
+        for item in profile_dir.iterdir():
+            if item.is_dir() and "." in item.name:  # Firefox profiles have format "random.profilename"
+                cookies_db = item / "cookies.sqlite"
+                if cookies_db.exists():
+                    profiles.append(item)
+                    logger.debug(f"Found Firefox profile: {item.name}")
+        
+        return profiles
+    
+    def _extract_cookies_from_profile(self, profile_path: Path) -> Dict[str, tuple]:
+        """Extract cookies from a specific Firefox profile.
+        
+        Returns dict of cookie_name -> (value, domain) tuples
+        """
+        cookies = {}
+        cookies_db = profile_path / "cookies.sqlite"
+        
+        if not cookies_db.exists():
+            return cookies
+        
+        # Create a temporary copy to avoid locking issues
+        with tempfile.NamedTemporaryFile(suffix='.sqlite', delete=False) as tmp_file:
+            tmp_path = tmp_file.name
+        
         try:
-            logger.info("Extracting Gong cookies from Firefox")
+            # Copy the database file
+            shutil.copy2(cookies_db, tmp_path)
             
-            # Extract cookies from Firefox for Gong domains
+            # Connect to the copy
+            conn = sqlite3.connect(tmp_path)
+            cursor = conn.cursor()
+            
+            # Query for Gong cookies
+            cursor.execute("""
+                SELECT name, value, host FROM moz_cookies 
+                WHERE host LIKE '%gong.io%'
+            """)
+            
+            for name, value, host in cursor.fetchall():
+                cookies[name] = (value, host)
+                
+            conn.close()
+            
+        except Exception as e:
+            logger.debug(f"Error reading cookies from {profile_path.name}: {e}")
+        finally:
+            # Clean up temp file
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
+        
+        return cookies
+    
+    async def extract_gong_cookies(self) -> Optional[GongCookies]:
+        """Extract Gong cookies from ALL Firefox profiles."""
+        try:
+            logger.info("Extracting Gong cookies from ALL Firefox profiles")
+            
+            # First, try to get cookies from all profiles manually
+            all_profiles = self._find_firefox_profiles()
+            logger.info(f"Found {len(all_profiles)} Firefox profile(s)")
+            
             cookies_dict = {}
             cookie_domains = set()
             
-            # Get all Firefox cookies, then filter for Gong domains
-            all_cookies = browser_cookie3.firefox()
-            for cookie in all_cookies:
-                # Include cookies from any gong.io domain
-                if 'gong.io' in cookie.domain.lower():
-                    cookies_dict[cookie.name] = cookie.value
-                    cookie_domains.add(cookie.domain)
+            # Extract from each profile
+            for profile in all_profiles:
+                profile_cookies = self._extract_cookies_from_profile(profile)
+                logger.debug(f"Profile {profile.name}: found {len(profile_cookies)} Gong cookies")
+                
+                for name, (value, domain) in profile_cookies.items():
+                    cookies_dict[name] = value
+                    cookie_domains.add(domain)
             
-            logger.debug(f"Found {len(cookies_dict)} cookies in Firefox")
+            # Also try browser_cookie3 for the default profile (as fallback)
+            try:
+                all_cookies = browser_cookie3.firefox()
+                for cookie in all_cookies:
+                    # Include cookies from any gong.io domain
+                    if 'gong.io' in cookie.domain.lower():
+                        cookies_dict[cookie.name] = cookie.value
+                        cookie_domains.add(cookie.domain)
+                logger.debug("Also checked default profile via browser_cookie3")
+            except Exception as e:
+                logger.debug(f"browser_cookie3 fallback failed: {e}")
+            
+            logger.info(f"Total: Found {len(cookies_dict)} unique Gong cookies across all profiles")
             logger.debug(f"Cookie domains: {list(cookie_domains)}")
             
             if not cookies_dict:
-                logger.error("No .gong.io cookies found in Firefox")
+                logger.error("No .gong.io cookies found in any Firefox profile")
+                logger.info("Make sure you're logged into Gong in Firefox")
                 return None
             
             cell_value = None

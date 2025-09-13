@@ -36,73 +36,60 @@ case "$ARCH" in
         ;;
 esac
 
-# Construct the binary name
-BINARY_NAME="cs-cli-${PLATFORM}-${ARCH_NAME}"
+# For macOS, download and install the PKG
+if [ "$OS" = "Darwin" ]; then
+    # Determine PKG name based on architecture
+    if [ "$ARCH" = "arm64" ]; then
+        PKG_ARCH="arm64"
+    else
+        PKG_ARCH="x86_64"
+    fi
 
-# Create tools directory if it doesn't exist
-INSTALL_DIR="$HOME/customer-tools"
-mkdir -p "$INSTALL_DIR"
-cd "$INSTALL_DIR"
+    PKG_NAME="cs-cli-${PKG_ARCH}-1.0.0.pkg"
+    PKG_URL="https://github.com/postman-cs/cs-cli/releases/latest/download/${PKG_NAME}"
 
-# Download the latest release binary from GitHub
-echo "[DOWNLOAD] Downloading CS-CLI binary..."
-RELEASE_URL="https://github.com/postman-cs/cs-cli/releases/latest/download/${BINARY_NAME}"
+    echo "[DOWNLOAD] Downloading CS-CLI installer..."
+    TEMP_PKG="/tmp/${PKG_NAME}"
 
-if command -v curl &> /dev/null; then
-    if ! curl -L -f -o "$INSTALL_DIR/cs-cli-binary" "$RELEASE_URL"; then
-        echo ""
-        echo "[ERROR] Failed to download CS-CLI binary"
-        echo "This might mean:"
-        echo "  1. No internet connection"
-        echo "  2. GitHub is temporarily unavailable"
-        echo "  3. The binary for your system (${PLATFORM}-${ARCH_NAME}) isn't available yet"
-        echo ""
-        echo "Please try again later or contact support"
+    if command -v curl &> /dev/null; then
+        if ! curl -L -f -o "$TEMP_PKG" "$PKG_URL"; then
+            echo ""
+            echo "[ERROR] Failed to download CS-CLI installer"
+            echo "This might mean:"
+            echo "  1. No internet connection"
+            echo "  2. GitHub is temporarily unavailable"
+            echo "  3. The installer for your system (${PKG_ARCH}) isn't available yet"
+            echo ""
+            echo "Please try again later or contact support"
+            exit 1
+        fi
+    else
+        echo "[ERROR] curl is not available"
         exit 1
     fi
-elif command -v wget &> /dev/null; then
-    if ! wget -O "$INSTALL_DIR/cs-cli-binary" "$RELEASE_URL"; then
-        echo ""
-        echo "[ERROR] Failed to download CS-CLI binary"
-        echo "This might mean:"
-        echo "  1. No internet connection"
-        echo "  2. GitHub is temporarily unavailable"
-        echo "  3. The binary for your system (${PLATFORM}-${ARCH_NAME}) isn't available yet"
-        echo ""
-        echo "Please try again later or contact support"
-        exit 1
+
+    echo "[INSTALL] Installing CS-CLI..."
+    # Install the PKG (this will prompt for password)
+    if ! installer -pkg "$TEMP_PKG" -target CurrentUserHomeDirectory 2>/dev/null; then
+        # If user home install fails, try with sudo
+        echo "Installing CS-CLI (may require your password)..."
+        sudo installer -pkg "$TEMP_PKG" -target /
     fi
+
+    # Clean up
+    rm -f "$TEMP_PKG"
+
+    echo "[SETUP] CS-CLI installed successfully!"
+
+    # The PKG installer already sets up PATH, but ensure it's in current session
+    export PATH="$HOME/.local/bin:$PATH"
+
+    PATH_ADDED=false
 else
-    echo "[ERROR] Cannot download files - curl is not available"
-    echo ""
-    echo "macOS should have curl pre-installed. This might mean:"
-    echo "  1. You're using an extremely old version of macOS"
-    echo "  2. Your system configuration has been modified"
-    echo ""
-    echo "Please contact support for help"
+    # For non-macOS, download binary directly (future support)
+    echo "[ERROR] Only macOS is currently supported"
     exit 1
 fi
-
-# Make the binary executable
-chmod +x "$INSTALL_DIR/cs-cli-binary"
-
-echo "[SETUP] CS-CLI downloaded successfully!"
-
-# Create a wrapper script that runs from Desktop
-echo "[CONFIG] Creating global 'cs-cli' command..."
-cat > "$INSTALL_DIR/cs-cli-wrapper" << 'EOF'
-#!/bin/bash
-# Change to Desktop so output folders are easy to find
-cd "$HOME/Desktop" 2>/dev/null || cd "$HOME"
-# Run the actual CLI
-exec "$HOME/customer-tools/cs-cli-binary" "$@"
-EOF
-
-chmod +x "$INSTALL_DIR/cs-cli-wrapper"
-
-# Install to user bin (avoids needing admin password)
-mkdir -p "$HOME/.local/bin"
-ln -sf "$INSTALL_DIR/cs-cli-wrapper" "$HOME/.local/bin/cs-cli"
 
 # Add to PATH if not already there
 PATH_ADDED=false

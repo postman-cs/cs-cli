@@ -1,0 +1,31 @@
+# Rust build artifacts
+/target
+**/*.rs.bk
+# Note: Cargo.lock is committed for binary applications (reproducible builds)
+
+# macOS
+.DS_Store
+*.swp
+
+# Build outputs
+*.pkg
+*.app
+*.zip
+*.dmg
+AppIcon.icns
+cs-cli-darwin-*
+cs-cli-macos-*
+cs-cli-windows-*
+cs-cli-linux-*
+cs-cli-arm64-*
+cs-cli-x86_64-*
+
+# Temporary build files
+pkg-build/
+release/
+cs-cli-component.pkg
+distribution.xml
+LICENSE.txt
+
+# Backup files
+*.backup

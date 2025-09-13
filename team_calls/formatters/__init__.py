@@ -1,1 +1,0 @@
-"""Formatters for team calls output."""

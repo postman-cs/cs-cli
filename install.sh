@@ -1,59 +1,92 @@
 #!/bin/bash
 
-# CS-Transcript-CLI Installer
+# CS-Transcript-CLI Installer (Rust Edition)
 # One-command setup for non-technical users
 
 set -e  # Exit on any error
 
-# Install git if not present
-if ! command -v git &> /dev/null; then
-    echo "[INSTALL] Installing git..."
-    brew install git
-fi
+# Detect OS and architecture
+OS="$(uname -s)"
+ARCH="$(uname -m)"
 
-# Install uv if not present (needed for Python environment)
-if ! command -v uv &> /dev/null; then
-    echo "[INSTALL] Installing uv (Python environment manager)..."
-    brew install uv
-fi
+# Map to GitHub release naming convention
+case "$OS" in
+    Darwin)
+        PLATFORM="darwin"
+        ;;
+    Linux)
+        PLATFORM="linux"
+        ;;
+    *)
+        echo "[ERROR] Unsupported operating system: $OS"
+        exit 1
+        ;;
+esac
+
+case "$ARCH" in
+    x86_64)
+        ARCH_NAME="x86_64"
+        ;;
+    arm64|aarch64)
+        ARCH_NAME="aarch64"
+        ;;
+    *)
+        echo "[ERROR] Unsupported architecture: $ARCH"
+        exit 1
+        ;;
+esac
+
+# Construct the binary name
+BINARY_NAME="cs-cli-${PLATFORM}-${ARCH_NAME}"
 
 # Create tools directory if it doesn't exist
 INSTALL_DIR="$HOME/customer-tools"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-# Clone or update the repository
-if [ -d "cs-cli" ]; then
-    echo "[UPDATE] Updating CS-Transcript-CLI..."
-    cd cs-cli
-    git pull
+# Download the latest release binary from GitHub
+echo "[DOWNLOAD] Downloading CS-CLI binary..."
+RELEASE_URL="https://github.com/postman-cs/cs-cli/releases/latest/download/${BINARY_NAME}"
+
+if command -v curl &> /dev/null; then
+    if ! curl -L -f -o "$INSTALL_DIR/cs-cli-binary" "$RELEASE_URL"; then
+        echo ""
+        echo "[ERROR] Failed to download CS-CLI binary"
+        echo "This might mean:"
+        echo "  1. No internet connection"
+        echo "  2. GitHub is temporarily unavailable"
+        echo "  3. The binary for your system (${PLATFORM}-${ARCH_NAME}) isn't available yet"
+        echo ""
+        echo "Please try again later or contact support"
+        exit 1
+    fi
+elif command -v wget &> /dev/null; then
+    if ! wget -O "$INSTALL_DIR/cs-cli-binary" "$RELEASE_URL"; then
+        echo ""
+        echo "[ERROR] Failed to download CS-CLI binary"
+        echo "This might mean:"
+        echo "  1. No internet connection"
+        echo "  2. GitHub is temporarily unavailable"
+        echo "  3. The binary for your system (${PLATFORM}-${ARCH_NAME}) isn't available yet"
+        echo ""
+        echo "Please try again later or contact support"
+        exit 1
+    fi
 else
-    echo "[DOWNLOAD] Downloading CS-Transcript-CLI..."
-    git clone https://github.com/jaredboynton/cs-cli
-    cd cs-cli
+    echo "[ERROR] Cannot download files - curl is not available"
+    echo ""
+    echo "macOS should have curl pre-installed. This might mean:"
+    echo "  1. You're using an extremely old version of macOS"
+    echo "  2. Your system configuration has been modified"
+    echo ""
+    echo "Please contact support for help"
+    exit 1
 fi
 
-# Setup Python dependencies using uv
-echo "[SETUP] Installing Python dependencies..."
+# Make the binary executable
+chmod +x "$INSTALL_DIR/cs-cli-binary"
 
-# Ensure Python 3.12 is available
-echo "[SETUP] Ensuring Python 3.12 is available..."
-uv python install 3.12 >/dev/null 2>&1 || true
-
-# Initialize uv project and install dependencies
-echo "[SETUP] Installing project dependencies..."
-if [ ! -f "uv.lock" ]; then
-    # First time setup - create lock file
-    uv sync
-else
-    # Already initialized - just sync dependencies
-    uv sync
-fi
-
-# Make cli executable
-chmod +x cli || true
-
-echo "[SETUP] Dependencies installed successfully!"
+echo "[SETUP] CS-CLI downloaded successfully!"
 
 # Create a wrapper script that runs from Desktop
 echo "[CONFIG] Creating global 'cs-cli' command..."
@@ -62,7 +95,7 @@ cat > "$INSTALL_DIR/cs-cli-wrapper" << 'EOF'
 # Change to Desktop so output folders are easy to find
 cd "$HOME/Desktop" 2>/dev/null || cd "$HOME"
 # Run the actual CLI
-exec "$HOME/customer-tools/cs-cli/cli" "$@"
+exec "$HOME/customer-tools/cs-cli-binary" "$@"
 EOF
 
 chmod +x "$INSTALL_DIR/cs-cli-wrapper"
@@ -84,10 +117,7 @@ fi
 echo ""
 echo "[SUCCESS] Installation complete!"
 echo ""
-echo "All required software has been installed:"
-echo "  - Git (version control)"
-echo "  - UV (Python environment manager)"
-echo "  - Python 3.12 and all dependencies"
+echo "CS-CLI has been installed and is ready to use!"
 echo ""
 echo "You're ready to find customer insights!"
 echo ""
@@ -95,8 +125,7 @@ echo ""
 # Try to source the shell config to make cs-cli immediately available
 if [ "$PATH_ADDED" = true ]; then
     echo "To get started right now, type:"
-    echo "  source ~/.zshrc && cs-cli        (if you use zsh - most common)"
-    echo "  source ~/.bash_profile && cs-cli (if you use bash)"
+    echo "  source ~/.zshrc && cs-cli"
     echo ""
     echo "Or simply restart Terminal and then type 'cs-cli'"
 else
@@ -112,3 +141,4 @@ echo ""
 echo "That's it! No complex commands needed."
 echo ""
 echo "Files will appear on your Desktop in a folder like 'ct_customername'"
+echo ""

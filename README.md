@@ -36,7 +36,7 @@ YourName@YourMac ~ %
 
 Copy this entire line and paste it after the `%` symbol:
 ```bash
-curl -s https://raw.githubusercontent.com/jaredboynton/cs-cli/main/install.sh | bash
+curl -s https://raw.githubusercontent.com/postman-cs/cs-cli/main/install.sh | bash
 ```
 
 Press Enter. That's it! The installer will handle everything else.

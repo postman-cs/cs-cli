@@ -16,43 +16,31 @@ Critical customer issues hide in a sea of data; by the time they surface, most o
 - Exact quotes to reference in your next call
 - Opportunities to shift from vendor to trusted advisor
 
-## Get Started in 3 Minutes
+## Get Started in 2 Minutes
 
 <div align="center">
   <img src="demo.gif" alt="Demo Gif">
 </div>
 
-### Step 1: Set It Up - Only need to do it Once
+### Installation
 
-First, open Terminal (it's just a text window):
-- Press `Command + Space` 
-- Type "Terminal"
-- Press Enter
+**[Download CS-CLI Installer →](https://github.com/postman-cs/cs-cli/releases/latest/download/cs-cli-arm64-1.0.0.pkg)**
 
-You'll see a window with text like this:
-```
-YourName@YourMac ~ %
-```
+Just download and double-click. That's it!
 
-Copy this entire line and paste it after the `%` symbol:
+<details>
+<summary>Alternative: Command line installation</summary>
+
 ```bash
 curl -s https://raw.githubusercontent.com/postman-cs/cs-cli/main/install.sh | bash
 ```
+</details>
 
-Press Enter. That's it! The installer will handle everything else.
-
-**If the installer says to run `source ~/.zshrc`:** Just copy and paste that command and press Enter. This makes the `cs-cli` command available immediately.
-
-**Important:** Before using the tool, make sure you're logged into Gοng in Firefox (your regular browser). The tool needs use Gοng to download your customer conversations.
+**Important:** Before using the tool, make sure you're logged into Gοng in your browser. The tool needs Gοng to download your customer conversations.
 
 ### Step 2: Find Customer Insights
 
-Just type:
-```bash
-cs-cli
-```
-
-That's it! The tool will ask you everything it needs:
+The tool will ask you everything it needs:
 - What customer are you looking for?
 - How far back should I look?
 - What would you like to analyze?
@@ -87,7 +75,7 @@ You'll get specific problems to solve, exact quotes, and a clear action plan.
 ## Common Questions
 
 **"I've never used Terminal before"**  
-Perfect! This tool was built for you. Terminal is just a text-based way to talk to your computer. Copy and paste the commands exactly as shown - you'll be fine.
+Perfect! This tool was built for you. You'll be fine.
 
 **"What if it asks for my password?"**  
 That's normal! The installer needs to install software on your Mac, which requires your permission. When you type your password, you won't see any characters appear - just type your Mac login password and press Enter.
@@ -119,7 +107,7 @@ Type a number and press Enter [3]: 3
 You'll see progress messages like "Downloading transcripts..." When it's done, check your Desktop - you'll find a new folder with your customer's name (like `ct_postman`).
 
 **"What if it says 'No customers found'?"**  
-Make sure you're logged into Gοng in Firefox first. The tool can only see data you have access to.
+Make sure you're logged into Gοng first. The tool can only see data you have access to.
 
 **"Where do the files go?"**  
 Always on your Desktop! Each customer gets their own folder: `ct_postman`, `ct_stripe`, etc. Easy to find, easy to share.

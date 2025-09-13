@@ -49,8 +49,7 @@ anyhow = "1.0"             # Generic error handling
 # Logging - with monitoring
 tracing = "0.1"
 
-# Terminal detection for self-launching
-atty = "0.2"               # Detect if we're in a terminal
+# Logging
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
 
 # Concurrency control

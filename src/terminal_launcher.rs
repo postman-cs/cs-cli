@@ -1,9 +1,10 @@
 use std::env;
+use std::io::IsTerminal;
 use std::process::Command;
 
 pub fn ensure_terminal() -> bool {
     // Check if we're already in a terminal
-    if atty::is(atty::Stream::Stdout) {
+    if std::io::stdout().is_terminal() {
         return true;
     }
 

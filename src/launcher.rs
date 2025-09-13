@@ -1,10 +1,11 @@
 use std::env;
+use std::io::IsTerminal;
 use std::process::{Command, exit};
 
 /// Check if we're running in a terminal and self-launch if not
 pub fn ensure_terminal() {
     // If we're already in a terminal, continue normally
-    if atty::is(atty::Stream::Stdout) {
+    if std::io::stdout().is_terminal() {
         return;
     }
 

@@ -4,7 +4,10 @@
 
 Turn 6 months of customer calls into actionable insights in 5 minutes. 
 
-Just type `cs-cli` and answer 3 simple questions: who, when, and what.
+Just type `cs-cli` and answer 3 simple questions: 
+- WHO: Which Customer?
+- WHEN: How far back do you want to go?
+- WHAT: Calls? Emails?
 
 Critical customer issues hide in a sea of data; by the time they surface, most of the time you're too late. This tool changes that.
 

@@ -3,12 +3,9 @@
 //! A Rust implementation of the customer success CLI for extracting
 //! customer communications from Gong and formatting them as markdown.
 
-pub mod api;
-pub mod auth;
-pub mod cli;
-pub mod config;
-pub mod error;
-pub mod models;
-pub mod output;
+pub mod common;
+pub mod gong;
+pub mod slack;
 
-pub use error::{CsCliError, Result};
+// Re-export core types for convenience
+pub use common::{CsCliError, Result};

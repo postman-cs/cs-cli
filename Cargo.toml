@@ -1,6 +1,6 @@
 [package]
 name = "cs-cli"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 description = "CLI tool to analyze customer communications from Gong"
 authors = ["Customer Success Team"]
@@ -36,6 +36,7 @@ serde_json = "1.0"         # JSON serialization and macros
 
 # Multi-browser cookie extraction (Firefox, Chrome, Safari, etc.)
 rookie = "0.5.6"
+rusqlite = "0.31"  # Match the version used by rookie
 
 # Date/time handling - modern alternative to chrono
 jiff = { version = "0.2", features = ["serde"] }
@@ -45,6 +46,7 @@ htmd = "0.2"                # Better HTML to markdown conversion
 
 # Error handling
 anyhow = "1.0"             # Generic error handling
+async-trait = "0.1"        # Async traits for common interfaces
 
 # Logging - with monitoring
 tracing = "0.1"
@@ -59,6 +61,8 @@ futures = "0.3"
 console = "0.15"           # Basic terminal functionality
 dialoguer = "0.11"         # Interactive prompts
 indicatif = "0.17"         # Progress bars and spinners
+rpassword = "7.3"          # Secure password input for keychain unlock
+atty = "0.2"               # Check if running in interactive terminal
 
 # Configuration - figment for production-grade config management
 figment = { version = "0.10", features = ["env", "json", "toml", "yaml"] }

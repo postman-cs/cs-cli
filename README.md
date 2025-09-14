@@ -4,9 +4,7 @@
 
 Turn 6 months of customer calls into actionable insights in 5 minutes. 
 
-Just type `cs-cli` and answer 3 simple questions.
-
-## Why This Matters to You
+Just type `cs-cli` and answer 3 simple questions: who, when, and what.
 
 Critical customer issues hide in a sea of data; by the time they surface, most of the time you're too late. This tool changes that.
 
@@ -24,7 +22,7 @@ Critical customer issues hide in a sea of data; by the time they surface, most o
 
 ### Installation
 
-**[Download CS-CLI Installer →](https://github.com/postman-cs/cs-cli/releases/latest/download/cs-cli-arm64-1.0.0.pkg)**
+**[Download CS-CLI Installer](https://github.com/postman-cs/cs-cli/releases/latest/download/cs-cli-arm64-1.0.0.pkg)**
 
 Just download and double-click. That's it!
 
@@ -89,7 +87,7 @@ CS-CLI: Customer Success Deep Research Tool
 Let's find insights from your customer conversations
 
 What customer are you looking for?: Wells Fargo
-How far back should I look?: 90
+How far back should I look?: 180
 
 What would you like to analyze?
 1. Calls only

@@ -181,14 +181,18 @@ cat > distribution.xml << EOF
     <domains enable_anywhere="true"/>
     <allow-external-scripts/>
     <options customize="never" require-scripts="false" hostArchitectures="x86_64,arm64"/>
-    <welcome>Welcome to CS-CLI!
+    <welcome>Turn 6 months of customer calls into actionable insights in 5 minutes.
+
+CS-CLI extracts critical customer issues hiding in a sea of data - by the time they surface, most of the time you're too late. This tool changes that.
 
 This installer will:
-• Install CS-CLI.app to Applications
-• Set up the 'cs-cli' Terminal command
-• Configure your PATH automatically
+• Install CS-CLI to your Applications folder
+• Set up the 'cs-cli' terminal command 
+• Configure everything automatically
 
-No administrator password required!</welcome>
+Just answer 3 simple questions: who, when, and what.
+
+No technical knowledge required!</welcome>
     <license file="LICENSE.txt"/>
     <pkg-ref id="${BUNDLE_ID}">
         <bundle-version/>

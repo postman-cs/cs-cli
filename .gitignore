@@ -2,6 +2,7 @@
 /target
 **/*.rs.bk
 # Note: Cargo.lock is committed for binary applications (reproducible builds)
+.cu*/
 
 # macOS
 .DS_Store

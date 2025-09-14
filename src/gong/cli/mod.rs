@@ -9,7 +9,7 @@ pub mod interactive;
 pub use args::*;
 pub use interactive::*;
 
-use console::{style, Color};
+use owo_colors::OwoColorize;
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -276,7 +276,7 @@ impl TeamCallsExtractor {
 
     /// Initialize all components (setup phase)
     pub async fn setup(&mut self) -> Result<()> {
-        println!("{}", style("Setting up CS-CLI extractor...").color(Color::Rgb(255, 142, 100)));
+        println!("{}", "Setting up CS-CLI extractor...".truecolor(255, 142, 100));
 
         // Initialize HTTP client pool
         self.http = Some(HttpClientPool::new(Some(self.config.http.clone())).await?);
@@ -340,7 +340,7 @@ impl TeamCallsExtractor {
             None,
         ));
 
-        println!("{}", style("Setup complete!").color(Color::Rgb(255, 255, 255)));
+        println!("{}", "Setup complete!".truecolor(255, 255, 255));
         Ok(())
     }
 
@@ -370,7 +370,7 @@ impl TeamCallsExtractor {
 
         println!(
             "{}",
-            style(format!("Extracting team calls from {date_range_desc}...")).cyan()
+            format!("Extracting team calls from {date_range_desc}...").cyan()
         );
 
         // Create progress indicator
@@ -421,7 +421,7 @@ impl TeamCallsExtractor {
         pb.finish_with_message(format!("Found {} calls in stream", all_calls.len()));
 
         if all_calls.is_empty() {
-            println!("{}", style("No calls found in call stream!").yellow());
+            println!("{}", "No calls found in call stream!".yellow());
             return Ok(Vec::new());
         }
 
@@ -512,10 +512,10 @@ impl TeamCallsExtractor {
 
         println!(
             "{}",
-            style(format!(
+            format!(
                 "Successfully extracted {} team calls",
                 enhanced_calls.len()
-            ))
+            )
             .green()
         );
         Ok(enhanced_calls)
@@ -547,9 +547,9 @@ impl TeamCallsExtractor {
 
         println!(
             "{}",
-            style(format!(
+            format!(
                 "Extracting calls for '{name}' from {date_range_desc}..."
-            ))
+            )
             .cyan()
         );
 
@@ -654,10 +654,10 @@ impl TeamCallsExtractor {
 
         println!(
             "{}",
-            style(format!(
+            format!(
                 "Successfully extracted {} customer calls",
                 all_calls.len()
-            ))
+            )
             .green()
         );
         Ok((all_calls, resolved_name))
@@ -674,21 +674,21 @@ impl TeamCallsExtractor {
     ) -> Result<(Vec<Call>, Vec<Email>, String)> {
         println!(
             "{}",
-            style(format!(
+            format!(
                 "Extracting communications for '{name}' from last {days} days..."
-            ))
+            )
             .cyan()
         );
 
         if emails_only {
             println!(
                 "{}",
-                style("Extracting only emails (calls will be ignored)").yellow()
+                "Extracting only emails (calls will be ignored)".yellow()
             );
         } else if include_emails {
             println!(
                 "{}",
-                style("Including emails with advanced BDR/SPAM filtering").yellow()
+                "Including emails with advanced BDR/SPAM filtering".yellow()
             );
         }
 
@@ -718,9 +718,9 @@ impl TeamCallsExtractor {
 
         println!(
             "{}",
-            style(format!(
+            format!(
                 "Resolved customer name: '{resolved_customer_name}'"
-            ))
+            )
             .green()
         );
 
@@ -730,17 +730,17 @@ impl TeamCallsExtractor {
         if account_ids.is_empty() {
             println!(
                 "{}",
-                style(format!("No accounts found for customer '{name}'")).red()
+                format!("No accounts found for customer '{name}'").red()
             );
             return Ok((Vec::new(), Vec::new(), resolved_customer_name));
         }
 
         println!(
             "{}",
-            style(format!(
+            format!(
                 "Found {} accounts for customer '{name}'",
                 account_ids.len()
-            ))
+            )
             .green()
         );
 
@@ -778,11 +778,11 @@ impl TeamCallsExtractor {
 
         println!(
             "{}",
-            style(format!(
+            format!(
                 "Timeline extraction complete: {} calls, {} emails",
                 all_calls.len(),
                 all_emails.len()
-            ))
+            )
             .green()
         );
 
@@ -790,7 +790,7 @@ impl TeamCallsExtractor {
         let mut emails = all_emails;
         if (include_emails || emails_only) && fetch_email_bodies && !emails.is_empty() {
             if let Some(email_enhancer) = &self.email_enhancer {
-                println!("{}", style("Fetching email body content...").color(Color::Rgb(255, 142, 100)));
+                println!("{}", "Fetching email body content...".truecolor(255, 142, 100));
 
                 let pb = ProgressBar::new(emails.len() as u64);
                 pb.set_style(
@@ -809,7 +809,7 @@ impl TeamCallsExtractor {
                     })?;
 
                 pb.finish_with_message("Email body enhancement complete");
-                println!("{}", style("Email body enhancement complete").color(Color::Rgb(255, 255, 255)));
+                println!("{}", "Email body enhancement complete".truecolor(255, 255, 255));
             }
         }
 
@@ -870,12 +870,12 @@ impl TeamCallsExtractor {
 
         println!(
             "{}",
-            style(format!(
+            format!(
                 "Successfully extracted {} calls and {} emails for customer '{}'",
                 detailed_calls.len(),
                 emails.len(),
                 resolved_customer_name
-            ))
+            )
             .green()
         );
 
@@ -892,7 +892,7 @@ impl TeamCallsExtractor {
             return Ok(Vec::new());
         }
 
-        println!("{}", style("Generating markdown files...").color(Color::Rgb(255, 142, 100)));
+        println!("{}", "Generating markdown files...".truecolor(255, 142, 100));
 
         let saved_files = self
             .formatter
@@ -901,7 +901,7 @@ impl TeamCallsExtractor {
 
         println!(
             "{}",
-            style(format!("Saved {} markdown files", saved_files.len())).green()
+            format!("Saved {} markdown files", saved_files.len()).green()
         );
 
         // Generate summary report
@@ -917,10 +917,10 @@ impl TeamCallsExtractor {
                     })?;
                 println!(
                     "{}",
-                    style(format!(
+                    format!(
                         "Summary report saved to {}",
                         summary_path.display()
-                    ))
+                    )
                     .green()
                 );
             }
@@ -940,7 +940,7 @@ impl TeamCallsExtractor {
             return Ok(Vec::new());
         }
 
-        println!("{}", style("Generating markdown files...").color(Color::Rgb(255, 142, 100)));
+        println!("{}", "Generating markdown files...".truecolor(255, 142, 100));
 
         let saved_files = self
             .formatter
@@ -949,7 +949,7 @@ impl TeamCallsExtractor {
 
         println!(
             "{}",
-            style(format!("Saved {} markdown files", saved_files.len())).green()
+            format!("Saved {} markdown files", saved_files.len()).green()
         );
 
         // Generate summary report with resolved customer name for better accuracy
@@ -967,10 +967,10 @@ impl TeamCallsExtractor {
                     })?;
                 println!(
                     "{}",
-                    style(format!(
+                    format!(
                         "Summary report saved to {}",
                         summary_path.display()
-                    ))
+                    )
                     .green()
                 );
             }
@@ -989,7 +989,7 @@ impl TeamCallsExtractor {
             return Ok(Vec::new());
         }
 
-        println!("{}", style("Generating email markdown files...").color(Color::Rgb(255, 142, 100)));
+        println!("{}", "Generating email markdown files...".truecolor(255, 142, 100));
 
         let saved_files = self
             .formatter
@@ -1000,11 +1000,11 @@ impl TeamCallsExtractor {
 
         println!(
             "{}",
-            style(format!(
+            format!(
                 "Saved {} emails across {} batch files",
                 emails.len(),
                 saved_files.len()
-            ))
+            )
             .green()
         );
 
@@ -1049,8 +1049,8 @@ pub async fn run_cli() -> Result<()> {
         let password = match &args.keychain_password {
             Some(p) => p.clone(),
             None => {
-                println!("{}", style("Make sure you're logged into Gong in your browser!").color(Color::Rgb(255, 142, 100)));
-                rpassword::prompt_password(&format!("{}", style("Enter your Macbook password: ").color(Color::Rgb(111, 44, 186))))
+                println!("{}", "Make sure you're logged into Gong in your browser!".truecolor(255, 142, 100));
+                rpassword::prompt_password(&format!("{}", "Enter your Macbook password: ".truecolor(111, 44, 186)))
                     .map_err(|e| crate::CsCliError::Authentication(format!("Failed to read password: {}", e)))?
             }
         };
@@ -1145,7 +1145,7 @@ async fn execute_command(
 
             // Display results
             println!();
-            println!("{}", style("Extraction Complete!").bold().color(Color::Rgb(255, 108, 55)));
+            println!("{}", "Extraction Complete!".bold().truecolor(255, 108, 55));
             println!("Extracted {} team calls", calls.len());
             println!("Saved {} markdown files", saved_files.len());
         }
@@ -1198,7 +1198,7 @@ async fn execute_command(
 
             // Display results
             println!();
-            println!("{}", style("Extraction Complete!").bold().color(Color::Rgb(255, 108, 55)));
+            println!("{}", "Extraction Complete!".bold().truecolor(255, 108, 55));
 
             if emails_only {
                 println!("Extracted {} emails for '{}'", emails.len(), resolved_name);
@@ -1253,7 +1253,7 @@ async fn execute_command(
         if let Some(output_directory) = saved_files.first().and_then(|f| f.parent()) {
             println!(
                 "Output directory: {}",
-                style(output_directory.display()).bold()
+                output_directory.display().to_string().bold()
             );
         }
     }

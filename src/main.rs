@@ -2,7 +2,7 @@ mod launcher;
 
 use cs_cli::gong::cli::run_cli;
 use cs_cli::Result;
-use console::{style, Color};
+use owo_colors::OwoColorize;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -13,6 +13,6 @@ async fn main() -> Result<()> {
     // Use try_init to avoid panic if subscriber already set (e.g., when launched from GUI)
     let _ = tracing_subscriber::fmt::try_init();
 
-    println!("{}", style("CS-CLI - Initializing...").color(Color::Rgb(255, 108, 55)));
+    println!("{}", "CS-CLI - Initializing...".truecolor(255, 108, 55));
     run_cli().await
 }

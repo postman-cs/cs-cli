@@ -3,7 +3,8 @@
 //! This module provides a user-friendly interactive interface for users who
 //! don't provide command-line arguments, matching the Python version's experience.
 
-use console::{style, Term, Color};
+use console::Term;
+use owo_colors::OwoColorize;
 use dialoguer::Input;
 use std::io::Write;
 
@@ -22,13 +23,13 @@ pub fn interactive_mode() -> Result<ParsedCommand> {
     // Welcome banner - matching Python version styling
     println!(
         "\n{}",
-        style("CS-CLI: Customer Success Deep Research Tool")
+        "CS-CLI: Customer Success Deep Research Tool"
             .bold()
-            .color(Color::Rgb(255, 108, 55))
+            .truecolor(255, 108, 55)
     );
     println!(
         "{}",
-        style("Let's find insights from your customer conversations").color(Color::Rgb(230, 230, 230))
+        "Let's find insights from your customer conversations".truecolor(230, 230, 230)
     );
     println!();
 
@@ -64,8 +65,8 @@ fn get_customer_name() -> Result<String> {
     loop {
         let customer: String = Input::new()
             .with_prompt(
-                style("What customer are you looking for?")
-                    .color(Color::Rgb(111, 44, 186))
+                "What customer are you looking for?"
+                    .truecolor(111, 44, 186)
                     .to_string(),
             )
             .interact_text()
@@ -75,7 +76,7 @@ fn get_customer_name() -> Result<String> {
         if customer.is_empty() {
             println!(
                 "{}",
-                style("Customer name cannot be empty. Please try again.").red()
+                "Customer name cannot be empty. Please try again.".red()
             );
             continue;
         }
@@ -83,7 +84,7 @@ fn get_customer_name() -> Result<String> {
         if customer.len() < 2 {
             println!(
                 "{}",
-                style("Customer name must be at least 2 characters. Please try again.").red()
+                "Customer name must be at least 2 characters. Please try again.".red()
             );
             continue;
         }
@@ -95,10 +96,10 @@ fn get_customer_name() -> Result<String> {
 /// Get time period with sensible defaults and validation (matching Python version)
 fn get_time_period() -> Result<u32> {
     println!();
-    println!("{}", style("How far back should I look?").color(Color::Rgb(111, 44, 186)));
+    println!("{}", "How far back should I look?".truecolor(111, 44, 186));
     println!(
         "{}",
-        style("Common choices: 30 days (1 month), 90 days (3 months), 180 days (6 months)").color(Color::Rgb(230, 230, 230))
+        "Common choices: 30 days (1 month), 90 days (3 months), 180 days (6 months)".truecolor(230, 230, 230)
     );
 
     loop {
@@ -114,12 +115,12 @@ fn get_time_period() -> Result<u32> {
             Ok(_) => {
                 println!(
                     "{}",
-                    style("Please enter a number between 1 and 3650 days.").yellow()
+                    "Please enter a number between 1 and 3650 days.".yellow()
                 );
                 continue;
             }
             Err(_) => {
-                println!("{}", style("Using default: 90 days").yellow());
+                println!("{}", "Using default: 90 days".yellow());
                 return Ok(90);
             }
         }
@@ -129,15 +130,15 @@ fn get_time_period() -> Result<u32> {
 /// Get content type selection with menu (matching Python table style)
 fn get_content_type() -> Result<ContentType> {
     println!();
-    println!("{}", style("What would you like to analyze?").color(Color::Rgb(111, 44, 186)));
+    println!("{}", "What would you like to analyze?".truecolor(111, 44, 186));
     println!();
 
     // Display options in table format like Python version
-    println!("{}  Calls only", style("1.").color(Color::Rgb(111, 44, 186)).bold());
-    println!("{}  Emails only", style("2.").color(Color::Rgb(111, 44, 186)).bold());
+    println!("{}  Calls only", "1.".truecolor(111, 44, 186).bold());
+    println!("{}  Emails only", "2.".truecolor(111, 44, 186).bold());
     println!(
         "{}  Both calls and emails (recommended)",
-        style("3.").color(Color::Rgb(111, 44, 186)).bold()
+        "3.".truecolor(111, 44, 186).bold()
     );
     println!();
 
@@ -161,15 +162,15 @@ fn get_content_type() -> Result<ContentType> {
 /// Show confirmation summary before proceeding (matching Python version)
 fn show_confirmation_summary(customer: &str, days: u32, content_type: ContentType) {
     println!();
-    println!("{} {}", style("✓ Looking for:").color(Color::Rgb(255, 255, 255)), customer);
-    println!("{} Last {} days", style("✓ Time period:").color(Color::Rgb(255, 255, 255)), days);
+    println!("{} {}", "✓ Looking for:".truecolor(255, 255, 255), customer);
+    println!("{} Last {} days", "✓ Time period:".truecolor(255, 255, 255), days);
 
     let content_display = match content_type {
         ContentType::Calls => "Calls",
         ContentType::Emails => "Emails",
         ContentType::Both => "Calls and emails",
     };
-    println!("{} {}", style("✓ Content:").color(Color::Rgb(255, 255, 255)), content_display);
+    println!("{} {}", "✓ Content:".truecolor(255, 255, 255), content_display);
     println!();
 }
 
@@ -180,10 +181,10 @@ pub fn interactive_team_mode(saved_stream_id: Option<String>) -> Result<ParsedCo
     let _term = Term::stdout();
 
     println!();
-    println!("{}", style("Team Calls Extraction").bold().color(Color::Rgb(255, 108, 55)));
+    println!("{}", "Team Calls Extraction".bold().truecolor(255, 108, 55));
     println!(
         "{}",
-        style("Extract calls from a specific call stream in your Gong library").color(Color::Rgb(230, 230, 230))
+        "Extract calls from a specific call stream in your Gong library".truecolor(230, 230, 230)
     );
     println!();
 
@@ -191,7 +192,7 @@ pub fn interactive_team_mode(saved_stream_id: Option<String>) -> Result<ParsedCo
         // Show reuse option
         println!(
             "{} {}",
-            style("Previously used stream ID:").green(),
+            "Previously used stream ID:".green(),
             saved_id
         );
         println!();
@@ -199,7 +200,7 @@ pub fn interactive_team_mode(saved_stream_id: Option<String>) -> Result<ParsedCo
         let reuse_prompt = format!("Enter call stream ID (leave blank to reuse {saved_id})");
 
         let input: String = Input::new()
-            .with_prompt(style(reuse_prompt).color(Color::Rgb(111, 44, 186)).to_string())
+            .with_prompt(reuse_prompt.truecolor(111, 44, 186).to_string())
             .allow_empty(true)
             .interact_text()
             .map_err(|e| crate::CsCliError::Generic(format!("Input error: {e}")))?;
@@ -207,12 +208,12 @@ pub fn interactive_team_mode(saved_stream_id: Option<String>) -> Result<ParsedCo
         if input.trim().is_empty() {
             println!(
                 "{} {}",
-                style("Reusing previous stream ID:").green(),
+                "Reusing previous stream ID:".green(),
                 saved_id
             );
             saved_id
         } else {
-            println!("{}", style("Saved new stream ID for future use").green());
+            println!("{}", "Saved new stream ID for future use".green());
             input.trim().to_string()
         }
     } else {
@@ -220,7 +221,7 @@ pub fn interactive_team_mode(saved_stream_id: Option<String>) -> Result<ParsedCo
         show_team_instructions();
 
         let stream_id: String = Input::new()
-            .with_prompt(style("Enter your call stream ID").color(Color::Rgb(111, 44, 186)).to_string())
+            .with_prompt("Enter your call stream ID".truecolor(111, 44, 186).to_string())
             .interact_text()
             .map_err(|e| crate::CsCliError::Generic(format!("Input error: {e}")))?;
 
@@ -231,7 +232,7 @@ pub fn interactive_team_mode(saved_stream_id: Option<String>) -> Result<ParsedCo
             });
         }
 
-        println!("{}", style("Stream ID saved for future use").green());
+        println!("{}", "Stream ID saved for future use".green());
         stream_id
     };
 
@@ -245,16 +246,16 @@ pub fn interactive_team_mode(saved_stream_id: Option<String>) -> Result<ParsedCo
 
 /// Show instructions for finding team call stream ID
 fn show_team_instructions() {
-    println!("{}", style("To find your call stream ID:").yellow());
+    println!("{}", "To find your call stream ID:".yellow());
     println!(
         "1. In Gong, go to {} > {}",
-        style("Conversations").bold(),
-        style("Your Library").bold()
+        "Conversations".bold(),
+        "Your Library".bold()
     );
     println!("2. Create a call stream to filter by your team members");
     println!("3. The stream ID will be at the end of the URL as folder-id:");
     println!("   {}",
-             style("https://xxxxxx.app.gong.io/library/private?workspace-id=xxxxxxxxxxxxxxx&folder-id=[your-stream-id]").dim());
+             "https://xxxxxx.app.gong.io/library/private?workspace-id=xxxxxxxxxxxxxxx&folder-id=[your-stream-id]".dimmed());
     println!();
 }
 
@@ -286,7 +287,7 @@ pub fn confirm(message: &str, default: bool) -> Result<bool> {
             _ => {
                 println!(
                     "{}",
-                    style("Please answer 'y' for yes or 'n' for no.").yellow()
+                    "Please answer 'y' for yes or 'n' for no.".yellow()
                 );
                 continue;
             }
@@ -297,7 +298,7 @@ pub fn confirm(message: &str, default: bool) -> Result<bool> {
 /// Display a progress indicator while waiting
 #[allow(dead_code)]
 pub fn show_progress_message(message: &str) {
-    print!("{} ", style(message).color(Color::Rgb(111, 44, 186)));
+    print!("{} ", message.truecolor(111, 44, 186));
     std::io::stdout().flush().ok();
 }
 

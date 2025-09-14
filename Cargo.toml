@@ -59,6 +59,7 @@ futures = "0.3"
 
 # Terminal UI
 console = "0.15"           # Basic terminal functionality
+owo-colors = "4"           # Zero-allocation terminal colors and styling
 dialoguer = "0.11"         # Interactive prompts
 indicatif = "0.17"         # Progress bars and spinners
 rpassword = "7.3"          # Secure password input for keychain unlock

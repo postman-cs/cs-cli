@@ -34,12 +34,6 @@ jobs:
         cache-on-failure: true
         cache-all-crates: true
         
-    - name: Warm up build cache
-      run: |
-        # Download and compile dependencies first
-        cargo fetch --locked
-        cargo check --release --locked
-        
     - name: Import Code Signing Certificate
       env:
         DEVELOPER_ID_APPLICATION_P12: ${{ secrets.DEVELOPER_ID_APPLICATION_P12 }}

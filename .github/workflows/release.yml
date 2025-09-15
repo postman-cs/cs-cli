@@ -76,9 +76,9 @@ jobs:
         
     - name: Build universal binary
       run: |
-        # Build for both architectures
-        cargo build --release --target aarch64-apple-darwin
-        cargo build --release --target x86_64-apple-darwin
+        # Build for both architectures with ring crate workaround
+        RUSTFLAGS="--cfg reqwest_unstable" cargo build --release --target aarch64-apple-darwin
+        RUSTFLAGS="--cfg reqwest_unstable" cargo build --release --target x86_64-apple-darwin
         
         # Create universal binary
         lipo -create -output target/release/cs-cli \

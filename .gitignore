@@ -2,7 +2,9 @@
 /target
 **/*.rs.bk
 # Note: Cargo.lock is committed for binary applications (reproducible builds)
-.cu*/
+
+# Pre-release files
+slack/
 
 # macOS
 .DS_Store
@@ -30,3 +32,4 @@ LICENSE.txt
 
 # Backup files
 *.backup
+.cu*/

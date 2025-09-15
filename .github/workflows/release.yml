@@ -19,8 +19,6 @@ jobs:
       
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
-      with:
-        targets: aarch64-apple-darwin,x86_64-apple-darwin
         
     - name: Install UPX
       run: brew install upx
@@ -74,19 +72,15 @@ jobs:
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         echo "Building version: $VERSION"
         
-    - name: Build universal binary
+    - name: Build native binary
       run: |
-        # Build for both architectures with ring crate workaround
-        RUSTFLAGS="--cfg reqwest_unstable" cargo build --release --target aarch64-apple-darwin
-        RUSTFLAGS="--cfg reqwest_unstable" cargo build --release --target x86_64-apple-darwin
+        # Build for the runner's native architecture (ARM64 on macos-latest)
+        # This avoids ring crate cross-compilation issues
+        RUSTFLAGS="--cfg reqwest_unstable" cargo build --release
         
-        # Create universal binary
-        lipo -create -output target/release/cs-cli \
-          target/aarch64-apple-darwin/release/cs-cli \
-          target/x86_64-apple-darwin/release/cs-cli
-          
-        echo "Universal binary created:"
-        lipo -info target/release/cs-cli
+        echo "Native binary created:"
+        file target/release/cs-cli
+        lipo -info target/release/cs-cli || echo "Single architecture binary"
         
     - name: Build and sign PKG
       run: |
@@ -96,7 +90,7 @@ jobs:
         
     - name: Notarize PKG
       run: |
-        PKG_FILE="cs-cli-universal-${{ steps.version.outputs.version }}.pkg"
+        PKG_FILE="cs-cli-arm64-${{ steps.version.outputs.version }}.pkg"
         
         # Submit for notarization
         xcrun notarytool submit "$PKG_FILE" \
@@ -111,7 +105,7 @@ jobs:
     - name: Generate SHA256
       id: sha256
       run: |
-        PKG_FILE="cs-cli-universal-${{ steps.version.outputs.version }}.pkg"
+        PKG_FILE="cs-cli-arm64-${{ steps.version.outputs.version }}.pkg"
         SHA256=$(shasum -a 256 "$PKG_FILE" | cut -d' ' -f1)
         echo "sha256=$SHA256" >> $GITHUB_OUTPUT
         echo "SHA256: $SHA256"
@@ -120,7 +114,7 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        PKG_FILE="cs-cli-universal-${{ steps.version.outputs.version }}.pkg"
+        PKG_FILE="cs-cli-arm64-${{ steps.version.outputs.version }}.pkg"
         VERSION="${{ steps.version.outputs.version }}"
         
         # Create release with PKG
@@ -162,7 +156,7 @@ jobs:
         ## Requirements
         
         - macOS 10.15 or later
-        - Universal binary (Apple Silicon + Intel)
+        - Apple Silicon (ARM64) Mac
         
         Built with Rust 🦀 for performance and reliability.
         "
@@ -173,7 +167,7 @@ jobs:
       run: |
         VERSION="${{ steps.version.outputs.version }}"
         SHA256="${{ steps.sha256.outputs.sha256 }}"
-        PKG_URL="https://github.com/postman-cs/cs-cli/releases/download/v$VERSION/cs-cli-universal-$VERSION.pkg"
+        PKG_URL="https://github.com/postman-cs/cs-cli/releases/download/v$VERSION/cs-cli-arm64-$VERSION.pkg"
         
         # Update stable.json
         cat > updates/stable.json << EOF
@@ -182,15 +176,15 @@ jobs:
           "latest": {
             "version": "$VERSION",
             "min_macos": "10.15",
-            "universal": true,
+            "universal": false,
             "pkg_identifier": "com.postman.cs-cli",
             "release_notes_url": "https://github.com/postman-cs/cs-cli/releases/tag/v$VERSION",
             "artifacts": [
               {
-                "arch": "universal",
+                "arch": "arm64",
                 "pkg_url": "$PKG_URL",
                 "sha256": "$SHA256",
-                "size": $(stat -f%z "cs-cli-universal-$VERSION.pkg")
+                "size": $(stat -f%z "cs-cli-arm64-$VERSION.pkg")
               }
             ]
           }
@@ -211,7 +205,7 @@ jobs:
       run: |
         VERSION="${{ steps.version.outputs.version }}"
         SHA256="${{ steps.sha256.outputs.sha256 }}"
-        PKG_URL="https://github.com/postman-cs/cs-cli/releases/download/v$VERSION/cs-cli-universal-$VERSION.pkg"
+        PKG_URL="https://github.com/postman-cs/cs-cli/releases/download/v$VERSION/cs-cli-arm64-$VERSION.pkg"
         
         # Update beta.json
         cat > updates/beta.json << EOF
@@ -220,15 +214,15 @@ jobs:
           "latest": {
             "version": "$VERSION",
             "min_macos": "10.15",
-            "universal": true,
+            "universal": false,
             "pkg_identifier": "com.postman.cs-cli",
             "release_notes_url": "https://github.com/postman-cs/cs-cli/releases/tag/v$VERSION",
             "artifacts": [
               {
-                "arch": "universal",
+                "arch": "arm64",
                 "pkg_url": "$PKG_URL",
                 "sha256": "$SHA256",
-                "size": $(stat -f%z "cs-cli-universal-$VERSION.pkg")
+                "size": $(stat -f%z "cs-cli-arm64-$VERSION.pkg")
               }
             ]
           }

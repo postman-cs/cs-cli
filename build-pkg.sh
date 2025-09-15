@@ -23,7 +23,7 @@ echo "Step 1: Preparing binary..."
 # Check if binary already exists (from CI), otherwise build it
 if [ ! -f "target/release/cs-cli" ]; then
     echo "Binary not found, building..."
-    RUSTFLAGS='--cfg reqwest_unstable -C target-feature=+neon,+aes,+pmull,+sha256,+sha512' \
+    RUSTFLAGS='--cfg reqwest_unstable -C target-feature=+neon,+aes,+sha2,+sha3' \
         cargo build --release
 else
     echo "Using existing binary from target/release/cs-cli"

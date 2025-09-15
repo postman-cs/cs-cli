@@ -30,11 +30,12 @@ const TEAM_ID: &str = "RGSZTAM229";
 const PKG_IDENTIFIER: &str = "com.postman.cs-cli";
 const DEFAULT_CHANNEL: &str = "stable";
 const MANIFEST_BASE_URL: &str = "https://raw.githubusercontent.com/postman-cs/cs-cli/main/updates";
-const INSTALL_ROOT: &str = "/Library/CS-CLI";
+// Removed unused INSTALL_ROOT constant
 const VERSIONS_DIR: &str = "/Library/CS-CLI/versions";
 
 #[derive(Debug, Deserialize)]
 struct Manifest {
+    #[allow(dead_code)]
     channel: String,
     latest: Release,
 }
@@ -42,9 +43,12 @@ struct Manifest {
 #[derive(Debug, Deserialize)]
 struct Release {
     version: String,
+    #[allow(dead_code)]
     min_macos: Option<String>,
+    #[allow(dead_code)]
     universal: Option<bool>,
     artifacts: Vec<Artifact>,
+    #[allow(dead_code)]
     pkg_identifier: Option<String>,
     release_notes_url: Option<String>,
 }
@@ -54,6 +58,7 @@ struct Artifact {
     arch: String,             // "arm64" | "x86_64" | "universal"
     pkg_url: String,
     sha256: String,
+    #[allow(dead_code)]
     size: Option<u64>,
 }
 

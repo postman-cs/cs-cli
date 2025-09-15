@@ -89,6 +89,10 @@ nix = { version = "0.29", features = ["user"] }  # Unix system calls with user f
 sha2 = "0.10"               # SHA256 hashing for integrity verification
 tempfile = "3.0"            # Secure temporary files for downloads
 
+[features]
+default = []
+slack = []                  # Slack integration feature flag
+
 [dev-dependencies]
 tokio-test = "0.4"
 criterion = "0.5"           # Professional benchmarking

@@ -7,7 +7,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: '--cfg reqwest_unstable'
+  RUSTFLAGS: '--cfg reqwest_unstable -C target-feature=+neon,+aes,+pmull,+sha256,+sha512'
   CARGO_NET_RETRY: 10   # More retries for network operations
   RUST_BACKTRACE: short # Shorter backtraces for cleaner logs
 

@@ -5,6 +5,9 @@
 
 pub mod common;
 pub mod gong;
+
+// Slack module is excluded from customer-facing builds
+#[cfg(feature = "slack")]
 pub mod slack;
 
 // Re-export core types for convenience

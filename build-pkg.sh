@@ -18,11 +18,16 @@ INSTALLER_IDENTITY="Developer ID Installer: Jared Boynton (RGSZTAM229)"
 
 # Step 1: Build and compress binary with UPX
 echo ""
-echo "Step 1: Building and compressing binary..."
+echo "Step 1: Preparing binary..."
 
-# Build optimized binary
-RUSTFLAGS='--cfg reqwest_unstable -C target-cpu=native -C opt-level=3' \
-    cargo build --release
+# Check if binary already exists (from CI), otherwise build it
+if [ ! -f "target/release/cs-cli" ]; then
+    echo "Binary not found, building..."
+    RUSTFLAGS='--cfg reqwest_unstable -C target-feature=+neon,+aes,+pmull,+sha256,+sha512' \
+        cargo build --release
+else
+    echo "Using existing binary from target/release/cs-cli"
+fi
 
 # Check for UPX
 if command -v upx &> /dev/null; then

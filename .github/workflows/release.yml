@@ -38,7 +38,7 @@ jobs:
       run: |
         # Download and compile dependencies first
         cargo fetch --locked
-        RUSTFLAGS="--cfg reqwest_unstable" cargo check --release --locked
+        cargo check --release --locked
         
     - name: Import Code Signing Certificate
       env:
@@ -85,7 +85,7 @@ jobs:
         # Build natively for the runner's architecture (ARM64 on macos-14)
         # No cross-compilation needed - avoids ring crate issues
         # Use parallel frontend builds for faster compilation
-        RUSTFLAGS="--cfg reqwest_unstable" cargo build --release --locked -j 4
+        cargo build --release --locked -j 4
         
         echo "Native binary created:"
         file target/release/cs-cli

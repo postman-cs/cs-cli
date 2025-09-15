@@ -25,9 +25,11 @@ Critical customer issues hide in a sea of data; by the time they surface, most o
 
 ### Installation
 
-**[Download CS-CLI Installer](https://github.com/postman-cs/cs-cli/releases/latest/download/cs-cli-arm64-1.0.0.pkg)**
+**[Download CS-CLI Installer](https://github.com/postman-cs/cs-cli/releases/latest)**
 
-Just download and double-click. That's it!
+Just download the latest PKG file and double-click. That's it!
+
+*The tool automatically updates itself when new versions are available.*
 
 <details>
 <summary>Alternative: Command line installation</summary>
@@ -112,6 +114,9 @@ Make sure you're logged into Gοng first. The tool can only see data you have ac
 
 **"Where do the files go?"**  
 Always on your Desktop! Each customer gets their own folder: `ct_postman`, `ct_stripe`, etc. Easy to find, easy to share.
+
+**"How do I update the tool?"**  
+It updates automatically! If you want to check manually, just type `cs-cli self update`.
 
 ## Your Next Move
 

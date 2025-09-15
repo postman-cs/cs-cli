@@ -12,6 +12,7 @@ pub enum CsCliError {
     NetworkTimeout(String),
     CookieExtraction(String),
     InvalidArguments { message: String },
+    UpdateError(String),
     Generic(String),
 }
 
@@ -25,6 +26,7 @@ impl fmt::Display for CsCliError {
             CsCliError::NetworkTimeout(msg) => write!(f, "Network timeout error: {msg}"),
             CsCliError::CookieExtraction(msg) => write!(f, "Cookie extraction error: {msg}"),
             CsCliError::InvalidArguments { message } => write!(f, "Invalid arguments: {message}"),
+            CsCliError::UpdateError(msg) => write!(f, "Update error: {msg}"),
             CsCliError::Generic(msg) => write!(f, "Error: {msg}"),
         }
     }

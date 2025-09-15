@@ -33,3 +33,23 @@ LICENSE.txt
 # Backup files
 *.backup
 .cu*/
+
+# ==============================================================================
+# DEVELOPER/INTERNAL FILES
+# ==============================================================================
+
+# Auto-updater development files (internal implementation)
+AUTO_UPDATE.md
+updates/
+pkg-scripts/
+launchd/
+scripts/
+
+# Development workflows (keep internal)
+.github/workflows/
+
+# Slack integration (not ready for customers)
+src/slack/
+
+# Developer documentation (keep internal)
+DEVELOPER.md

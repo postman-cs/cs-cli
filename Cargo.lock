@@ -1022,6 +1022,7 @@ dependencies = [
  "impit",
  "indicatif",
  "jiff",
+ "nix 0.29.0",
  "owo-colors",
  "proptest",
  "rand 0.8.5",
@@ -1030,6 +1031,7 @@ dependencies = [
  "rookie",
  "rpassword",
  "rusqlite",
+ "semver",
  "serde",
  "serde_json",
  "sha2",
@@ -2727,6 +2729,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nix"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71e2746dc3a24dd78b3cfcb7be93368c6de9963d30f43a6a73998a9cf4b17b46"
+dependencies = [
+ "bitflags 2.9.4",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
+]
+
+[[package]]
 name = "nom"
 version = "7.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3566,6 +3580,7 @@ dependencies = [
  "cookie",
  "cookie_store",
  "encoding_rs",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "h2",
@@ -5463,7 +5478,7 @@ dependencies = [
  "futures-sink",
  "futures-util",
  "hex",
- "nix",
+ "nix 0.26.4",
  "once_cell",
  "ordered-stream",
  "rand 0.8.5",

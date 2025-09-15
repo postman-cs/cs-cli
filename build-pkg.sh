@@ -106,16 +106,25 @@ fi
 echo ""
 echo "Step 3: Creating PKG installer..."
 
-# Clean and create package directories
+# Clean and create package directories with versioned layout + app bundle
 rm -rf pkg-build
+mkdir -p "pkg-build/root/Library/CS-CLI/versions/${VERSION}"
 mkdir -p pkg-build/root/Applications
 mkdir -p pkg-build/scripts
 
-# Copy app to package root (rename to standard CS-CLI.app for simplicity)
+# Copy binary to versioned location
+cp target/release/cs-cli "pkg-build/root/Library/CS-CLI/versions/${VERSION}/cs-cli"
+chmod +x "pkg-build/root/Library/CS-CLI/versions/${VERSION}/cs-cli"
+
+# Copy app bundle to Applications (for compatibility)
 cp -R "${APP_NAME}.app" "pkg-build/root/Applications/CS-CLI.app"
 
-# Create postinstall script (runs after installation)
-cat > pkg-build/scripts/postinstall << 'POSTINSTALL'
+# Copy our new postinstall script
+cp pkg-scripts/postinstall pkg-build/scripts/postinstall
+chmod +x pkg-build/scripts/postinstall
+
+# Create postinstall script (runs after installation) - BACKUP VERSION
+cat > pkg-build/scripts/postinstall.backup << 'POSTINSTALL'
 #!/bin/bash
 
 # CS-CLI Post-Installation Script
@@ -219,14 +228,18 @@ By installing this software, you agree to use it in compliance with your organiz
 EOF
 fi
 
-# Detect architecture
-ARCH=$(uname -m)
-if [ "$ARCH" = "arm64" ]; then
-    PKG_ARCH="arm64"
-elif [ "$ARCH" = "x86_64" ]; then
-    PKG_ARCH="x86_64"
-else
+# Detect architecture or use universal if lipo was used
+if lipo -info target/release/cs-cli 2>/dev/null | grep -q "2 architectures"; then
     PKG_ARCH="universal"
+else
+    ARCH=$(uname -m)
+    if [ "$ARCH" = "arm64" ]; then
+        PKG_ARCH="arm64"
+    elif [ "$ARCH" = "x86_64" ]; then
+        PKG_ARCH="x86_64"
+    else
+        PKG_ARCH="universal"
+    fi
 fi
 
 # Build final product package

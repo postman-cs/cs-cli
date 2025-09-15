@@ -8,6 +8,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: '--cfg reqwest_unstable'
+  CARGO_INCREMENTAL: 0  # Disable incremental compilation in CI for smaller cache
+  CARGO_NET_RETRY: 10   # More retries for network operations
+  RUST_BACKTRACE: short # Shorter backtraces for cleaner logs
 
 jobs:
   build-and-release:
@@ -20,14 +23,23 @@ jobs:
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
         
-    - name: Install UPX
-      run: brew install upx
+    - name: Install build tools
+      run: |
+        # Install UPX for binary compression
+        brew install upx
       
     - name: Cache Rust dependencies
       uses: Swatinem/rust-cache@v2
       with:
-        # Cache key based on Cargo.lock and target
-        key: ${{ hashFiles('**/Cargo.lock') }}
+        # Optimized cache configuration
+        cache-on-failure: true
+        cache-all-crates: true
+        
+    - name: Warm up build cache
+      run: |
+        # Download and compile dependencies first
+        cargo fetch --locked
+        RUSTFLAGS="--cfg reqwest_unstable" cargo check --release --locked
         
     - name: Import Code Signing Certificate
       env:
@@ -71,9 +83,10 @@ jobs:
         
     - name: Build native binary
       run: |
-        # Build natively for the runner's architecture (ARM64 on macos-latest)
+        # Build natively for the runner's architecture (ARM64 on macos-14)
         # No cross-compilation needed - avoids ring crate issues
-        RUSTFLAGS="--cfg reqwest_unstable" cargo build --release --locked
+        # Use parallel frontend builds for faster compilation
+        RUSTFLAGS="--cfg reqwest_unstable" cargo build --release --locked -j 4
         
         echo "Native binary created:"
         file target/release/cs-cli

@@ -1,0 +1,241 @@
+name: Build and Release CS-CLI
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: '--cfg reqwest_unstable'
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-apple-darwin,x86_64-apple-darwin
+        
+    - name: Install UPX
+      run: brew install upx
+      
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        
+    - name: Import Code Signing Certificate
+      env:
+        DEVELOPER_ID_APPLICATION_P12: ${{ secrets.DEVELOPER_ID_APPLICATION_P12 }}
+        DEVELOPER_ID_INSTALLER_P12: ${{ secrets.DEVELOPER_ID_INSTALLER_P12 }}
+        CERTIFICATES_PASSWORD: ${{ secrets.CERTIFICATES_PASSWORD }}
+      run: |
+        # Create temporary files for certificates
+        echo "$DEVELOPER_ID_APPLICATION_P12" | base64 --decode > app_cert.p12
+        echo "$DEVELOPER_ID_INSTALLER_P12" | base64 --decode > installer_cert.p12
+        
+        # Import certificates to keychain
+        security create-keychain -p "$CERTIFICATES_PASSWORD" build.keychain
+        security default-keychain -s build.keychain
+        security unlock-keychain -p "$CERTIFICATES_PASSWORD" build.keychain
+        security import app_cert.p12 -k build.keychain -P "$CERTIFICATES_PASSWORD" -T /usr/bin/codesign
+        security import installer_cert.p12 -k build.keychain -P "$CERTIFICATES_PASSWORD" -T /usr/bin/productsign
+        security set-key-partition-list -S apple-tool:,apple: -s -k "$CERTIFICATES_PASSWORD" build.keychain
+        
+        # Clean up certificate files
+        rm app_cert.p12 installer_cert.p12
+        
+    - name: Set up notarization
+      env:
+        NOTARIZATION_APPLE_ID: ${{ secrets.NOTARIZATION_APPLE_ID }}
+        NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
+        NOTARIZATION_TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
+      run: |
+        # Store notarization credentials
+        xcrun notarytool store-credentials "notarytool-profile" \
+          --apple-id "$NOTARIZATION_APPLE_ID" \
+          --password "$NOTARIZATION_PASSWORD" \
+          --team-id "$NOTARIZATION_TEAM_ID"
+          
+    - name: Get version from tag
+      id: version
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/v}
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Building version: $VERSION"
+        
+    - name: Build universal binary
+      run: |
+        # Build for both architectures
+        cargo build --release --target aarch64-apple-darwin
+        cargo build --release --target x86_64-apple-darwin
+        
+        # Create universal binary
+        lipo -create -output target/release/cs-cli \
+          target/aarch64-apple-darwin/release/cs-cli \
+          target/x86_64-apple-darwin/release/cs-cli
+          
+        echo "Universal binary created:"
+        lipo -info target/release/cs-cli
+        
+    - name: Build and sign PKG
+      run: |
+        # Run our build script
+        chmod +x build-pkg.sh
+        ./build-pkg.sh
+        
+    - name: Notarize PKG
+      run: |
+        PKG_FILE="cs-cli-universal-${{ steps.version.outputs.version }}.pkg"
+        
+        # Submit for notarization
+        xcrun notarytool submit "$PKG_FILE" \
+          --keychain-profile "notarytool-profile" \
+          --wait
+          
+        # Staple the notarization
+        xcrun stapler staple "$PKG_FILE"
+        
+        echo "Notarization complete for $PKG_FILE"
+        
+    - name: Generate SHA256
+      id: sha256
+      run: |
+        PKG_FILE="cs-cli-universal-${{ steps.version.outputs.version }}.pkg"
+        SHA256=$(shasum -a 256 "$PKG_FILE" | cut -d' ' -f1)
+        echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+        echo "SHA256: $SHA256"
+        
+    - name: Create GitHub Release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        PKG_FILE="cs-cli-universal-${{ steps.version.outputs.version }}.pkg"
+        VERSION="${{ steps.version.outputs.version }}"
+        
+        # Create release with PKG
+        gh release create "v$VERSION" "$PKG_FILE" \
+          --title "v$VERSION: Enhanced Auto-Update Support" \
+          --notes "
+        ## What's New in v$VERSION
+        
+        - **Auto-Update System**: Built-in \`cs-cli self update\` command
+        - **Rollback Support**: \`cs-cli self rollback\` to previous version
+        - **Version Management**: \`cs-cli self versions\` to list installed versions
+        - **Dual Installation**: Both app bundle and versioned CLI for flexibility
+        - **Channel Support**: Stable and beta update channels
+        
+        ## Installation
+        
+        Download the PKG installer and double-click to install:
+        
+        - Installs CS-CLI.app to /Applications
+        - Sets up \`cs-cli\` command automatically
+        - Enables auto-updates via \`cs-cli self update\`
+        
+        ## Auto-Update Usage
+        
+        \`\`\`bash
+        # Check for updates
+        cs-cli self update
+        
+        # Update to beta channel
+        cs-cli self update --channel beta
+        
+        # Roll back to previous version
+        cs-cli self rollback
+        
+        # List installed versions
+        cs-cli self versions
+        \`\`\`
+        
+        ## Requirements
+        
+        - macOS 10.15 or later
+        - Universal binary (Apple Silicon + Intel)
+        
+        Built with Rust 🦀 for performance and reliability.
+        "
+        
+    - name: Update stable manifest
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        SHA256="${{ steps.sha256.outputs.sha256 }}"
+        PKG_URL="https://github.com/postman-cs/cs-cli/releases/download/v$VERSION/cs-cli-universal-$VERSION.pkg"
+        
+        # Update stable.json
+        cat > updates/stable.json << EOF
+        {
+          "channel": "stable",
+          "latest": {
+            "version": "$VERSION",
+            "min_macos": "10.15",
+            "universal": true,
+            "pkg_identifier": "com.postman.cs-cli",
+            "release_notes_url": "https://github.com/postman-cs/cs-cli/releases/tag/v$VERSION",
+            "artifacts": [
+              {
+                "arch": "universal",
+                "pkg_url": "$PKG_URL",
+                "sha256": "$SHA256",
+                "size": $(stat -f%z "cs-cli-universal-$VERSION.pkg")
+              }
+            ]
+          }
+        }
+        EOF
+        
+        # Commit and push manifest update
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add updates/stable.json
+        git commit -m "Update stable manifest to v$VERSION"
+        git push origin main
+        
+    - name: Update beta manifest (if pre-release)
+      if: contains(github.ref, 'beta') || contains(github.ref, 'alpha') || contains(github.ref, 'rc')
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        SHA256="${{ steps.sha256.outputs.sha256 }}"
+        PKG_URL="https://github.com/postman-cs/cs-cli/releases/download/v$VERSION/cs-cli-universal-$VERSION.pkg"
+        
+        # Update beta.json
+        cat > updates/beta.json << EOF
+        {
+          "channel": "beta",
+          "latest": {
+            "version": "$VERSION",
+            "min_macos": "10.15",
+            "universal": true,
+            "pkg_identifier": "com.postman.cs-cli",
+            "release_notes_url": "https://github.com/postman-cs/cs-cli/releases/tag/v$VERSION",
+            "artifacts": [
+              {
+                "arch": "universal",
+                "pkg_url": "$PKG_URL",
+                "sha256": "$SHA256",
+                "size": $(stat -f%z "cs-cli-universal-$VERSION.pkg")
+              }
+            ]
+          }
+        }
+        EOF
+        
+        # Commit and push beta manifest update
+        git add updates/beta.json
+        git commit -m "Update beta manifest to v$VERSION"
+        git push origin main

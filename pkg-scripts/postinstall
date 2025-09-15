@@ -1,0 +1,45 @@
+#!/bin/bash
+# CS-CLI PKG Post-Installation Script
+# Handles versioned installation, symlink management, and migration
+
+set -euo pipefail
+
+ROOT="/Library/CS-CLI"
+BIN="cs-cli"
+VERS_DIR="$ROOT/versions"
+
+# Migrate legacy binary if it exists and is not a symlink
+if [ -f /usr/local/bin/$BIN ] && [ ! -L /usr/local/bin/$BIN ]; then
+  mkdir -p "$ROOT/backup"
+  mv /usr/local/bin/$BIN "$ROOT/backup/$BIN-$(date +%s)" || true
+  echo "Migrated legacy cs-cli binary to backup"
+fi
+
+# Determine the newest version installed in this transaction
+NEW_VERSION="$(ls -1 "$VERS_DIR" | sort -V | tail -1)"
+
+# Point 'current' to the newest version and refresh symlink in /usr/local/bin
+ln -sfn "$VERS_DIR/$NEW_VERSION" "$ROOT/current"
+mkdir -p /usr/local/bin
+ln -sfn "$ROOT/current/$BIN" "/usr/local/bin/$BIN"
+chown -h root:wheel "$ROOT/current" "/usr/local/bin/$BIN"
+
+echo "Installed CS-CLI version $NEW_VERSION"
+echo "Command available at: /usr/local/bin/$BIN"
+
+# Retain only last 3 versions
+KEEP=3
+count=$(ls -1 "$VERS_DIR" | wc -l | tr -d ' ')
+if [ "$count" -gt "$KEEP" ]; then
+  ls -1 "$VERS_DIR" | sort -V | head -n $((count - KEEP)) | while read v; do
+    echo "Removing old version: $v"
+    rm -rf "$VERS_DIR/$v"
+  done
+fi
+
+# Set proper permissions
+chown -R root:wheel "$ROOT"
+chmod -R 755 "$ROOT"
+chmod +x "$ROOT/current/$BIN"
+
+exit 0

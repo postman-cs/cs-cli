@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.postman.cs-cli.updater</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>/Library/CS-CLI/current/cs-cli</string>
+      <string>self</string>
+      <string>update</string>
+      <string>--background</string>
+      <string>--assume-yes</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>86400</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Library/Logs/CS-CLI/updater.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Library/Logs/CS-CLI/updater.err</string>
+    <key>AbandonProcessGroup</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+  </dict>
+</plist>

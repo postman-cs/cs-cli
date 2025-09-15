@@ -1,0 +1,18 @@
+{
+  "channel": "beta",
+  "latest": {
+    "version": "1.2.0-beta.1",
+    "min_macos": "10.15",
+    "universal": false,
+    "pkg_identifier": "com.postman.cs-cli",
+    "release_notes_url": "https://github.com/postman-cs/cs-cli/releases/tag/v1.2.0-beta.1",
+    "artifacts": [
+      {
+        "arch": "arm64",
+        "pkg_url": "https://github.com/postman-cs/cs-cli/releases/download/v1.2.0-beta.1/cs-cli-arm64-1.2.0-beta.1.pkg",
+        "sha256": "abc123...",
+        "size": 6400000
+      }
+    ]
+  }
+}

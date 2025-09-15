@@ -1,0 +1,18 @@
+{
+  "channel": "stable",
+  "latest": {
+    "version": "1.1.0",
+    "min_macos": "10.15",
+    "universal": false,
+    "pkg_identifier": "com.postman.cs-cli",
+    "release_notes_url": "https://github.com/postman-cs/cs-cli/releases/tag/v1.1.0",
+    "artifacts": [
+      {
+        "arch": "arm64",
+        "pkg_url": "https://github.com/postman-cs/cs-cli/releases/download/v1.1.0/cs-cli-arm64-1.1.0.pkg",
+        "sha256": "fda5c2fa9730b5ca0875bee253f7c223fe97...",
+        "size": 6320178
+      }
+    ]
+  }
+}

@@ -8,7 +8,6 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: '--cfg reqwest_unstable'
-  CARGO_INCREMENTAL: 0  # Disable incremental compilation in CI for smaller cache
   CARGO_NET_RETRY: 10   # More retries for network operations
   RUST_BACKTRACE: short # Shorter backtraces for cleaner logs
 

@@ -408,7 +408,7 @@ EOF
 
     # 9. Sign the final package
     if [ -n "${INSTALLER_IDENTITY:-}" ]; then
-        if security find-identity -v -p codesigning | grep -q "$INSTALLER_IDENTITY"; then
+        if security find-identity -v | grep -q "$INSTALLER_IDENTITY"; then
             log INFO "Signing installer packages..."
             local signed_pkg_name="${final_pkg_name}.signed"
             productsign --sign "$INSTALLER_IDENTITY" "$final_pkg_name" "$signed_pkg_name"

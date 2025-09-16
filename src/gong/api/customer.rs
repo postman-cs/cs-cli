@@ -211,7 +211,7 @@ impl GongCustomerSearchClient {
         let status_code = response.status().as_u16();
 
         if status_code == 401 {
-            let auth_state = self.auth.get_auth_state();
+            let _auth_state = self.auth.get_auth_state();
         }
 
         if response.status().is_success() {

@@ -105,7 +105,7 @@ fn get_time_period() -> Result<u32> {
     loop {
         let days_input: String = Input::new()
             .with_prompt("Number of days")
-            .default("90".to_string())
+            .default("180".to_string())
             .show_default(true)
             .interact_text()
             .map_err(|e| crate::CsCliError::Generic(format!("Input error: {e}")))?;
@@ -120,8 +120,8 @@ fn get_time_period() -> Result<u32> {
                 continue;
             }
             Err(_) => {
-                println!("{}", "Using default: 90 days".yellow());
-                return Ok(90);
+                println!("{}", "Using default: 180 days".yellow());
+                return Ok(180);
             }
         }
     }

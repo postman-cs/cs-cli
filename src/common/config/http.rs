@@ -30,8 +30,8 @@ impl Default for HttpSettings {
             timeout_seconds: 30.0,
             max_clients: None,
             global_max_concurrency: None,
-            enable_http3: true,  // Enable HTTP/3 by default for better performance
-            force_http3: false,  // Allow fallback to HTTP/2 if needed
+            enable_http3: true,   // Enable HTTP/3 with fallback to HTTP/2
+            force_http3: false,   // Allow fallback to HTTP/2 if HTTP/3 fails
             tls_version: None,
             impersonate_browser: "chrome".to_string(),
         }

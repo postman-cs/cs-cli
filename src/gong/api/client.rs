@@ -194,20 +194,9 @@ impl GongHttpClient {
                 .collect::<Vec<_>>()
                 .join("; ");
 
-            println!(
-                "🔍 DEBUG: Adding {} cookies to request: {}",
-                cookies.len(),
-                &cookie_string[..std::cmp::min(100, cookie_string.len())]
-            );
-
             if let Ok(cookie_value) = HeaderValue::from_str(&cookie_string) {
                 header_map.insert(COOKIE, cookie_value);
-                println!("🔍 DEBUG: Cookie header added successfully");
-            } else {
-                println!("🔍 DEBUG: Failed to create Cookie header value");
             }
-        } else {
-            println!("🔍 DEBUG: NO COOKIES TO ADD - this is the problem!");
         }
         drop(cookies);
 

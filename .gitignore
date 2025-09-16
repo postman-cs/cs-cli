@@ -1,0 +1,55 @@
+# Rust build artifacts
+/target
+**/*.rs.bk
+# Note: Cargo.lock is committed for binary applications (reproducible builds)
+
+# Pre-release files
+slack/
+
+# macOS
+.DS_Store
+*.swp
+
+# Environment variables
+.env
+
+# Build outputs
+*.pkg
+*.app
+*.zip
+*.dmg
+cs-cli-darwin-*
+cs-cli-macos-*
+cs-cli-windows-*
+cs-cli-linux-*
+cs-cli-arm64-*
+cs-cli-x86_64-*
+
+# Temporary build files
+pkg-build/
+release/
+cs-cli-component.pkg
+distribution.xml
+LICENSE.txt
+
+# Backup files
+*.backup
+.cu*/
+
+# ==============================================================================
+# DEVELOPER/INTERNAL FILES
+# ==============================================================================
+
+launchd/
+src/slack/
+src/gainsight/
+DEVELOPER.md
+create-icon.sh
+build-pkg.sh
+build.sh
+pkg-scripts/
+postinstall.sh
+
+# Commenting out github actions for now
+.github/workflows/
+target/

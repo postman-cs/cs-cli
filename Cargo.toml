@@ -1,0 +1,139 @@
+[package]
+name = "cs-cli"
+version = "1.1.1"
+edition = "2021"
+description = "CLI tool to analyze customer communications from Gong"
+authors = ["Customer Success Team"]
+license = "MIT"
+
+[[bin]]
+name = "cs-cli"
+path = "src/main.rs"
+
+[dependencies]
+# HTTP client with TLS fingerprinting and browser impersonation
+impit = { git = "https://github.com/apify/impit.git", branch = "master" }
+reqwest = { version = "0.12", features = ["json", "cookies", "gzip", "http3", "blocking"] }
+
+# Async runtime - optimized features for our use case
+tokio = { version = "1.0", features = [
+    "rt-multi-thread",  # Multi-threaded runtime for concurrent API calls
+    "net",              # TCP/HTTP networking for Gong API
+    "time",             # Timeouts and delays for retry logic  
+    "sync",             # Semaphores for rate limiting and concurrency control
+    "macros",           # #[tokio::main] and #[tokio::test] macros
+    "fs",               # File I/O for output generation and config
+    "io-util",          # Async I/O utilities for HTTP streaming
+] }
+
+# CLI interface
+clap = { version = "4.4", features = ["derive", "env", "wrap_help", "color", "suggestions"] }
+clap_complete = "4.5"       # Shell completion (bash/zsh/fish/powershell)
+
+# JSON handling
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"         # JSON serialization and macros
+
+# Multi-browser cookie extraction (Firefox, Chrome, Safari, etc.)
+rookie = "0.5.6"
+rusqlite = "0.31"  # Match the version used by rookie
+
+# Date/time handling - modern alternative to chrono
+jiff = { version = "0.2", features = ["serde"] }
+
+# HTML processing
+htmd = "0.2"                # Better HTML to markdown conversion
+
+# Error handling
+anyhow = "1.0"             # Generic error handling
+async-trait = "0.1"        # Async traits for common interfaces
+
+# Logging - with monitoring
+tracing = "0.1"
+
+# Logging
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
+
+# Concurrency control
+futures = "0.3"
+
+# Terminal UI
+console = "0.15"           # Basic terminal functionality
+owo-colors = "4"           # Zero-allocation terminal colors and styling
+dialoguer = "0.11"         # Interactive prompts
+indicatif = "0.17"         # Progress bars and spinners
+rpassword = "7.3"          # Secure password input for keychain unlock
+atty = "0.2"               # Check if running in interactive terminal
+
+# Configuration - figment for production-grade config management
+figment = { version = "0.10", features = ["env", "json", "toml", "yaml"] }
+
+# Regular expressions - testing superior alternatives
+regex = "1.10"              # Keep as primary
+
+# Random number generation for retry jitter
+rand = "0.8"
+
+# Base64 encoding/decoding - SIMD optimized
+base64-simd = "0.8"
+
+# URL encoding for query parameters
+urlencoding = "2.1"
+
+# Directory handling
+dirs = "5.0"                # Cross-platform directory paths
+
+
+[features]
+default = []
+slack = []                  # Slack integration feature flag
+
+[dev-dependencies]
+tokio-test = "0.4"
+criterion = "0.5"           # Professional benchmarking
+proptest = "1.6"            # Property-based testing
+
+# Fast development builds with reasonable performance
+[profile.dev]
+opt-level = 1          # Light optimization for faster builds
+debug = true           # Keep debug symbols for debugging
+incremental = true     # Enable incremental compilation (default)
+codegen-units = 4      # Parallel code generation
+overflow-checks = true # Keep safety checks in dev
+panic = "unwind"       # Faster than abort for debugging
+
+# Optimize dependencies for performance without slowing our code compilation
+[profile.dev.package."*"]
+opt-level = 3          # Full optimization for dependencies
+debug = false          # Strip debug info from dependencies
+
+# Fast test builds
+[profile.test]
+opt-level = 1
+incremental = true
+codegen-units = 4
+
+# Production release builds with Apple Silicon optimizations
+[profile.release]
+opt-level = 3
+lto = "fat"                # Full LTO for maximum optimization
+codegen-units = 1          # Single unit for better optimization
+panic = "abort"            # Smaller binary size
+strip = true               # Remove symbols for smaller binary
+
+# Apple Silicon M4 Max optimized release
+[profile.release-fast]
+inherits = "release"
+lto = "thin"               # Faster LTO for iterative optimization
+codegen-units = 4          # Balance between compile time and optimization
+
+# Windows-specific dependencies
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser"] }
+
+# Patched dependencies required for impit browser impersonation
+[patch.crates-io]
+rustls = { git = "https://github.com/apify/rustls.git" }
+h2 = { git = "https://github.com/apify/h2.git" }
+
+

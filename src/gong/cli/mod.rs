@@ -688,7 +688,7 @@ impl TeamCallsExtractor {
         } else if include_emails {
             println!(
                 "{}",
-                "Including emails with advanced BDR/SPAM filtering".yellow()
+                "Filtering emails to remove blasts and spam".yellow()
             );
         }
 

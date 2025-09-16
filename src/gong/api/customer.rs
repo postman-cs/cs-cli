@@ -195,9 +195,6 @@ impl GongCustomerSearchClient {
         headers.insert("sec-fetch-mode".to_string(), "cors".to_string());
         headers.insert("sec-fetch-site".to_string(), "same-origin".to_string());
 
-        // Debug: Print headers being sent
-        println!(" DEBUG: Headers being sent: {headers:?}");
-
         // Update headers on HTTP client
         self.http_client.update_headers(headers).await?;
 
@@ -209,18 +206,12 @@ impl GongCustomerSearchClient {
             .join("&");
         let full_url = format!("{url}?{query_string}");
 
-        println!(" DEBUG: Making suggestions API call: {full_url}");
-        println!(" DEBUG: Workspace ID being used: {}", self.workspace_id);
-
         let response = self.http_client.get(&full_url).await?;
 
         let status_code = response.status().as_u16();
-        println!(" DEBUG: Suggestions API response status: {status_code}");
 
         if status_code == 401 {
-            println!(" DEBUG: 401 error - checking auth state...");
             let auth_state = self.auth.get_auth_state();
-            println!(" DEBUG: Auth state: {auth_state:?}");
         }
 
         if response.status().is_success() {
@@ -233,16 +224,6 @@ impl GongCustomerSearchClient {
             let data: Value = serde_json::from_str(&response_text)
                 .map_err(|e| CsCliError::ApiRequest(format!("Failed to parse JSON: {e}")))?;
 
-            // Debug: Print raw API response
-            println!(
-                " DEBUG: Raw API response: {}",
-                &response_text[..std::cmp::min(500, response_text.len())]
-            );
-            println!(
-                " DEBUG: Response keys: {:?}",
-                data.as_object().map(|o| o.keys().collect::<Vec<_>>())
-            );
-
             // Extract suggestion data including account IDs
             let empty_suggestions = Vec::new();
             let suggestions = data
@@ -250,18 +231,11 @@ impl GongCustomerSearchClient {
                 .and_then(|s| s.as_array())
                 .unwrap_or(&empty_suggestions);
 
-            println!(
-                " DEBUG: Found {} suggestions in response",
-                suggestions.len()
-            );
             if suggestions.is_empty() {
-                println!(
-                    " DEBUG: No suggestions found - API response structure might be different"
-                );
             } else {
-                for (i, suggestion) in suggestions.iter().take(3).enumerate() {
-                    println!(" DEBUG: Suggestion {}: {:?}", i + 1, suggestion);
-                }
+                // for (i, suggestion) in suggestions.iter().take(3).enumerate() {
+                //     println!(" DEBUG: Suggestion {}: {:?}", i + 1, suggestion);
+                // }
             }
 
             let mut customer_results = Vec::new();

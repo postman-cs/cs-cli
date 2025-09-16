@@ -401,14 +401,24 @@ EOF
         "$final_pkg_name"
     log SUCCESS "Product package built: $final_pkg_name"
 
+    # Create version-agnostic copy for consistent latest download URLs
+    local generic_pkg_name="dist/release/${BINARY_NAME}-macos.pkg"
+    cp "$final_pkg_name" "$generic_pkg_name"
+    log SUCCESS "Created generic package: $generic_pkg_name"
+
     # 9. Sign the final package
     if [ -n "${INSTALLER_IDENTITY:-}" ]; then
         if security find-identity -v -p codesigning | grep -q "$INSTALLER_IDENTITY"; then
-            log INFO "Signing installer package..."
+            log INFO "Signing installer packages..."
             local signed_pkg_name="${final_pkg_name}.signed"
             productsign --sign "$INSTALLER_IDENTITY" "$final_pkg_name" "$signed_pkg_name"
             mv "$signed_pkg_name" "$final_pkg_name"
-            log SUCCESS "Installer package signed."
+            
+            # Also sign the generic package
+            local signed_generic_name="${generic_pkg_name}.signed"
+            productsign --sign "$INSTALLER_IDENTITY" "$generic_pkg_name" "$signed_generic_name"
+            mv "$signed_generic_name" "$generic_pkg_name"
+            log SUCCESS "Installer packages signed."
         else
             log WARN "Installer identity '$INSTALLER_IDENTITY' not found in keychain. Skipping."
         fi

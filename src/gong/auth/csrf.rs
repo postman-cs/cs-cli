@@ -191,7 +191,7 @@ impl CSRFManager {
             "Attempting CSRF token refresh"
         );
 
-        // Set required headers for CSRF token request
+        // Set required headers for CSRF token request (matching Python exactly)
         let mut headers = HashMap::new();
         headers.insert("X-Requested-With".to_string(), "XMLHttpRequest".to_string());
         headers.insert(

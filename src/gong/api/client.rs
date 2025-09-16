@@ -166,65 +166,55 @@ impl GongHttpClient {
             .unwrap_or_else(|| CsCliError::ApiRequest("Request failed after retries".to_string())))
     }
 
-    /// Make the actual HTTP request using impit API
+    /// Make the actual HTTP request using impit API correctly
     async fn make_request(&self, method: &str, url: &str, body: Option<&str>) -> Result<Response> {
-        use reqwest::header::{HeaderMap, HeaderName, HeaderValue, COOKIE};
-        use std::str::FromStr;
+        use std::time::Duration;
 
-        // Build headers
-        let mut header_map = HeaderMap::new();
-
-        // Add custom headers
-        let headers = self.headers.lock().await;
-        for (name, value) in headers.iter() {
-            if let (Ok(header_name), Ok(header_value)) =
-                (HeaderName::from_str(name), HeaderValue::from_str(value))
-            {
-                header_map.insert(header_name, header_value);
-            }
-        }
-        drop(headers);
-
-        // Add cookies as a single Cookie header
+        // Get current cookies and headers
         let cookies = self.cookies.lock().await;
-        if !cookies.is_empty() {
-            let cookie_string: String = cookies
+        let headers = self.headers.lock().await;
+
+        // Build cookie string
+        let cookie_string = if !cookies.is_empty() {
+            Some(cookies
                 .iter()
                 .map(|(name, value)| format!("{name}={value}"))
                 .collect::<Vec<_>>()
-                .join("; ");
-
-            if let Ok(cookie_value) = HeaderValue::from_str(&cookie_string) {
-                header_map.insert(COOKIE, cookie_value);
-            }
-        }
-        drop(cookies);
-
-        // Create RequestOptions with headers
-        let headers_vec = if header_map.is_empty() {
-            Vec::new()
+                .join("; "))
         } else {
-            header_map
-                .iter()
-                .map(|(name, value)| (name.to_string(), value.to_str().unwrap_or("").to_string()))
-                .collect::<Vec<(String, String)>>()
+            None
         };
+
+        // Build headers vec for impit RequestOptions
+        let mut headers_vec: Vec<(String, String)> = headers
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect();
+
+        // Add cookie header if we have cookies
+        if let Some(cookie_str) = cookie_string {
+            headers_vec.push(("Cookie".to_string(), cookie_str));
+        }
+
+        drop(cookies);
+        drop(headers);
 
         let request_options = Some(RequestOptions {
             headers: headers_vec,
             timeout: Some(Duration::from_secs_f64(self.config.timeout_seconds)),
-            http3_prior_knowledge: self.config.enable_http3 || self.config.force_http3,
+            http3_prior_knowledge: self.config.force_http3, // Only use prior knowledge if forced
         });
 
-        // Make the request using impit API (url, body, options)
+        // Use impit's documented API: get(url, body, options) and post(url, body, options)
         match method.to_uppercase().as_str() {
-            "GET" => self
-                .client
-                .get(url.to_string(), None, request_options)
-                .await
-                .map_err(|e| CsCliError::ApiRequest(format!("GET request failed: {e}"))),
+            "GET" => {
+                self.client
+                    .get(url.to_string(), None, request_options)
+                    .await
+                    .map_err(|e| CsCliError::ApiRequest(format!("GET request failed: {e}")))
+            }
             "POST" => {
-                // For POST requests, convert body to Vec<u8>
+                // Convert body to Vec<u8> for impit
                 let body_bytes = body.map(|b| b.as_bytes().to_vec());
                 self.client
                     .post(url.to_string(), body_bytes, request_options)

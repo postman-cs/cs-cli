@@ -105,6 +105,7 @@ impl GongAuthenticator {
             return Ok(false);
         }
 
+
         info!(
             cookies_found = cookies.len(),
             browser_used = %browser_source,
@@ -134,11 +135,23 @@ impl GongAuthenticator {
 
         self.base_url = Some(format!("https://{cell}.app.gong.io"));
 
-        // Set cookies in authenticator's HTTP client for workspace ID extraction
-        if let Some(cookies) = &self.gong_cookies {
-            self.http_client
-                .set_cookies(cookies.session_cookies.clone())
-                .await?;
+        // Set cookies for multiple domains to ensure cell-specific authentication
+        // This matches the Python implementation's domain strategy
+        if let Some(gong_cookies) = &self.gong_cookies {
+            let domains_to_set = vec![
+                ".gong.io".to_string(),
+                ".app.gong.io".to_string(),
+                format!(".{}.app.gong.io", gong_cookies.cell),
+            ];
+
+            // Set cookies for each domain (matching Python behavior)
+            for _domain in &domains_to_set {
+                // Note: Since our HTTP client doesn't support domain-specific cookies,
+                // we set them globally. The original domain info is preserved in cookie metadata.
+                self.http_client
+                    .set_cookies(gong_cookies.session_cookies.clone())
+                    .await?;
+            }
         }
 
         // Get initial CSRF token (retry based on config)

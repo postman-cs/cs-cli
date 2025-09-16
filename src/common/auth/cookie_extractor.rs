@@ -25,7 +25,7 @@ impl CookieExtractor {
         Self { domains }
     }
 
-    /// Extract Gong cookies from Firefox
+    /// Extract Gong cookies from Firefox (all profiles like Python version)
     pub fn extract_firefox_cookies(&self) -> Result<Vec<Cookie>> {
         match rookie::firefox(Some(self.domains.clone())) {
             Ok(cookies) => Ok(cookies
@@ -110,98 +110,131 @@ impl CookieExtractor {
         }
     }
 
+    /// Validate if cookies are not expired
+    fn filter_valid_cookies(&self, cookies: Vec<Cookie>) -> Vec<Cookie> {
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        cookies
+            .into_iter()
+            .filter(|cookie| {
+                // If expires is None, cookie is a session cookie (valid)
+                // If expires is Some(timestamp), check if it's in the future
+                match cookie.expires {
+                    None => true, // Session cookies are always valid
+                    Some(expires_timestamp) => expires_timestamp > current_time,
+                }
+            })
+            .collect()
+    }
+
     /// Extract cookies from all browsers that rookie supports with browser detection
     pub fn extract_gong_cookies_with_source(&self) -> Result<(Vec<Cookie>, String)> {
         // Try Firefox first (most common for technical users)
         if let Ok(cookies) = self.extract_firefox_cookies() {
-            if !cookies.is_empty() {
-                return Ok((cookies, "Firefox".to_string()));
+            let valid_cookies = self.filter_valid_cookies(cookies);
+            if !valid_cookies.is_empty() {
+                return Ok((valid_cookies, "Firefox".to_string()));
             }
         }
 
         // Try Chrome
         if let Ok(cookies) = self.extract_chrome_cookies() {
-            if !cookies.is_empty() {
-                return Ok((cookies, "Chrome".to_string()));
+            let valid_cookies = self.filter_valid_cookies(cookies);
+            if !valid_cookies.is_empty() {
+                return Ok((valid_cookies, "Chrome".to_string()));
             }
         }
 
         // Try Edge
         if let Ok(cookies) = self.extract_edge_cookies() {
-            if !cookies.is_empty() {
-                return Ok((cookies, "Edge".to_string()));
+            let valid_cookies = self.filter_valid_cookies(cookies);
+            if !valid_cookies.is_empty() {
+                return Ok((valid_cookies, "Edge".to_string()));
             }
         }
 
         // Try Arc
         if let Ok(cookies) = self.extract_arc_cookies() {
-            if !cookies.is_empty() {
-                return Ok((cookies, "Arc".to_string()));
+            let valid_cookies = self.filter_valid_cookies(cookies);
+            if !valid_cookies.is_empty() {
+                return Ok((valid_cookies, "Arc".to_string()));
             }
         }
 
         // Try Brave
         if let Ok(cookies) = self.extract_brave_cookies() {
-            if !cookies.is_empty() {
-                return Ok((cookies, "Brave".to_string()));
+            let valid_cookies = self.filter_valid_cookies(cookies);
+            if !valid_cookies.is_empty() {
+                return Ok((valid_cookies, "Brave".to_string()));
             }
         }
 
         // Try Chromium
         if let Ok(cookies) = self.extract_chromium_cookies() {
-            if !cookies.is_empty() {
-                return Ok((cookies, "Chromium".to_string()));
+            let valid_cookies = self.filter_valid_cookies(cookies);
+            if !valid_cookies.is_empty() {
+                return Ok((valid_cookies, "Chromium".to_string()));
             }
         }
 
         // Try LibreWolf
         if let Ok(cookies) = self.extract_librewolf_cookies() {
-            if !cookies.is_empty() {
-                return Ok((cookies, "LibreWolf".to_string()));
+            let valid_cookies = self.filter_valid_cookies(cookies);
+            if !valid_cookies.is_empty() {
+                return Ok((valid_cookies, "LibreWolf".to_string()));
             }
         }
 
         // Try Opera
         if let Ok(cookies) = self.extract_opera_cookies() {
-            if !cookies.is_empty() {
-                return Ok((cookies, "Opera".to_string()));
+            let valid_cookies = self.filter_valid_cookies(cookies);
+            if !valid_cookies.is_empty() {
+                return Ok((valid_cookies, "Opera".to_string()));
             }
         }
 
         // Try Opera GX
         if let Ok(cookies) = self.extract_opera_gx_cookies() {
-            if !cookies.is_empty() {
-                return Ok((cookies, "Opera GX".to_string()));
+            let valid_cookies = self.filter_valid_cookies(cookies);
+            if !valid_cookies.is_empty() {
+                return Ok((valid_cookies, "Opera GX".to_string()));
             }
         }
 
         // Try Vivaldi
         if let Ok(cookies) = self.extract_vivaldi_cookies() {
-            if !cookies.is_empty() {
-                return Ok((cookies, "Vivaldi".to_string()));
+            let valid_cookies = self.filter_valid_cookies(cookies);
+            if !valid_cookies.is_empty() {
+                return Ok((valid_cookies, "Vivaldi".to_string()));
             }
         }
 
         // Try Zen
         if let Ok(cookies) = self.extract_zen_cookies() {
-            if !cookies.is_empty() {
-                return Ok((cookies, "Zen".to_string()));
+            let valid_cookies = self.filter_valid_cookies(cookies);
+            if !valid_cookies.is_empty() {
+                return Ok((valid_cookies, "Zen".to_string()));
             }
         }
 
         // Try Safari on macOS
         #[cfg(target_os = "macos")]
         if let Ok(cookies) = self.extract_safari_cookies() {
-            if !cookies.is_empty() {
-                return Ok((cookies, "Safari".to_string()));
+            let valid_cookies = self.filter_valid_cookies(cookies);
+            if !valid_cookies.is_empty() {
+                return Ok((valid_cookies, "Safari".to_string()));
             }
         }
 
         // Try Cachy Browser on Linux
         #[cfg(target_os = "linux")]
         if let Ok(cookies) = self.extract_cachy_cookies() {
-            if !cookies.is_empty() {
-                return Ok((cookies, "Cachy Browser".to_string()));
+            let valid_cookies = self.filter_valid_cookies(cookies);
+            if !valid_cookies.is_empty() {
+                return Ok((valid_cookies, "Cachy Browser".to_string()));
             }
         }
 

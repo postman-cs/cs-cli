@@ -2,6 +2,7 @@
 
 # CS-Transcript-CLI Installer (Rust Edition)
 # One-command setup for non-technical users
+# Updated to download architecture-specific binaries
 
 set -e  # Exit on any error
 

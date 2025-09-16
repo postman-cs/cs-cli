@@ -13,6 +13,9 @@ struct Cli {}
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Check for updates first (silent fail if network issues)
+    let _ = cs_cli::updater::check_and_update().await;
+
     // Check if we're in a terminal, self-launch if not
     launcher::ensure_terminal();
 

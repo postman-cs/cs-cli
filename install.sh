@@ -17,23 +17,16 @@ fi
 
 case "$ARCH" in
     x86_64)
-        ARCH_NAME="x86_64"
+        BINARY_NAME="cs-cli-x86_64-apple-darwin"
         ;;
     arm64|aarch64)
-        ARCH_NAME="aarch64"
+        BINARY_NAME="cs-cli-aarch64-apple-darwin"
         ;;
     *)
         echo "[ERROR] Unsupported architecture: $ARCH"
         exit 1
         ;;
 esac
-
-# Determine PKG name based on architecture
-if [ "$ARCH" = "arm64" ]; then
-    PKG_ARCH="arm64"
-else
-    PKG_ARCH="x86_64"
-fi
 
 # Get the latest version from GitHub releases
 echo "[INFO] Fetching latest version..."
@@ -44,23 +37,19 @@ if [ -z "$LATEST_VERSION" ]; then
     exit 1
 fi
 
-# Remove 'v' prefix from version
-VERSION=${LATEST_VERSION#v}
+BINARY_URL="https://github.com/postman-cs/cs-cli/releases/download/${LATEST_VERSION}/${BINARY_NAME}"
 
-PKG_NAME="cs-cli-${PKG_ARCH}-${VERSION}.pkg"
-PKG_URL="https://github.com/postman-cs/cs-cli/releases/download/${LATEST_VERSION}/${PKG_NAME}"
-
-echo "[DOWNLOAD] Downloading CS-CLI installer..."
-TEMP_PKG="/tmp/${PKG_NAME}"
+echo "[DOWNLOAD] Downloading CS-CLI binary for $ARCH..."
+TEMP_BINARY="/tmp/cs-cli"
 
 if command -v curl &> /dev/null; then
-    if ! curl -L -f -o "$TEMP_PKG" "$PKG_URL"; then
+    if ! curl -L -f -o "$TEMP_BINARY" "$BINARY_URL"; then
         echo ""
-        echo "[ERROR] Failed to download CS-CLI installer"
+        echo "[ERROR] Failed to download CS-CLI binary"
         echo "This might mean:"
         echo "  1. No internet connection"
         echo "  2. GitHub is temporarily unavailable"
-        echo "  3. The installer for your system (${PKG_ARCH}) isn't available yet"
+        echo "  3. The binary for your system ($ARCH) isn't available yet"
         echo ""
         echo "Please try again later or contact support"
         exit 1
@@ -71,24 +60,40 @@ else
 fi
 
 echo "[INSTALL] Installing CS-CLI..."
-# Install the PKG (no admin privileges required)
-installer -pkg "$TEMP_PKG" -target /
+# Create local bin directory if it doesn't exist
+mkdir -p "$HOME/.local/bin"
 
-# Clean up
-rm -f "$TEMP_PKG"
+# Make the binary executable and move it to the local bin directory
+chmod +x "$TEMP_BINARY"
+mv "$TEMP_BINARY" "$HOME/.local/bin/cs-cli"
 
 echo "[SETUP] CS-CLI installed successfully!"
 
-# The PKG installer handles PATH configuration
+# Add ~/.local/bin to PATH if not already there
+SHELL_RC=""
+if [ "$SHELL" = "/bin/zsh" ] || [ "$SHELL" = "/usr/bin/zsh" ]; then
+    SHELL_RC="$HOME/.zshrc"
+elif [ "$SHELL" = "/bin/bash" ] || [ "$SHELL" = "/usr/bin/bash" ]; then
+    SHELL_RC="$HOME/.bash_profile"
+fi
+
+if [ -n "$SHELL_RC" ]; then
+    if ! grep -q 'export PATH="$HOME/.local/bin:$PATH"' "$SHELL_RC" 2>/dev/null; then
+        echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$SHELL_RC"
+        echo "[SETUP] Added ~/.local/bin to PATH in $SHELL_RC"
+    fi
+fi
+
+# Export for current session
 export PATH="$HOME/.local/bin:$PATH"
 
 echo ""
 echo "[SUCCESS] Installation complete!"
 echo ""
 echo "To get started right now, type:"
-echo "  source ~/.zshrc && cs-cli"
+echo "  cs-cli"
 echo ""
-echo "Or simply restart Terminal and then type 'cs-cli'"
+echo "Or restart Terminal and then type 'cs-cli'"
 echo ""
 echo "The tool will ask you 3 simple questions:"
 echo "  1. What customer are you looking for?"

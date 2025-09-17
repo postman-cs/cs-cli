@@ -25,7 +25,7 @@ cargo test
 
 ### Full Regression Suite
 ```bash
-./run_tests.sh
+./tests/run_tests.sh
 ```
 
 ### Real API Integration Tests

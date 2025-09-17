@@ -25,10 +25,16 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Test configuration - Load from .env if available
-if [ -f .env ]; then
+# Get the directory containing this script (tests directory)
+TESTS_DIR="$(dirname "$0")"
+
+# Change to project root directory (parent of tests/)
+cd "$TESTS_DIR/.."
+
+# Test configuration - Load from .env if available (in tests directory)
+if [ -f "$TESTS_DIR/.env" ]; then
     set -a  # Automatically export all variables
-    source .env
+    source "$TESTS_DIR/.env"
     set +a  # Turn off auto-export
 fi
 

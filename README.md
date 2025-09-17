@@ -26,7 +26,9 @@ source ~/.zshrc && cs-cli
 
 ### Step 1: Get Your Data
 
-![Demo!](demo.gif)
+<div align="center">
+  <img src="demo.gif" alt="Demo Gif">
+</div>
 
 **Important:** Before using the tool, make sure you're logged into Gοng in your browser. The tool needs Gοng to download your customer conversations.
 

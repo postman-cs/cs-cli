@@ -4,8 +4,11 @@
 
 ## Installation
 
-**[Download CS-CLI Installer (.pkg)](https://github.com/postman-cs/cs-cli/releases/latest/download/cs-cli-macos.pkg)** | Just download the latest PKG file and double-click. That's it!
+**[Download CS-CLI Installer (.pkg)](https://github.com/postman-cs/cs-cli/releases/latest/download/cs-cli-macos.pkg)** 
 
+Just download the latest PKG file and double-click. That's it!
+
+### Quickstart
 **If you're comfortable with Terminal, just run this via Command Line instead**
 
 ```bash

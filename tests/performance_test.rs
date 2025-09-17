@@ -3,7 +3,6 @@
 //! These tests validate performance characteristics, memory usage,
 //! and concurrent operation safety.
 
-use cs_cli::common::config::HttpSettings;
 use cs_cli::gong::api::client::HttpClientPool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -65,37 +64,105 @@ async fn test_semaphore_rate_limiting() {
 
 #[tokio::test]
 async fn test_connection_pool_reuse() {
-    // Test that connection pool properly reuses connections
-    let config = HttpSettings::default();
+    // Test that connection pool properly reuses connections with real Gong API
+    // This validates our HTTP client consolidation work
+
+    use cs_cli::gong::auth::GongAuthenticator;
+    use cs_cli::gong::config::AppConfig;
+
+    let config = AppConfig::create_default();
+    let mut authenticator = GongAuthenticator::new(config.auth.clone())
+        .await
+        .expect("Failed to create Gong authenticator - check browser login");
+
+    // Perform authentication flow with timeout and detailed error reporting
+    println!("🔍 Starting authentication...");
+    let auth_result = tokio::time::timeout(
+        tokio::time::Duration::from_secs(10), // 10 second timeout
+        authenticator.authenticate(),
+    )
+    .await;
+
+    match auth_result {
+        Ok(Ok(true)) => {
+            println!("✅ Authentication successful!");
+        }
+        Ok(Ok(false)) => {
+            panic!("❌ Authentication returned false - check browser login to Gong");
+        }
+        Ok(Err(e)) => {
+            panic!("❌ Authentication error: {}", e);
+        }
+        Err(_) => {
+            panic!("❌ Authentication timed out after 10 seconds - this indicates a network or API issue");
+        }
+    }
+
+    let auth = Arc::new(authenticator);
+
     let pool = Arc::new(
-        HttpClientPool::new_gong_pool(Some(config))
+        HttpClientPool::new_gong_pool(Some(config.http))
             .await
             .expect("Failed to create pool"),
     );
 
-    // Test that pool can handle multiple concurrent requests
+    // Test that pool can handle multiple concurrent Gong API requests
     let mut tasks = vec![];
     for i in 0..5 {
         let pool = pool.clone();
+        let auth = auth.clone();
         tasks.push(tokio::spawn(async move {
-            // Use the pool to make a request
-            let result = pool.get("https://httpbin.org/delay/0").await;
-            (i, result.is_ok())
+            // Get session cookies for the request
+            let _cookies = auth
+                .get_session_cookies()
+                .expect("Authentication should be available");
+
+            let result = tokio::time::timeout(
+                tokio::time::Duration::from_secs(10), // 10 second timeout per request
+                pool.get("https://us-65885.app.gong.io/v2/settings/workspaces"),
+            )
+            .await;
+
+            let success = match result {
+                Ok(Ok(response)) => response.status().is_success(),
+                Ok(Err(_)) => false,
+                Err(_) => false, // timeout
+            };
+            (i, success)
         }));
     }
 
-    // Wait for all tasks
+    // Wait for all tasks with overall timeout
     let mut success_count = 0;
-    for task in tasks {
-        let (idx, success) = task.await.expect("Task failed");
-        if success {
-            success_count += 1;
+    let timeout_duration = tokio::time::Duration::from_secs(30); // 30 second overall timeout
+
+    match tokio::time::timeout(timeout_duration, async {
+        for task in tasks {
+            let (idx, success) = task.await.expect("Task failed");
+            if success {
+                success_count += 1;
+            }
+            println!("Request {} success: {}", idx, success);
         }
-        println!("Request {} success: {}", idx, success);
+        success_count
+    })
+    .await
+    {
+        Ok(count) => success_count = count,
+        Err(_) => {
+            println!("Connection pool test timed out after 30 seconds");
+            success_count = 0;
+        }
     }
 
-    // Pool should handle concurrent requests
+    // Pool should handle concurrent requests (allow some failures due to auth)
     println!("Successfully completed {}/5 requests", success_count);
+
+    // At least one request should succeed if authentication is working
+    assert!(
+        success_count > 0,
+        "At least one request should succeed with valid Gong authentication"
+    );
 }
 
 #[tokio::test]
@@ -136,7 +203,7 @@ async fn test_memory_usage_large_dataset() {
 #[tokio::test]
 async fn test_exponential_backoff_timing() {
     // Test that exponential backoff works correctly
-    let delays = vec![100, 200, 400, 800, 1600]; // milliseconds
+    let delays = [100, 200, 400, 800, 1600]; // milliseconds
     let mut total_delay = Duration::ZERO;
 
     for (attempt, &delay_ms) in delays.iter().enumerate() {

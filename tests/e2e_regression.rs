@@ -4,9 +4,8 @@
 //! data extraction to output generation, ensuring the tool works correctly
 //! as a whole system.
 
-use cs_cli::gong::cli::args::{CliArgs, ContentType};
+use cs_cli::gong::cli::args::CliArgs;
 use std::fs;
-use std::path::Path;
 use tempfile::TempDir;
 
 /// Known test data for regression validation
@@ -14,10 +13,10 @@ struct RegressionTestData {
     /// Customer name that should exist in Gong
     customer_name: String,
     /// Expected minimum number of results
-    min_calls: usize,
-    min_emails: usize,
+    _min_calls: usize,
+    _min_emails: usize,
     /// Output validation patterns
-    expected_patterns: Vec<String>,
+    _expected_patterns: Vec<String>,
 }
 
 impl Default for RegressionTestData {
@@ -25,9 +24,9 @@ impl Default for RegressionTestData {
         Self {
             customer_name: std::env::var("TEST_CUSTOMER_NAME")
                 .unwrap_or_else(|_| "Fiserv".to_string()),
-            min_calls: 1,
-            min_emails: 1,
-            expected_patterns: vec![
+            _min_calls: 1,
+            _min_emails: 1,
+            _expected_patterns: vec![
                 "## Call Summary".to_string(),
                 "**Date:**".to_string(),
                 "**Participants:**".to_string(),
@@ -37,7 +36,7 @@ impl Default for RegressionTestData {
 }
 
 #[tokio::test]
-#[ignore = "Requires full system setup with Gong access"]
+
 async fn test_complete_workflow_interactive_mode() {
     // This test simulates the interactive mode workflow
     // In practice, this would need input simulation
@@ -58,7 +57,7 @@ async fn test_complete_workflow_interactive_mode() {
 }
 
 #[tokio::test]
-#[ignore = "Requires full system setup with Gong access"]
+
 async fn test_complete_workflow_cli_args() {
     let test_data = RegressionTestData::default();
 
@@ -67,7 +66,7 @@ async fn test_complete_workflow_cli_args() {
     let output_path = temp_dir.path().join("ct_test_customer");
 
     // Simulate CLI arguments using raw_args to parse customer command
-    let args = CliArgs {
+    let _args = CliArgs {
         debug: false,
         keychain_password: None,
         command: None,
@@ -165,7 +164,7 @@ Here's the latest project update...
 }
 
 #[tokio::test]
-#[ignore = "Requires full system setup"]
+
 async fn test_output_directory_structure() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let base_path = temp_dir.path();
@@ -207,7 +206,7 @@ async fn test_output_directory_structure() {
 }
 
 #[tokio::test]
-#[ignore = "Requires full system setup"]
+
 async fn test_markdown_output_format_validation() {
     // Test that markdown output follows expected format
     let sample_markdown = r#"---
@@ -359,7 +358,7 @@ async fn test_cli_argument_parsing() {
 }
 
 #[tokio::test]
-#[ignore = "Requires disk write permissions"]
+
 async fn test_error_recovery_disk_full() {
     // Test behavior when disk is full or permissions denied
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
@@ -405,7 +404,7 @@ async fn test_error_recovery_disk_full() {
 }
 
 #[tokio::test]
-#[ignore = "Requires network and Gong access"]
+
 async fn test_interrupted_download_recovery() {
     // Test that interrupted downloads can be recovered
     // This would simulate network interruption during extraction
@@ -444,7 +443,7 @@ async fn test_interrupted_download_recovery() {
 }
 
 #[tokio::test]
-#[ignore = "Requires full system"]
+
 async fn test_known_regression_authentication_flow() {
     // This test ensures that the specific authentication flow that worked
     // in previous versions continues to work
@@ -461,14 +460,12 @@ async fn test_known_regression_authentication_flow() {
     // The actual test would verify each step of the auth flow
     // For now, we document the expected behavior
 
-    let expected_flow = vec![
-        "Extract cookies from Safari/Chrome/Firefox",
+    let expected_flow = ["Extract cookies from Safari/Chrome/Firefox",
         "Find Gong cell identifier in cookies",
         "Construct base URL with cell",
         "Fetch CSRF token from /v2/widget-accounts-data",
         "Parse workspace ID from home page",
-        "Include CSRF token in all API requests",
-    ];
+        "Include CSRF token in all API requests"];
 
     for (i, step) in expected_flow.iter().enumerate() {
         println!("Step {}: {}", i + 1, step);

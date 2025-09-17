@@ -1,6 +1,6 @@
 use super::CSRFManager;
 use crate::common::auth::{Cookie, CookieExtractor};
-use crate::common::config::{AuthSettings, HttpSettings};
+use crate::common::config::AuthSettings;
 use crate::common::http::HttpClient; // For trait methods
 use crate::gong::api::client::GongHttpClient;
 use crate::{CsCliError, Result};
@@ -60,7 +60,8 @@ pub struct GongAuthenticator {
 impl GongAuthenticator {
     /// Create a new Gong authenticator with production configuration
     pub async fn new(config: AuthSettings) -> Result<Self> {
-        // Create HTTP client for API requests
+        // Create HTTP client for API requests with intelligent HTTP/3 -> HTTP/2 fallback
+        use crate::common::config::HttpSettings;
         let http_config = HttpSettings::default();
         let http_client = Arc::new(GongHttpClient::new(http_config).await?);
 

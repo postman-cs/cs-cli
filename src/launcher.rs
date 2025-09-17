@@ -4,6 +4,11 @@ use std::process::{exit, Command};
 
 /// Check if we're running in a terminal and self-launch if not
 pub fn ensure_terminal() {
+    // Skip terminal launching if we're running tests or via cargo
+    if env::var("CARGO").is_ok() || env::var("RUST_LOG").is_ok() || cfg!(test) {
+        return;
+    }
+
     // If we're already in a terminal, continue normally
     if std::io::stdout().is_terminal() {
         return;

@@ -22,7 +22,7 @@ struct TestConfig {
     /// Number of days to look back
     days_back: i64,
     /// Expected minimum number of communications
-    min_expected_items: usize,
+    _min_expected_items: usize,
 }
 
 impl Default for TestConfig {
@@ -34,7 +34,7 @@ impl Default for TestConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(30),
-            min_expected_items: 1,
+            _min_expected_items: 1,
         }
     }
 }
@@ -48,8 +48,7 @@ async fn test_customer_search_real_api() {
         .expect("Failed to create authenticator");
 
     if !authenticator.authenticate().await.unwrap_or(false) {
-        println!("Skipping test - authentication failed");
-        return;
+        panic!("Authentication failed - ensure you're logged into Gong in your browser");
     }
 
     let client_pool = Arc::new(
@@ -98,8 +97,7 @@ async fn test_timeline_extraction_real_api() {
         .expect("Failed to create authenticator");
 
     if !authenticator.authenticate().await.unwrap_or(false) {
-        println!("Skipping test - authentication failed");
-        return;
+        panic!("Authentication failed - ensure you're logged into Gong in your browser");
     }
 
     let client_pool = Arc::new(
@@ -190,8 +188,7 @@ async fn test_email_enhancement_real_api() {
         .expect("Failed to create authenticator");
 
     if !authenticator.authenticate().await.unwrap_or(false) {
-        println!("Skipping test - authentication failed");
-        return;
+        panic!("Authentication failed - ensure you're logged into Gong in your browser");
     }
 
     let client_pool = Arc::new(
@@ -200,7 +197,7 @@ async fn test_email_enhancement_real_api() {
             .expect("Failed to create client pool"),
     );
 
-    let enhancer = EmailEnhancer::new(
+    let _enhancer = EmailEnhancer::new(
         client_pool,
         Arc::new(authenticator),
         None, // Use default config
@@ -223,8 +220,7 @@ async fn test_library_client_call_search() {
         .expect("Failed to create authenticator");
 
     if !authenticator.authenticate().await.unwrap_or(false) {
-        println!("Skipping test - authentication failed");
-        return;
+        panic!("Authentication failed - ensure you're logged into Gong in your browser");
     }
 
     let client_pool = Arc::new(
@@ -240,7 +236,7 @@ async fn test_library_client_call_search() {
     );
 
     // Search for recent calls
-    let extraction_range =
+    let _extraction_range =
         ExtractionRange::last_days(7).expect("Failed to create extraction range");
 
     // Get library calls with date range parameters
@@ -279,8 +275,7 @@ async fn test_concurrent_api_calls_with_rate_limiting() {
         .expect("Failed to create authenticator");
 
     if !authenticator.authenticate().await.unwrap_or(false) {
-        println!("Skipping test - authentication failed");
-        return;
+        panic!("Authentication failed - ensure you're logged into Gong in your browser");
     }
 
     let client_pool = Arc::new(
@@ -350,8 +345,7 @@ async fn test_retry_logic_on_transient_failures() {
         .expect("Failed to create authenticator");
 
     if !authenticator.authenticate().await.unwrap_or(false) {
-        println!("Skipping test - authentication failed");
-        return;
+        panic!("Authentication failed - ensure you're logged into Gong in your browser");
     }
 
     // Use default HTTP configuration (retry logic is internal to the client)
@@ -398,8 +392,7 @@ async fn test_empty_results_handling() {
         .expect("Failed to create authenticator");
 
     if !authenticator.authenticate().await.unwrap_or(false) {
-        println!("Skipping test - authentication failed");
-        return;
+        panic!("Authentication failed - ensure you're logged into Gong in your browser");
     }
 
     let client_pool = Arc::new(
@@ -444,8 +437,7 @@ async fn test_large_dataset_pagination() {
         .expect("Failed to create authenticator");
 
     if !authenticator.authenticate().await.unwrap_or(false) {
-        println!("Skipping test - authentication failed");
-        return;
+        panic!("Authentication failed - ensure you're logged into Gong in your browser");
     }
 
     let client_pool = Arc::new(

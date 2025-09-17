@@ -67,7 +67,7 @@ fn test_cli_args_boundary_conditions() {
         command: None,
         raw_args: vec![],
     };
-    assert!(true, "Should handle empty args construction");
+    // Test passes if we reach this point - empty args construction succeeded
 
     // Test extremely long customer name
     let long_name = "a".repeat(1000);
@@ -102,16 +102,15 @@ fn test_cli_args_boundary_conditions() {
     // Test boundary values for days
     let boundary_cases = vec!["0", "1", "365", "9999"];
     for days in boundary_cases {
-        let args = CliArgs {
+        let _args = CliArgs {
             debug: false,
             keychain_password: None,
             command: None,
             raw_args: vec!["customer".to_string(), "Test".to_string(), days.to_string()],
         };
 
-        if let Ok(parsed_days) = days.parse::<u32>() {
-            assert!(parsed_days >= 0, "Days should be non-negative");
-        }
+        // u32 is always non-negative by definition, so just verify it parses
+        let _parsed_days = days.parse::<u32>().expect("Should parse as u32");
     }
 }
 
@@ -388,8 +387,8 @@ async fn test_concurrent_stress_scenarios() {
                 3 => {
                     // Mixed workload
                     let mut data = vec![0; 100];
-                    for j in 0..100 {
-                        data[j] = j * (i as usize);
+                    for (j, item) in data.iter_mut().enumerate() {
+                        *item = j * (i as usize);
                     }
                     sleep(Duration::from_millis(1)).await;
                     data.iter().sum::<usize>() as i32

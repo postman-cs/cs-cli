@@ -32,7 +32,7 @@ impl CallMarkdownFormatter {
         let customer = call
             .customer_name
             .as_deref()
-            .unwrap_or_else(|| "Unknown Customer");
+            .unwrap_or("Unknown Customer");
         let date = &call.scheduled_start;
         let attendees = &call.participants;
         let transcript = call
@@ -442,7 +442,7 @@ impl CallMarkdownFormatter {
                 .filter(|date| {
                     // Exclude emails with dates very close to current time (likely fallback dates)
                     let now = Zoned::now();
-                    let time_diff = now.since(*date).unwrap_or(jiff::Span::default()).abs();
+                    let time_diff = now.since(*date).unwrap_or_default().abs();
                     // If email date is within 1 minute of current time, it's likely a fallback
                     time_diff.get_seconds() > 60
                 })
@@ -541,7 +541,7 @@ impl CallMarkdownFormatter {
                     .filter(|date| {
                         // Exclude emails with dates very close to current time (likely fallback dates)
                         let now = Zoned::now();
-                        let time_diff = now.since(*date).unwrap_or(jiff::Span::default()).abs();
+                        let time_diff = now.since(*date).unwrap_or_default().abs();
                         // If email date is within 1 minute of current time, it's likely a fallback
                         time_diff.get_seconds() > 60
                     })

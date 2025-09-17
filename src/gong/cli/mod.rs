@@ -1033,7 +1033,7 @@ pub async fn run_cli() -> Result<()> {
                     "{}",
                     "Make sure you're logged into Gong in your browser!".truecolor(255, 142, 100)
                 );
-                rpassword::prompt_password(&format!(
+                rpassword::prompt_password(format!(
                     "{}",
                     "Enter your Macbook password: ".truecolor(111, 44, 186)
                 ))

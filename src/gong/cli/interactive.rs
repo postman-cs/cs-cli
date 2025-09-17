@@ -4,7 +4,7 @@
 //! don't provide command-line arguments, matching the Python version's experience.
 
 use console::Term;
-use dialoguer::Input;
+use inquire::Text;
 use owo_colors::OwoColorize;
 use std::io::Write;
 
@@ -63,14 +63,14 @@ pub fn interactive_mode() -> Result<ParsedCommand> {
 /// Get customer name with validation
 fn get_customer_name() -> Result<String> {
     loop {
-        let customer: String = Input::new()
-            .with_prompt(
-                "What customer are you looking for?"
-                    .truecolor(111, 44, 186)
-                    .to_string(),
-            )
-            .interact_text()
-            .map_err(|e| crate::CsCliError::Generic(format!("Input error: {e}")))?;
+        let customer: String = Text::new(
+            "What customer are you looking for?"
+                .truecolor(111, 44, 186)
+                .to_string()
+                .as_str(),
+        )
+        .prompt()
+        .map_err(|e| crate::CsCliError::Generic(format!("Input error: {e}")))?;
 
         let customer = customer.trim();
         if customer.is_empty() {
@@ -104,11 +104,9 @@ fn get_time_period() -> Result<u32> {
     );
 
     loop {
-        let days_input: String = Input::new()
-            .with_prompt("Number of days")
-            .default("180".to_string())
-            .show_default(true)
-            .interact_text()
+        let days_input: String = Text::new("Number of days")
+            .with_default("180")
+            .prompt()
             .map_err(|e| crate::CsCliError::Generic(format!("Input error: {e}")))?;
 
         match days_input.trim().parse::<u32>() {
@@ -146,11 +144,9 @@ fn get_content_type() -> Result<ContentType> {
     );
     println!();
 
-    let choice: String = Input::new()
-        .with_prompt("Type a number and press Enter")
-        .default("3".to_string())
-        .show_default(true)
-        .interact_text()
+    let choice: String = Text::new("Type a number and press Enter")
+        .with_default("3")
+        .prompt()
         .map_err(|e| crate::CsCliError::Generic(format!("Input error: {e}")))?;
 
     let content_type = match choice.trim() {
@@ -207,10 +203,9 @@ pub fn interactive_team_mode(saved_stream_id: Option<String>) -> Result<ParsedCo
 
         let reuse_prompt = format!("Enter call stream ID (leave blank to reuse {saved_id})");
 
-        let input: String = Input::new()
-            .with_prompt(reuse_prompt.truecolor(111, 44, 186).to_string())
-            .allow_empty(true)
-            .interact_text()
+        let input: String = Text::new(reuse_prompt.truecolor(111, 44, 186).to_string().as_str())
+            .with_default("")
+            .prompt()
             .map_err(|e| crate::CsCliError::Generic(format!("Input error: {e}")))?;
 
         if input.trim().is_empty() {
@@ -224,14 +219,14 @@ pub fn interactive_team_mode(saved_stream_id: Option<String>) -> Result<ParsedCo
         // First time - show instructions
         show_team_instructions();
 
-        let stream_id: String = Input::new()
-            .with_prompt(
-                "Enter your call stream ID"
-                    .truecolor(111, 44, 186)
-                    .to_string(),
-            )
-            .interact_text()
-            .map_err(|e| crate::CsCliError::Generic(format!("Input error: {e}")))?;
+        let stream_id: String = Text::new(
+            "Enter your call stream ID"
+                .truecolor(111, 44, 186)
+                .to_string()
+                .as_str(),
+        )
+        .prompt()
+        .map_err(|e| crate::CsCliError::Generic(format!("Input error: {e}")))?;
 
         let stream_id = stream_id.trim().to_string();
         if stream_id.is_empty() {
@@ -277,10 +272,9 @@ pub fn confirm(message: &str, default: bool) -> Result<bool> {
     };
 
     loop {
-        let input: String = Input::new()
-            .with_prompt(&prompt)
-            .allow_empty(true)
-            .interact_text()
+        let input: String = Text::new(&prompt)
+            .with_default("")
+            .prompt()
             .map_err(|e| crate::CsCliError::Generic(format!("Input error: {e}")))?;
 
         let input = input.trim().to_lowercase();

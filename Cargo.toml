@@ -63,7 +63,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"]
 # Terminal UI
 console = "0.15"           # Basic terminal functionality
 owo-colors = "4"           # Zero-allocation terminal colors and styling
-dialoguer = "0.11"         # Interactive prompts
+inquire = "0.9.1"          # Interactive prompts with autocomplete
 indicatif = "0.17"         # Progress bars and spinners
 rpassword = "7.3"          # Secure password input for keychain unlock
 atty = "0.2"               # Check if running in interactive terminal

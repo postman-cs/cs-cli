@@ -46,8 +46,7 @@ impl AppConfig {
             timeout_seconds: 30.0,
             max_clients: None,
             global_max_concurrency: Some(2000),
-            enable_http3: false,
-            force_http3: false,
+            // HTTP/3 with HTTP/2 fallback is always enabled automatically
             tls_version: None,
             impersonate_browser: "chrome".to_string(),
         };

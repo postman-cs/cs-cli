@@ -54,17 +54,10 @@ impl BrowserHttpClient {
 
         let mut builder = Impit::builder().with_browser(browser);
 
-        // Configure HTTP version - prefer HTTP/3 for better performance and modern browser matching
-        if config.enable_http3 || config.force_http3 {
-            builder = builder.with_http3();
-            if config.force_http3 {
-                info!("HTTP client configured for HTTP/3 (forced, no fallback)");
-            } else {
-                info!("HTTP client configured for HTTP/3 with HTTP/2 fallback");
-            }
-        } else {
-            info!("HTTP client configured for HTTP/2 only");
-        }
+        // Always enable HTTP3 support for intelligent fallback
+        // The client will attempt HTTP3 first and automatically fall back to HTTP2
+        builder = builder.with_http3();
+        info!("HTTP client configured with intelligent HTTP/3 -> HTTP/2 fallback");
 
         // Enhanced fingerprinting to match browser exactly
         // impit automatically handles:
@@ -237,7 +230,8 @@ impl BrowserHttpClient {
         let request_options = Some(impit::request::RequestOptions {
             headers: headers_vec,
             timeout: Some(Duration::from_secs_f64(self.config.timeout_seconds)),
-            http3_prior_knowledge: self.config.enable_http3 || self.config.force_http3,
+            // Set to false for intelligent fallback: try HTTP3, fall back to HTTP2 automatically
+            http3_prior_knowledge: false,
         });
 
         // Make the request using impit API (url: String, body: Option<Vec<u8>>, options: Option<RequestOptions>)

@@ -39,7 +39,7 @@ pub fn unlock_keychain_with_cli_password(password: &str) -> Result<()> {
             password, password, keychain
         );
 
-        if let Ok(output) = Command::new("sh").args(&["-c", &unlock_cmd]).output() {
+        if let Ok(output) = Command::new("sh").args(["-c", &unlock_cmd]).output() {
             if output.status.success() {
                 debug!("Unlocked: {}", keychain);
                 unlock_success = true;
@@ -55,7 +55,7 @@ pub fn unlock_keychain_with_cli_password(password: &str) -> Result<()> {
     );
 
     let settings_output = Command::new("sh")
-        .args(&["-c", &settings_cmd])
+        .args(["-c", &settings_cmd])
         .output()
         .map_err(|e| {
             CsCliError::Authentication(format!("Failed to run settings command: {}", e))
@@ -87,7 +87,7 @@ pub fn is_keychain_unlocked() -> Result<bool> {
 
     // Check if any keychain is locked
     let output = Command::new("security")
-        .args(&["list-keychains"])
+        .args(["list-keychains"])
         .output()
         .map_err(|e| CsCliError::Authentication(format!("Failed to list keychains: {}", e)))?;
 

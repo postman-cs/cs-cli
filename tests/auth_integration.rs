@@ -13,7 +13,7 @@ use cs_cli::common::config::AuthSettings;
 use cs_cli::gong::auth::GongAuthenticator;
 
 #[tokio::test]
-#[ignore = "Requires real browser cookies and Gong account"]
+
 async fn test_browser_cookie_extraction_multi_browser() {
     // Test cookie extraction from multiple browsers
     let domains = vec!["gong.io".to_string(), ".gong.io".to_string()];
@@ -50,7 +50,7 @@ async fn test_browser_cookie_extraction_multi_browser() {
 }
 
 #[tokio::test]
-#[ignore = "Requires real Gong API access"]
+
 async fn test_gong_authentication_full_flow() {
     // Full authentication flow test
     let auth_config = AuthSettings::default();
@@ -103,7 +103,7 @@ async fn test_gong_authentication_full_flow() {
 }
 
 #[tokio::test]
-#[ignore = "Requires real Gong API access"]
+
 async fn test_csrf_token_refresh() {
     let auth_config = AuthSettings::default();
     let mut authenticator = GongAuthenticator::new(auth_config)
@@ -159,17 +159,17 @@ async fn test_authentication_without_cookies() {
 }
 
 #[tokio::test]
-#[ignore = "Requires real browser state manipulation"]
+
 async fn test_expired_cookie_handling() {
     // This test would verify handling of expired cookies
     // In practice, this is hard to test without mocking
     let auth_config = AuthSettings::default();
-    let mut authenticator = GongAuthenticator::new(auth_config)
+    let _authenticator = GongAuthenticator::new(auth_config)
         .await
         .expect("Failed to create authenticator");
 
     // Create fake expired cookies
-    let expired_cookies = vec![Cookie {
+    let _expired_cookies = [Cookie {
         name: "test_session".to_string(),
         value: "expired_value".to_string(),
         domain: ".gong.io".to_string(),
@@ -185,7 +185,7 @@ async fn test_expired_cookie_handling() {
 }
 
 #[tokio::test]
-#[ignore = "Requires multiple browsers installed"]
+
 async fn test_browser_fallback_priority() {
     // Test that browser fallback works in priority order
     let domains = vec!["gong.io".to_string()];
@@ -213,7 +213,7 @@ async fn test_browser_fallback_priority() {
 }
 
 #[tokio::test]
-#[ignore = "Requires real API and can trigger rate limits"]
+
 async fn test_rate_limit_handling_during_auth() {
     // Test that authentication handles rate limits gracefully
     let auth_config = AuthSettings::default();

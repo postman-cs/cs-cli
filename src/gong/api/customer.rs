@@ -1,5 +1,5 @@
-use console::{style, Term};
-use dialoguer::{theme::ColorfulTheme, Input, Select};
+use console::style;
+use inquire::{Select, Text};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -84,8 +84,6 @@ pub struct GongCustomerSearchClient {
     _config: Option<AppConfig>,
     /// Workspace ID for API requests
     workspace_id: String,
-    /// Terminal for interactive output
-    term: Term,
 }
 
 impl GongCustomerSearchClient {
@@ -107,14 +105,11 @@ impl GongCustomerSearchClient {
 
         info!(workspace_id = %workspace_id, "Using workspace ID for customer search");
 
-        let term = Term::stdout();
-
         Ok(Self {
             http_client,
             auth,
             _config: config,
             workspace_id,
-            term,
         })
     }
 
@@ -198,6 +193,15 @@ impl GongCustomerSearchClient {
         // Update headers on HTTP client
         self.http_client.update_headers(headers).await?;
 
+        // CRITICAL: Also set the session cookies on the HTTP client!
+        // The authenticator has the cookies but they're not automatically transferred
+        let cookies = self.auth.get_session_cookies()?;
+        debug!(
+            "Setting {} session cookies on HTTP client for customer search",
+            cookies.len()
+        );
+        self.http_client.set_cookies(cookies).await?;
+
         // Build URL with query parameters
         let query_string = params
             .iter()
@@ -231,11 +235,20 @@ impl GongCustomerSearchClient {
                 .and_then(|s| s.as_array())
                 .unwrap_or(&empty_suggestions);
 
+            debug!(
+                "Customer search API returned {} suggestions for '{}'",
+                suggestions.len(),
+                partial_name
+            );
+
             if suggestions.is_empty() {
+                debug!("No suggestions found, full response structure: {:?}",
+                    data.as_object().map(|o| o.keys().collect::<Vec<_>>())
+                );
             } else {
-                // for (i, suggestion) in suggestions.iter().take(3).enumerate() {
-                //     println!(" DEBUG: Suggestion {}: {:?}", i + 1, suggestion);
-                // }
+                for (i, suggestion) in suggestions.iter().take(3).enumerate() {
+                    debug!("Suggestion {}: {:?}", i + 1, suggestion);
+                }
             }
 
             let mut customer_results = Vec::new();
@@ -410,32 +423,29 @@ impl GongCustomerSearchClient {
         options.push("Cancel and exit".to_string());
 
         // Create selection dialog
-        let selection = Select::with_theme(&ColorfulTheme::default())
-            .with_prompt("Select a company")
-            .items(&options)
-            .default(0)
-            .interact_on(&self.term)
+        let selection = Select::new("Select a company", options.clone())
+            .with_starting_cursor(0)
+            .prompt()
             .map_err(|e| CsCliError::Generic(format!("Selection failed: {e}")))?;
 
-        if selection == options.len() - 1 {
+        if selection == "Cancel and exit" {
             // User selected "Cancel and exit"
             println!(
                 "\n{}",
                 style("Cancelled - no files will be extracted.").yellow()
             );
             Ok(None)
-        } else if selection == options.len() - 2 {
+        } else if selection == "None of these - search again" {
             // User selected "None of these - search again"
             Ok(Some("SEARCH_AGAIN".to_string()))
-        } else if selection < display_count {
+        } else if company_names.contains(&selection) {
             // User selected a company
-            let selected = &company_names[selection];
             println!(
                 "\n{} {}\n",
                 style(" Selected:").green().bold(),
-                style(selected).white().bold()
+                style(&selection).white().bold()
             );
-            Ok(Some(selected.clone()))
+            Ok(Some(selection))
         } else {
             Err(CsCliError::Generic("Invalid selection".to_string()))
         }
@@ -498,9 +508,8 @@ impl GongCustomerSearchClient {
                 Some(selected) if selected == "SEARCH_AGAIN" => {
                     // User wants to search for a different customer
                     println!("\n{}", style("Let's try a different search.").cyan());
-                    let new_customer: String = Input::with_theme(&ColorfulTheme::default())
-                        .with_prompt("Enter the customer name")
-                        .interact_text()
+                    let new_customer: String = Text::new("Enter the customer name")
+                        .prompt()
                         .map_err(|e| CsCliError::Generic(format!("Input failed: {e}")))?;
                     return Box::pin(self.get_customer_calls(
                         &new_customer,
@@ -575,6 +584,10 @@ impl GongCustomerSearchClient {
 
         // Update headers on HTTP client
         self.http_client.update_headers(headers).await?;
+
+        // CRITICAL: Also set the session cookies on the HTTP client!
+        let cookies = self.auth.get_session_cookies()?;
+        self.http_client.set_cookies(cookies).await?;
 
         // Build query parameters
         let query_params = [("workspace-id", self.workspace_id.as_str())];

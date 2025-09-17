@@ -7,17 +7,6 @@
 
 set -e
 
-echo "==========================================="
-echo "CS-CLI Regression Test Suite"
-echo "==========================================="
-echo "Test Configuration:"
-echo "  TEST_CUSTOMER_NAME: $TEST_CUSTOMER_NAME"
-echo "  TEST_DAYS_BACK: $TEST_DAYS_BACK"
-echo "  RUST_LOG: $RUST_LOG"
-echo "  RUSTFLAGS: $RUSTFLAGS"
-echo "==========================================="
-echo ""
-
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -44,6 +33,18 @@ export TEST_CUSTOMER_NAME=${TEST_CUSTOMER_NAME:-Fiserv}
 export TEST_DAYS_BACK=${TEST_DAYS_BACK:-30}
 export RUSTFLAGS=${RUSTFLAGS:-'--cfg reqwest_unstable'}
 
+# Display header and configuration after loading environment
+echo "==========================================="
+echo "CS-CLI Regression Test Suite"
+echo "==========================================="
+echo "Test Configuration:"
+echo "  TEST_CUSTOMER_NAME: $TEST_CUSTOMER_NAME"
+echo "  TEST_DAYS_BACK: $TEST_DAYS_BACK"
+echo "  RUST_LOG: $RUST_LOG"
+echo "  RUSTFLAGS: $RUSTFLAGS"
+echo "==========================================="
+echo ""
+
 # Function to run tests with specific configuration
 run_test_suite() {
     local suite_name=$1
@@ -52,7 +53,10 @@ run_test_suite() {
     echo -e "${YELLOW}Running: $suite_name${NC}"
     echo "----------------------------------------"
 
-    if cargo test $test_pattern -- --nocapture 2>&1 | tee test_output.log; then
+    cargo test $test_pattern -- --nocapture 2>&1 | tee test_output.log
+    local test_result=${PIPESTATUS[0]}
+    
+    if [ $test_result -eq 0 ]; then
         echo -e "${GREEN}✓ $suite_name passed${NC}"
         return 0
     else

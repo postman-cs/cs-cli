@@ -43,10 +43,10 @@ dist/
 # ==============================================================================
 
 launchd/
-src/slack/
-src/gainsight/
 pkg-scripts/
 postinstall.sh
+
+# Note: src/slack/ and src/gainsight/ are available on dev branch for pre-release development
 
 # Commenting out github actions for now
 .github/workflows/

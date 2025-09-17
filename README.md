@@ -2,6 +2,12 @@
 
 # CS Deep Research CLI
 
+**What you'll discover:**
+- Issues your customer forgot to follow up on
+- Problems brewing beneath the surface  
+- Exact quotes to reference in your next call
+- Exactly what you need to do to deliver value, and exactly how you need to do it
+
 ## Installation
 
 ### **[Download CS-CLI Installer (.pkg)](https://github.com/postman-cs/cs-cli/releases/latest/download/cs-cli-macos.pkg)** 

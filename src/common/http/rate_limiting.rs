@@ -9,15 +9,15 @@ use tokio::time::sleep;
 /// Add jitter to avoid predictable request patterns
 pub async fn sleep_with_jitter(base_ms: u64, jitter_percent: f64) {
     let mut rng = rand::thread_rng();
-    
+
     // Calculate jitter range
     let jitter_range = (base_ms as f64 * jitter_percent) as u64;
     let min_delay = base_ms.saturating_sub(jitter_range / 2);
     let max_delay = base_ms + (jitter_range / 2);
-    
+
     // Generate random delay within range
     let actual_delay = rng.gen_range(min_delay..=max_delay);
-    
+
     sleep(Duration::from_millis(actual_delay)).await;
 }
 

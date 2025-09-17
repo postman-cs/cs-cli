@@ -5,14 +5,12 @@
 
 pub mod api;
 pub mod auth;
-pub mod debug_test;
 pub mod explorer;
 pub mod models;
 pub mod test;
 
 pub use api::*;
 pub use auth::*;
-pub use debug_test::*;
 pub use explorer::*;
 pub use models::*;
 pub use test::*;

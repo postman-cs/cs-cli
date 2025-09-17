@@ -32,15 +32,18 @@ async fn test_browser_cookie_extraction_multi_browser() {
             println!("Found cookies: {:?}", cookie_names);
 
             // Should have session-related cookies
-            let has_session_cookie = cookies.iter().any(|c|
-                c.name.contains("session") ||
-                c.name.contains("JSESSIONID") ||
-                c.name.contains("_gong")
-            );
+            let has_session_cookie = cookies.iter().any(|c| {
+                c.name.contains("session")
+                    || c.name.contains("JSESSIONID")
+                    || c.name.contains("_gong")
+            });
             assert!(has_session_cookie, "Should have session cookies");
         }
         Err(e) => {
-            println!("Warning: Cookie extraction failed (expected if not logged in): {}", e);
+            println!(
+                "Warning: Cookie extraction failed (expected if not logged in): {}",
+                e
+            );
             // This is acceptable if no browsers are logged in
         }
     }
@@ -51,7 +54,8 @@ async fn test_browser_cookie_extraction_multi_browser() {
 async fn test_gong_authentication_full_flow() {
     // Full authentication flow test
     let auth_config = AuthSettings::default();
-    let mut authenticator = GongAuthenticator::new(auth_config).await
+    let mut authenticator = GongAuthenticator::new(auth_config)
+        .await
         .expect("Failed to create authenticator");
 
     // Attempt authentication
@@ -63,19 +67,31 @@ async fn test_gong_authentication_full_flow() {
 
             // Verify we can get authenticated headers (includes CSRF)
             let headers = authenticator.get_authenticated_headers(false).await;
-            assert!(headers.is_ok(), "Should get authenticated headers after auth");
+            assert!(
+                headers.is_ok(),
+                "Should get authenticated headers after auth"
+            );
             let headers = headers.unwrap();
-            assert!(headers.contains_key("x-csrf-token"), "Headers should include CSRF token");
+            assert!(
+                headers.contains_key("x-csrf-token"),
+                "Headers should include CSRF token"
+            );
 
             // Verify we have workspace ID
             let workspace_id = authenticator.get_workspace_id();
-            assert!(workspace_id.is_some(), "Should have workspace ID after auth");
+            assert!(
+                workspace_id.is_some(),
+                "Should have workspace ID after auth"
+            );
             println!("Workspace ID: {:?}", workspace_id);
 
             // Verify we have base URL
             let base_url = authenticator.get_base_url();
             assert!(base_url.is_ok(), "Should have base URL after auth");
-            assert!(base_url.unwrap().contains("gong.io"), "Base URL should be Gong domain");
+            assert!(
+                base_url.unwrap().contains("gong.io"),
+                "Base URL should be Gong domain"
+            );
         }
         Ok(false) => {
             println!("Authentication failed - likely no valid cookies");
@@ -90,28 +106,42 @@ async fn test_gong_authentication_full_flow() {
 #[ignore = "Requires real Gong API access"]
 async fn test_csrf_token_refresh() {
     let auth_config = AuthSettings::default();
-    let mut authenticator = GongAuthenticator::new(auth_config).await
+    let mut authenticator = GongAuthenticator::new(auth_config)
+        .await
         .expect("Failed to create authenticator");
 
     // Authenticate first
     if authenticator.authenticate().await.unwrap_or(false) {
         // Get initial authenticated headers (includes CSRF)
-        let headers1 = authenticator.get_authenticated_headers(false).await
+        let headers1 = authenticator
+            .get_authenticated_headers(false)
+            .await
             .expect("Should get authenticated headers");
 
         // Force refresh by requesting again
-        let headers2 = authenticator.get_authenticated_headers(true).await
+        let headers2 = authenticator
+            .get_authenticated_headers(true)
+            .await
             .expect("Should get auth headers after refresh");
 
         // Verify headers include CSRF token
-        assert!(headers1.contains_key("x-csrf-token"), "Headers should include CSRF token");
-        assert!(headers2.contains_key("x-csrf-token"), "Refreshed headers should include CSRF token");
+        assert!(
+            headers1.contains_key("x-csrf-token"),
+            "Headers should include CSRF token"
+        );
+        assert!(
+            headers2.contains_key("x-csrf-token"),
+            "Refreshed headers should include CSRF token"
+        );
 
         let token1 = headers1.get("x-csrf-token").unwrap();
         let token2 = headers2.get("x-csrf-token").unwrap();
 
         assert!(!token1.is_empty(), "CSRF token should not be empty");
-        assert!(!token2.is_empty(), "Refreshed CSRF token should not be empty");
+        assert!(
+            !token2.is_empty(),
+            "Refreshed CSRF token should not be empty"
+        );
     }
 }
 
@@ -122,8 +152,10 @@ async fn test_authentication_without_cookies() {
     let extractor = CookieExtractor::new(domains);
 
     let result = extractor.extract_gong_cookies_with_source();
-    assert!(result.is_err() || result.unwrap().0.is_empty(),
-            "Should fail or return empty for non-existent domain");
+    assert!(
+        result.is_err() || result.unwrap().0.is_empty(),
+        "Should fail or return empty for non-existent domain"
+    );
 }
 
 #[tokio::test]
@@ -132,21 +164,20 @@ async fn test_expired_cookie_handling() {
     // This test would verify handling of expired cookies
     // In practice, this is hard to test without mocking
     let auth_config = AuthSettings::default();
-    let mut authenticator = GongAuthenticator::new(auth_config).await
+    let mut authenticator = GongAuthenticator::new(auth_config)
+        .await
         .expect("Failed to create authenticator");
 
     // Create fake expired cookies
-    let expired_cookies = vec![
-        Cookie {
-            name: "test_session".to_string(),
-            value: "expired_value".to_string(),
-            domain: ".gong.io".to_string(),
-            path: "/".to_string(),
-            expires: Some(0), // Expired
-            http_only: true,
-            secure: true,
-        }
-    ];
+    let expired_cookies = vec![Cookie {
+        name: "test_session".to_string(),
+        value: "expired_value".to_string(),
+        domain: ".gong.io".to_string(),
+        path: "/".to_string(),
+        expires: Some(0), // Expired
+        http_only: true,
+        secure: true,
+    }];
 
     // This should fail authentication
     // Note: Real implementation would need a way to inject test cookies
@@ -193,7 +224,8 @@ async fn test_rate_limit_handling_during_auth() {
     for i in 0..5 {
         let config = auth_config.clone();
         tasks.push(tokio::spawn(async move {
-            let mut auth = GongAuthenticator::new(config).await
+            let mut auth = GongAuthenticator::new(config)
+                .await
                 .expect("Failed to create authenticator");
 
             println!("Auth attempt {}", i);
@@ -227,6 +259,9 @@ async fn test_rate_limit_handling_during_auth() {
         }
     }
 
-    println!("Results - Success: {}, Rate limited: {}", success_count, rate_limit_count);
+    println!(
+        "Results - Success: {}, Rate limited: {}",
+        success_count, rate_limit_count
+    );
     // Should handle rate limits gracefully
 }

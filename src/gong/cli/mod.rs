@@ -9,8 +9,8 @@ pub mod interactive;
 pub use args::*;
 pub use interactive::*;
 
-use owo_colors::OwoColorize;
 use indicatif::{ProgressBar, ProgressStyle};
+use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -276,7 +276,10 @@ impl TeamCallsExtractor {
 
     /// Initialize all components (setup phase)
     pub async fn setup(&mut self) -> Result<()> {
-        println!("{}", "Setting up CS-CLI extractor...".truecolor(255, 142, 100));
+        println!(
+            "{}",
+            "Setting up CS-CLI extractor...".truecolor(255, 142, 100)
+        );
 
         // Initialize HTTP client pool
         self.http = Some(HttpClientPool::new(Some(self.config.http.clone())).await?);
@@ -512,11 +515,7 @@ impl TeamCallsExtractor {
 
         println!(
             "{}",
-            format!(
-                "Successfully extracted {} team calls",
-                enhanced_calls.len()
-            )
-            .green()
+            format!("Successfully extracted {} team calls", enhanced_calls.len()).green()
         );
         Ok(enhanced_calls)
     }
@@ -547,10 +546,7 @@ impl TeamCallsExtractor {
 
         println!(
             "{}",
-            format!(
-                "Extracting calls for '{name}' from {date_range_desc}..."
-            )
-            .cyan()
+            format!("Extracting calls for '{name}' from {date_range_desc}...").cyan()
         );
 
         // Calculate date range for smart pagination
@@ -654,11 +650,7 @@ impl TeamCallsExtractor {
 
         println!(
             "{}",
-            format!(
-                "Successfully extracted {} customer calls",
-                all_calls.len()
-            )
-            .green()
+            format!("Successfully extracted {} customer calls", all_calls.len()).green()
         );
         Ok((all_calls, resolved_name))
     }
@@ -674,10 +666,7 @@ impl TeamCallsExtractor {
     ) -> Result<(Vec<Call>, Vec<Email>, String)> {
         println!(
             "{}",
-            format!(
-                "Extracting communications for '{name}' from last {days} days..."
-            )
-            .cyan()
+            format!("Extracting communications for '{name}' from last {days} days...").cyan()
         );
 
         if emails_only {
@@ -686,10 +675,7 @@ impl TeamCallsExtractor {
                 "Extracting only emails (calls will be ignored)".yellow()
             );
         } else if include_emails {
-            println!(
-                "{}",
-                "Filtering emails to remove blasts and spam".yellow()
-            );
+            println!("{}", "Filtering emails to remove blasts and spam".yellow());
         }
 
         // Step 1: Calculate date range
@@ -718,10 +704,7 @@ impl TeamCallsExtractor {
 
         println!(
             "{}",
-            format!(
-                "Resolved customer name: '{resolved_customer_name}'"
-            )
-            .green()
+            format!("Resolved customer name: '{resolved_customer_name}'").green()
         );
 
         // Get account IDs from the response
@@ -737,11 +720,7 @@ impl TeamCallsExtractor {
 
         println!(
             "{}",
-            format!(
-                "Found {} accounts for customer '{name}'",
-                account_ids.len()
-            )
-            .green()
+            format!("Found {} accounts for customer '{name}'", account_ids.len()).green()
         );
 
         // Step 3: Use timeline extractor to get communications from these accounts
@@ -790,7 +769,10 @@ impl TeamCallsExtractor {
         let mut emails = all_emails;
         if (include_emails || emails_only) && fetch_email_bodies && !emails.is_empty() {
             if let Some(email_enhancer) = &self.email_enhancer {
-                println!("{}", "Fetching email body content...".truecolor(255, 142, 100));
+                println!(
+                    "{}",
+                    "Fetching email body content...".truecolor(255, 142, 100)
+                );
 
                 let pb = ProgressBar::new(emails.len() as u64);
                 pb.set_style(
@@ -809,7 +791,10 @@ impl TeamCallsExtractor {
                     })?;
 
                 pb.finish_with_message("Email body enhancement complete");
-                println!("{}", "Email body enhancement complete".truecolor(255, 255, 255));
+                println!(
+                    "{}",
+                    "Email body enhancement complete".truecolor(255, 255, 255)
+                );
             }
         }
 
@@ -892,7 +877,10 @@ impl TeamCallsExtractor {
             return Ok(Vec::new());
         }
 
-        println!("{}", "Generating markdown files...".truecolor(255, 142, 100));
+        println!(
+            "{}",
+            "Generating markdown files...".truecolor(255, 142, 100)
+        );
 
         let saved_files = self
             .formatter
@@ -911,17 +899,11 @@ impl TeamCallsExtractor {
                 self.summary_reporter
                     .generate_summary_report(calls, Some(&summary_path), customer_name)
                     .map_err(|e| {
-                        crate::CsCliError::Generic(format!(
-                            "Failed to generate summary: {e}"
-                        ))
+                        crate::CsCliError::Generic(format!("Failed to generate summary: {e}"))
                     })?;
                 println!(
                     "{}",
-                    format!(
-                        "Summary report saved to {}",
-                        summary_path.display()
-                    )
-                    .green()
+                    format!("Summary report saved to {}", summary_path.display()).green()
                 );
             }
         }
@@ -940,7 +922,10 @@ impl TeamCallsExtractor {
             return Ok(Vec::new());
         }
 
-        println!("{}", "Generating markdown files...".truecolor(255, 142, 100));
+        println!(
+            "{}",
+            "Generating markdown files...".truecolor(255, 142, 100)
+        );
 
         let saved_files = self
             .formatter
@@ -961,17 +946,11 @@ impl TeamCallsExtractor {
                 self.summary_reporter
                     .generate_summary_report(calls, Some(&summary_path), name_for_summary)
                     .map_err(|e| {
-                        crate::CsCliError::Generic(format!(
-                            "Failed to generate summary: {e}"
-                        ))
+                        crate::CsCliError::Generic(format!("Failed to generate summary: {e}"))
                     })?;
                 println!(
                     "{}",
-                    format!(
-                        "Summary report saved to {}",
-                        summary_path.display()
-                    )
-                    .green()
+                    format!("Summary report saved to {}", summary_path.display()).green()
                 );
             }
         }
@@ -989,14 +968,15 @@ impl TeamCallsExtractor {
             return Ok(Vec::new());
         }
 
-        println!("{}", "Generating email markdown files...".truecolor(255, 142, 100));
+        println!(
+            "{}",
+            "Generating email markdown files...".truecolor(255, 142, 100)
+        );
 
         let saved_files = self
             .formatter
             .save_emails_as_markdown(emails, customer_name, Some(customer_name))
-            .map_err(|e| {
-                crate::CsCliError::Generic(format!("Failed to save emails: {e}"))
-            })?;
+            .map_err(|e| crate::CsCliError::Generic(format!("Failed to save emails: {e}")))?;
 
         println!(
             "{}",
@@ -1049,12 +1029,20 @@ pub async fn run_cli() -> Result<()> {
         let password = match &args.keychain_password {
             Some(p) => p.clone(),
             None => {
-                println!("{}", "Make sure you're logged into Gong in your browser!".truecolor(255, 142, 100));
-                rpassword::prompt_password(&format!("{}", "Enter your Macbook password: ".truecolor(111, 44, 186)))
-                    .map_err(|e| crate::CsCliError::Authentication(format!("Failed to read password: {}", e)))?
+                println!(
+                    "{}",
+                    "Make sure you're logged into Gong in your browser!".truecolor(255, 142, 100)
+                );
+                rpassword::prompt_password(&format!(
+                    "{}",
+                    "Enter your Macbook password: ".truecolor(111, 44, 186)
+                ))
+                .map_err(|e| {
+                    crate::CsCliError::Authentication(format!("Failed to read password: {}", e))
+                })?
             }
         };
-        
+
         unlock_keychain_with_cli_password(&password)?;
         info!("Keychain unlocked for session");
     }

@@ -1,6 +1,6 @@
 //! Gong-related functionality for CS-CLI
-//! 
-//! This module contains all the core functionality for interacting with 
+//!
+//! This module contains all the core functionality for interacting with
 //! Gong API and managing customer success operations.
 
 pub mod api;

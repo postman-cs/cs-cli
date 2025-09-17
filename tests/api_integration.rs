@@ -6,13 +6,13 @@
 //! IMPORTANT: Requires valid Gong authentication and test customer data
 
 use cs_cli::common::config::{AuthSettings, HttpSettings};
+use cs_cli::common::models::time::ExtractionRange;
 use cs_cli::gong::api::client::HttpClientPool;
 use cs_cli::gong::api::customer::GongCustomerSearchClient;
-use cs_cli::gong::api::timeline::TimelineExtractor;
 use cs_cli::gong::api::email::EmailEnhancer;
 use cs_cli::gong::api::library::GongLibraryClient;
+use cs_cli::gong::api::timeline::TimelineExtractor;
 use cs_cli::gong::auth::GongAuthenticator;
-use cs_cli::common::models::time::ExtractionRange;
 use std::sync::Arc;
 
 /// Test configuration with known test data
@@ -28,7 +28,8 @@ struct TestConfig {
 impl Default for TestConfig {
     fn default() -> Self {
         Self {
-            test_customer: std::env::var("TEST_CUSTOMER_NAME").unwrap_or_else(|_| "Fiserv".to_string()),
+            test_customer: std::env::var("TEST_CUSTOMER_NAME")
+                .unwrap_or_else(|_| "Fiserv".to_string()),
             days_back: std::env::var("TEST_DAYS_BACK")
                 .ok()
                 .and_then(|s| s.parse().ok())
@@ -43,7 +44,8 @@ impl Default for TestConfig {
 async fn test_customer_search_real_api() {
     let config = TestConfig::default();
     let auth_config = AuthSettings::default();
-    let mut authenticator = GongAuthenticator::new(auth_config).await
+    let mut authenticator = GongAuthenticator::new(auth_config)
+        .await
         .expect("Failed to create authenticator");
 
     if !authenticator.authenticate().await.unwrap_or(false) {
@@ -54,23 +56,26 @@ async fn test_customer_search_real_api() {
     let client_pool = Arc::new(
         HttpClientPool::new(Some(HttpSettings::default()))
             .await
-            .expect("Failed to create client pool")
+            .expect("Failed to create client pool"),
     );
 
     let search_client = GongCustomerSearchClient::new(
         client_pool,
         Arc::new(authenticator),
         None, // Use default config
-    ).expect("Failed to create search client");
+    )
+    .expect("Failed to create search client");
 
     // Search for customer
-    let results = search_client
-        .search_customers(&config.test_customer)
-        .await;
+    let results = search_client.search_customers(&config.test_customer).await;
 
     match results {
         Ok(customers) => {
-            println!("Found {} customers matching '{}'", customers.len(), config.test_customer);
+            println!(
+                "Found {} customers matching '{}'",
+                customers.len(),
+                config.test_customer
+            );
             assert!(!customers.is_empty(), "Should find at least one customer");
 
             // Verify customer data structure
@@ -90,7 +95,8 @@ async fn test_customer_search_real_api() {
 async fn test_timeline_extraction_real_api() {
     let config = TestConfig::default();
     let auth_config = AuthSettings::default();
-    let mut authenticator = GongAuthenticator::new(auth_config).await
+    let mut authenticator = GongAuthenticator::new(auth_config)
+        .await
         .expect("Failed to create authenticator");
 
     if !authenticator.authenticate().await.unwrap_or(false) {
@@ -101,7 +107,7 @@ async fn test_timeline_extraction_real_api() {
     let client_pool = Arc::new(
         HttpClientPool::new(Some(HttpSettings::default()))
             .await
-            .expect("Failed to create client pool")
+            .expect("Failed to create client pool"),
     );
 
     let auth_arc = Arc::new(authenticator);
@@ -111,7 +117,8 @@ async fn test_timeline_extraction_real_api() {
         client_pool.clone(),
         auth_arc.clone(),
         None, // Use default config
-    ).expect("Failed to create search client");
+    )
+    .expect("Failed to create search client");
 
     let customers = search_client
         .search_customers(&config.test_customer)
@@ -132,11 +139,11 @@ async fn test_timeline_extraction_real_api() {
         auth_arc,
         None, // Use default config
         None, // Use default chunk_days
-    ).expect("Failed to create timeline extractor");
+    )
+    .expect("Failed to create timeline extractor");
 
     // Create date range for extraction
-    let start_date = jiff::Zoned::now()
-        .saturating_sub(jiff::Span::new().days(config.days_back));
+    let start_date = jiff::Zoned::now().saturating_sub(jiff::Span::new().days(config.days_back));
 
     // Use the customer's account ID if available
     let account_id = customer.id.as_deref().unwrap_or("test-account");
@@ -156,14 +163,19 @@ async fn test_timeline_extraction_real_api() {
             for call in &timeline.calls {
                 assert!(!call.id.is_empty(), "Call should have ID");
                 assert!(call.duration >= 0, "Call duration should be non-negative");
-                assert!(!call.participants.is_empty(), "Call should have participants");
+                assert!(
+                    !call.participants.is_empty(),
+                    "Call should have participants"
+                );
             }
 
             for email in &timeline.emails {
                 assert!(!email.id.is_empty(), "Email should have ID");
                 assert!(!email.subject.is_empty(), "Email should have subject");
-                assert!(email.html_body.is_some() || email.body_text.is_some(),
-                        "Email should have content");
+                assert!(
+                    email.html_body.is_some() || email.body_text.is_some(),
+                    "Email should have content"
+                );
             }
         }
         Err(e) => {
@@ -176,7 +188,8 @@ async fn test_timeline_extraction_real_api() {
 #[ignore = "Requires real Gong API access"]
 async fn test_email_enhancement_real_api() {
     let auth_config = AuthSettings::default();
-    let mut authenticator = GongAuthenticator::new(auth_config).await
+    let mut authenticator = GongAuthenticator::new(auth_config)
+        .await
         .expect("Failed to create authenticator");
 
     if !authenticator.authenticate().await.unwrap_or(false) {
@@ -187,7 +200,7 @@ async fn test_email_enhancement_real_api() {
     let client_pool = Arc::new(
         HttpClientPool::new(Some(HttpSettings::default()))
             .await
-            .expect("Failed to create client pool")
+            .expect("Failed to create client pool"),
     );
 
     let enhancer = EmailEnhancer::new(
@@ -209,7 +222,8 @@ async fn test_email_enhancement_real_api() {
 #[ignore = "Requires real Gong API access"]
 async fn test_library_client_call_search() {
     let auth_config = AuthSettings::default();
-    let mut authenticator = GongAuthenticator::new(auth_config).await
+    let mut authenticator = GongAuthenticator::new(auth_config)
+        .await
         .expect("Failed to create authenticator");
 
     if !authenticator.authenticate().await.unwrap_or(false) {
@@ -220,7 +234,7 @@ async fn test_library_client_call_search() {
     let client_pool = Arc::new(
         HttpClientPool::new(Some(HttpSettings::default()))
             .await
-            .expect("Failed to create client pool")
+            .expect("Failed to create client pool"),
     );
 
     let library_client = GongLibraryClient::new(
@@ -230,17 +244,17 @@ async fn test_library_client_call_search() {
     );
 
     // Search for recent calls
-    let extraction_range = ExtractionRange::last_days(7)
-        .expect("Failed to create extraction range");
+    let extraction_range =
+        ExtractionRange::last_days(7).expect("Failed to create extraction range");
 
     // Get library calls with date range parameters
     let result = library_client
         .get_library_calls(
-            None, // call_stream_id
+            None,    // call_stream_id
             Some(7), // days_back
-            None, // from_date
-            None, // to_date
-            0, // offset
+            None,    // from_date
+            None,    // to_date
+            0,       // offset
         )
         .await;
 
@@ -265,7 +279,8 @@ async fn test_library_client_call_search() {
 async fn test_concurrent_api_calls_with_rate_limiting() {
     let config = TestConfig::default();
     let auth_config = AuthSettings::default();
-    let mut authenticator = GongAuthenticator::new(auth_config).await
+    let mut authenticator = GongAuthenticator::new(auth_config)
+        .await
         .expect("Failed to create authenticator");
 
     if !authenticator.authenticate().await.unwrap_or(false) {
@@ -276,7 +291,7 @@ async fn test_concurrent_api_calls_with_rate_limiting() {
     let client_pool = Arc::new(
         HttpClientPool::new(Some(HttpSettings::default()))
             .await
-            .expect("Failed to create client pool")
+            .expect("Failed to create client pool"),
     );
 
     let auth_arc = Arc::new(authenticator);
@@ -310,8 +325,12 @@ async fn test_concurrent_api_calls_with_rate_limiting() {
         match result {
             Ok(customers) => {
                 success_count += 1;
-                println!("Request {} succeeded in {:?}, found {} customers",
-                         idx, duration, customers.len());
+                println!(
+                    "Request {} succeeded in {:?}, found {} customers",
+                    idx,
+                    duration,
+                    customers.len()
+                );
             }
             Err(e) => {
                 println!("Request {} failed in {:?}: {}", idx, duration, e);
@@ -319,8 +338,10 @@ async fn test_concurrent_api_calls_with_rate_limiting() {
         }
     }
 
-    println!("Concurrent requests - Success: {}/5, Total time: {:?}",
-             success_count, total_duration);
+    println!(
+        "Concurrent requests - Success: {}/5, Total time: {:?}",
+        success_count, total_duration
+    );
 
     assert!(success_count > 0, "At least some requests should succeed");
 }
@@ -330,7 +351,8 @@ async fn test_concurrent_api_calls_with_rate_limiting() {
 async fn test_retry_logic_on_transient_failures() {
     // Test that the client properly retries on transient failures
     let auth_config = AuthSettings::default();
-    let mut authenticator = GongAuthenticator::new(auth_config).await
+    let mut authenticator = GongAuthenticator::new(auth_config)
+        .await
         .expect("Failed to create authenticator");
 
     if !authenticator.authenticate().await.unwrap_or(false) {
@@ -344,14 +366,15 @@ async fn test_retry_logic_on_transient_failures() {
     let client_pool = Arc::new(
         HttpClientPool::new(Some(http_config))
             .await
-            .expect("Failed to create client pool")
+            .expect("Failed to create client pool"),
     );
 
     let search_client = GongCustomerSearchClient::new(
         client_pool,
         Arc::new(authenticator),
         None, // Use default config
-    ).expect("Failed to create search client");
+    )
+    .expect("Failed to create search client");
 
     // Make a request that might trigger retries
     let result = search_client.search_customers("test").await;
@@ -365,8 +388,10 @@ async fn test_retry_logic_on_transient_failures() {
             println!("Request failed after retries: {}", e);
             // Verify it's not a transient error that should have been retried
             let error_str = e.to_string();
-            assert!(!error_str.contains("timeout") && !error_str.contains("connection"),
-                    "Transient errors should be retried");
+            assert!(
+                !error_str.contains("timeout") && !error_str.contains("connection"),
+                "Transient errors should be retried"
+            );
         }
     }
 }
@@ -375,7 +400,8 @@ async fn test_retry_logic_on_transient_failures() {
 #[ignore = "Requires real Gong API access"]
 async fn test_empty_results_handling() {
     let auth_config = AuthSettings::default();
-    let mut authenticator = GongAuthenticator::new(auth_config).await
+    let mut authenticator = GongAuthenticator::new(auth_config)
+        .await
         .expect("Failed to create authenticator");
 
     if !authenticator.authenticate().await.unwrap_or(false) {
@@ -386,14 +412,15 @@ async fn test_empty_results_handling() {
     let client_pool = Arc::new(
         HttpClientPool::new(Some(HttpSettings::default()))
             .await
-            .expect("Failed to create client pool")
+            .expect("Failed to create client pool"),
     );
 
     let search_client = GongCustomerSearchClient::new(
         client_pool,
         Arc::new(authenticator),
         None, // Use default config
-    ).expect("Failed to create search client");
+    )
+    .expect("Failed to create search client");
 
     // Search for a customer that likely doesn't exist
     let result = search_client
@@ -403,7 +430,11 @@ async fn test_empty_results_handling() {
     match result {
         Ok(customers) => {
             println!("Search returned {} results", customers.len());
-            assert_eq!(customers.len(), 0, "Should return empty list for non-existent customer");
+            assert_eq!(
+                customers.len(),
+                0,
+                "Should return empty list for non-existent customer"
+            );
         }
         Err(e) => {
             // Also acceptable if it returns an error
@@ -416,7 +447,8 @@ async fn test_empty_results_handling() {
 #[ignore = "Requires real Gong API access and specific test data"]
 async fn test_large_dataset_pagination() {
     let auth_config = AuthSettings::default();
-    let mut authenticator = GongAuthenticator::new(auth_config).await
+    let mut authenticator = GongAuthenticator::new(auth_config)
+        .await
         .expect("Failed to create authenticator");
 
     if !authenticator.authenticate().await.unwrap_or(false) {
@@ -427,7 +459,7 @@ async fn test_large_dataset_pagination() {
     let client_pool = Arc::new(
         HttpClientPool::new(Some(HttpSettings::default()))
             .await
-            .expect("Failed to create client pool")
+            .expect("Failed to create client pool"),
     );
 
     let mut extractor = TimelineExtractor::new(
@@ -435,17 +467,19 @@ async fn test_large_dataset_pagination() {
         Arc::new(authenticator),
         None, // Use default config
         None, // Use default chunk_days
-    ).expect("Failed to create timeline extractor");
+    )
+    .expect("Failed to create timeline extractor");
 
     // Request a large date range to test pagination
-    let start_date = jiff::Zoned::now()
-        .saturating_sub(jiff::Span::new().days(365)); // Full year
+    let start_date = jiff::Zoned::now().saturating_sub(jiff::Span::new().days(365)); // Full year
 
     // Use a workspace ID that has lots of data
     // Note: This would need a real workspace ID with substantial data
     let workspace_id = "test-workspace-with-lots-of-data";
 
-    let result = extractor.extract_account_timeline(workspace_id, start_date, None).await;
+    let result = extractor
+        .extract_account_timeline(workspace_id, start_date, None)
+        .await;
 
     match result {
         Ok(timeline) => {
@@ -459,7 +493,10 @@ async fn test_large_dataset_pagination() {
             }
         }
         Err(e) => {
-            println!("Large dataset extraction failed (expected without valid workspace): {}", e);
+            println!(
+                "Large dataset extraction failed (expected without valid workspace): {}",
+                e
+            );
         }
     }
 }

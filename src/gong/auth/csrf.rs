@@ -1,5 +1,5 @@
-use crate::gong::api::client::GongHttpClient;
 use crate::common::config::AuthSettings;
+use crate::gong::api::client::GongHttpClient;
 use crate::{CsCliError, Result};
 use serde_json::Value;
 use std::collections::HashMap;

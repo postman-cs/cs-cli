@@ -1,9 +1,9 @@
 mod launcher;
 
+use clap::Parser;
 use cs_cli::gong::cli::run_cli;
 use cs_cli::Result;
 use owo_colors::OwoColorize;
-use clap::Parser;
 
 #[derive(Parser)]
 #[command(name = "cs-cli")]

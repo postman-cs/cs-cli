@@ -1252,4 +1252,3 @@ impl TimelineExtractor {
         Ok(Some(email))
     }
 }
-

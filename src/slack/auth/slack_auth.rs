@@ -2,7 +2,7 @@
 //!
 //! Demonstrates how the common auth framework works with Slack workspaces
 
-use crate::common::auth::{CookieExtractor, Cookie, SessionManager};
+use crate::common::auth::{Cookie, CookieExtractor, SessionManager};
 use crate::{CsCliError, Result};
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -30,9 +30,13 @@ pub struct SlackAuth {
 impl SlackAuth {
     /// Create new Slack authenticator for a workspace domain
     pub fn new(workspace_domain: String) -> Self {
-        let domains = vec![workspace_domain.clone(), "app.slack.com".to_string(), "slack.com".to_string()];
+        let domains = vec![
+            workspace_domain.clone(),
+            "app.slack.com".to_string(),
+            "slack.com".to_string(),
+        ];
         let cookie_extractor = CookieExtractor::new(domains);
-        
+
         Self {
             workspace_domain,
             cookie_extractor,
@@ -43,36 +47,46 @@ impl SlackAuth {
 
     /// Extract Slack authentication from browser using auth API
     pub async fn extract_browser_auth(&mut self) -> Result<SlackSession> {
-        info!("Extracting Slack authentication for {}", self.workspace_domain);
-        
+        info!(
+            "Extracting Slack authentication for {}",
+            self.workspace_domain
+        );
+
         // Test browsers sequentially to find one with valid authentication
         let (all_cookies, browser_source) = self.find_browser_with_valid_auth().await?;
-            
-        info!("Found {} working cookies from {}", all_cookies.len(), browser_source);
-        
+
+        info!(
+            "Found {} working cookies from {}",
+            all_cookies.len(),
+            browser_source
+        );
+
         // Store the browser source for consistent fingerprinting
         self.detected_browser = Some(browser_source.to_lowercase());
-        
+
         // Filter for Slack-related cookies
         let slack_cookies: Vec<Cookie> = all_cookies
             .into_iter()
             .filter(|cookie| {
-                cookie.domain.contains("slack") || 
-                cookie.domain.contains(&self.workspace_domain)
+                cookie.domain.contains("slack") || cookie.domain.contains(&self.workspace_domain)
             })
             .collect();
-            
+
         debug!("Found {} Slack-related cookies", slack_cookies.len());
-        
+
         // Check for required 'd' session cookie
-        let _d_cookie = slack_cookies.iter()
+        let _d_cookie = slack_cookies
+            .iter()
             .find(|c| c.name == "d")
-            .ok_or_else(|| CsCliError::Authentication(
-                "Required 'd' session cookie not found. Please log into Slack in Firefox.".to_string()
-            ))?;
-            
+            .ok_or_else(|| {
+                CsCliError::Authentication(
+                    "Required 'd' session cookie not found. Please log into Slack in Firefox."
+                        .to_string(),
+                )
+            })?;
+
         debug!("Found required 'd' session cookie");
-        
+
         // Convert cookies to HashMap for HTTP requests
         let cookie_map: HashMap<String, String> = slack_cookies
             .iter()
@@ -81,87 +95,103 @@ impl SlackAuth {
 
         // Get xoxc token via auth API endpoint
         let xoxc_token = self.fetch_xoxc_token(&cookie_map).await?;
-        
+
         let session = SlackSession {
             workspace_url: format!("https://{}", self.workspace_domain),
             workspace_id: "unknown".to_string(), // We'll get this from auth.test
-            team_name: "unknown".to_string(), // We'll get this from auth.test
-            user_id: "unknown".to_string(), // We'll get this from auth.test
+            team_name: "unknown".to_string(),    // We'll get this from auth.test
+            user_id: "unknown".to_string(),      // We'll get this from auth.test
             xoxc_token,
             cookies: cookie_map,
         };
 
-        info!("Successfully extracted Slack session for workspace: {}", session.workspace_url);
+        info!(
+            "Successfully extracted Slack session for workspace: {}",
+            session.workspace_url
+        );
         self.current_session = Some(session.clone());
-        
+
         Ok(session)
     }
 
     /// Fetch xoxc token from Slack auth API endpoint using cookies
     async fn fetch_xoxc_token(&self, cookies: &HashMap<String, String>) -> Result<String> {
-        use crate::common::http::{BrowserHttpClient, HttpClient};
         use crate::common::config::HttpSettings;
-        
+        use crate::common::http::{BrowserHttpClient, HttpClient};
+
         info!("Fetching xoxc token from Slack auth API...");
-        
+
         // Create HTTP client for auth request - match the browser we got cookies from
         let browser_to_impersonate = self.detected_browser.as_deref().unwrap_or("firefox");
-        
+
         let http_config = HttpSettings {
             pool_size: 1,
             max_concurrency_per_client: 1,
             timeout_seconds: 30.0,
             max_clients: Some(1),
             global_max_concurrency: Some(1),
-            enable_http3: true,   // Use HTTP/3 for better performance and browser matching
-            force_http3: false,   // Allow fallback to HTTP/2 if needed
+            enable_http3: true, // Use HTTP/3 for better performance and browser matching
+            force_http3: false, // Allow fallback to HTTP/2 if needed
             tls_version: None,
             impersonate_browser: browser_to_impersonate.to_string(),
         };
-        
-        info!("Creating HTTP client impersonating: {}", browser_to_impersonate);
-        
+
+        info!(
+            "Creating HTTP client impersonating: {}",
+            browser_to_impersonate
+        );
+
         let client = BrowserHttpClient::new(http_config).await?;
-        
+
         // Set cookies for the request
         client.set_cookies(cookies.clone()).await?;
-        
+
         // Make request to auth endpoint (simplified version of your curl)
         let auth_url = "https://app.slack.com/auth?app=client&teams=&iframe=1";
-        
+
         debug!("Making auth request to: {}", auth_url);
         let response = client.get(auth_url).await?;
-        
-        let response_text = response.text().await
+
+        let response_text = response
+            .text()
+            .await
             .map_err(|e| CsCliError::ApiRequest(format!("Failed to read auth response: {}", e)))?;
-        
+
         debug!("Auth response length: {} chars", response_text.len());
-        
+
         // Parse JavaScript response to extract xoxc token
         self.parse_xoxc_from_response(&response_text)
     }
-    
+
     /// Parse xoxc token from Slack auth response JavaScript
     fn parse_xoxc_from_response(&self, response: &str) -> Result<String> {
         use regex::Regex;
-        
+
         // Look for the sessionStorage.incomingConfig JSON
-        let config_regex = Regex::new(r#"sessionStorage\.incomingConfig\s*=\s*JSON\.stringify\((\{.*?\})\);"#)
-            .map_err(|e| CsCliError::Generic(format!("Failed to compile regex: {}", e)))?;
-        
-        let config_json = config_regex.captures(response)
+        let config_regex =
+            Regex::new(r#"sessionStorage\.incomingConfig\s*=\s*JSON\.stringify\((\{.*?\})\);"#)
+                .map_err(|e| CsCliError::Generic(format!("Failed to compile regex: {}", e)))?;
+
+        let config_json = config_regex
+            .captures(response)
             .and_then(|caps| caps.get(1))
             .map(|m| m.as_str())
-            .ok_or_else(|| CsCliError::Authentication(
-                "Could not find sessionStorage.incomingConfig in auth response".to_string()
-            ))?;
-        
-        debug!("Found config JSON: {}...", &config_json[..std::cmp::min(100, config_json.len())]);
-        
+            .ok_or_else(|| {
+                CsCliError::Authentication(
+                    "Could not find sessionStorage.incomingConfig in auth response".to_string(),
+                )
+            })?;
+
+        debug!(
+            "Found config JSON: {}...",
+            &config_json[..std::cmp::min(100, config_json.len())]
+        );
+
         // Parse JSON to extract token
-        let config: serde_json::Value = serde_json::from_str(config_json)
-            .map_err(|e| CsCliError::Authentication(format!("Failed to parse config JSON: {}", e)))?;
-        
+        let config: serde_json::Value = serde_json::from_str(config_json).map_err(|e| {
+            CsCliError::Authentication(format!("Failed to parse config JSON: {}", e))
+        })?;
+
         // Look for token in teams structure
         if let Some(teams) = config.get("teams").and_then(|t| t.as_object()) {
             for (team_id, team_data) in teams {
@@ -172,7 +202,10 @@ impl SlackAuth {
                     }
                 }
                 // Also check enterprise_api_token
-                if let Some(token) = team_data.get("enterprise_api_token").and_then(|t| t.as_str()) {
+                if let Some(token) = team_data
+                    .get("enterprise_api_token")
+                    .and_then(|t| t.as_str())
+                {
                     if token.starts_with("xoxc-") {
                         info!("Found enterprise xoxc token for team: {}", team_id);
                         return Ok(token.to_string());
@@ -180,29 +213,29 @@ impl SlackAuth {
                 }
             }
         }
-        
+
         Err(CsCliError::Authentication(
-            "No xoxc token found in auth response teams data".to_string()
+            "No xoxc token found in auth response teams data".to_string(),
         ))
     }
 
     /// Test if cookies can generate a valid xoxc token (for browser validation)
     async fn test_cookies_validity(&self, cookies: Vec<Cookie>) -> Result<bool> {
-        use crate::common::http::{BrowserHttpClient, HttpClient};
         use crate::common::config::HttpSettings;
-        
+        use crate::common::http::{BrowserHttpClient, HttpClient};
+
         // Check for required 'd' session cookie first
         let has_d_cookie = cookies.iter().any(|c| c.name == "d");
         if !has_d_cookie {
             return Ok(false);
         }
-        
+
         // Convert cookies to HashMap
         let cookie_map: HashMap<String, String> = cookies
             .iter()
             .map(|c| (c.name.clone(), c.value.clone()))
             .collect();
-        
+
         // Try to get xoxc token with these cookies
         let http_config = HttpSettings {
             pool_size: 1,
@@ -215,20 +248,20 @@ impl SlackAuth {
             tls_version: None,
             impersonate_browser: "firefox".to_string(), // Default for testing
         };
-        
+
         let client = BrowserHttpClient::new(http_config).await?;
         client.set_cookies(cookie_map).await?;
-        
+
         // Test auth endpoint
         let auth_url = "https://app.slack.com/auth?app=client&teams=&iframe=1";
-        
+
         match client.get(auth_url).await {
             Ok(response) => {
                 match response.text().await {
                     Ok(response_text) => {
                         // Check if response contains valid token data
-                        Ok(response_text.contains("sessionStorage.incomingConfig") && 
-                           response_text.contains("xoxc-"))
+                        Ok(response_text.contains("sessionStorage.incomingConfig")
+                            && response_text.contains("xoxc-"))
                     }
                     Err(_) => Ok(false),
                 }
@@ -245,10 +278,10 @@ impl SlackAuth {
     /// Find browser with valid Slack authentication by testing each one
     async fn find_browser_with_valid_auth(&self) -> Result<(Vec<Cookie>, String)> {
         info!("Testing browsers for valid Slack authentication...");
-        
+
         // Note: Keychain should be unlocked at CLI startup
         // No need to unlock here - avoids multiple password prompts
-        
+
         // Test Firefox
         if let Ok(cookies) = self.cookie_extractor.extract_firefox_cookies() {
             if self.has_valid_slack_session(&cookies, "Firefox").await? {
@@ -256,7 +289,7 @@ impl SlackAuth {
                 return Ok((cookies, "Firefox".to_string()));
             }
         }
-        
+
         // Test Chrome
         if let Ok(cookies) = self.cookie_extractor.extract_chrome_cookies() {
             if self.has_valid_slack_session(&cookies, "Chrome").await? {
@@ -264,7 +297,7 @@ impl SlackAuth {
                 return Ok((cookies, "Chrome".to_string()));
             }
         }
-        
+
         // Test Brave
         if let Ok(cookies) = self.cookie_extractor.extract_brave_cookies() {
             if self.has_valid_slack_session(&cookies, "Brave").await? {
@@ -272,7 +305,7 @@ impl SlackAuth {
                 return Ok((cookies, "Brave".to_string()));
             }
         }
-        
+
         // Test Edge
         if let Ok(cookies) = self.cookie_extractor.extract_edge_cookies() {
             if self.has_valid_slack_session(&cookies, "Edge").await? {
@@ -280,7 +313,7 @@ impl SlackAuth {
                 return Ok((cookies, "Edge".to_string()));
             }
         }
-        
+
         // Test Arc
         if let Ok(cookies) = self.cookie_extractor.extract_arc_cookies() {
             if self.has_valid_slack_session(&cookies, "Arc").await? {
@@ -288,39 +321,47 @@ impl SlackAuth {
                 return Ok((cookies, "Arc".to_string()));
             }
         }
-        
+
         Err(CsCliError::Authentication(
             "No browser has valid Slack authentication. Please log into Slack in a supported browser.".to_string()
         ))
     }
 
     /// Check if cookies from a specific browser have valid Slack session
-    async fn has_valid_slack_session(&self, cookies: &[Cookie], browser_name: &str) -> Result<bool> {
+    async fn has_valid_slack_session(
+        &self,
+        cookies: &[Cookie],
+        browser_name: &str,
+    ) -> Result<bool> {
         debug!("Testing {} cookies...", browser_name);
-        
+
         if cookies.is_empty() {
             debug!("No cookies found in {}", browser_name);
             return Ok(false);
         }
-        
+
         // Check for Slack cookies
-        let slack_cookies: Vec<_> = cookies.iter()
+        let slack_cookies: Vec<_> = cookies
+            .iter()
             .filter(|c| c.domain.contains("slack"))
             .collect();
-        
+
         if slack_cookies.is_empty() {
             debug!("No Slack cookies in {}", browser_name);
             return Ok(false);
         }
-        
+
         // Check for 'd' session cookie
         if !slack_cookies.iter().any(|c| c.name == "d") {
             debug!("No 'd' session cookie in {}", browser_name);
             return Ok(false);
         }
-        
-        info!("Testing {} cookies for valid authentication...", browser_name);
-        
+
+        info!(
+            "Testing {} cookies for valid authentication...",
+            browser_name
+        );
+
         // Test if cookies can generate valid xoxc token
         match self.test_cookies_validity(cookies.to_vec()).await {
             Ok(is_valid) => {
@@ -340,16 +381,16 @@ impl SlackAuth {
     pub fn get_domain_cookies(&self, domain: &str) -> Result<Vec<Cookie>> {
         // Get ALL Firefox cookies and filter for Slack-related ones
         let all_cookies = self.cookie_extractor.extract_firefox_cookies()?;
-        
+
         let slack_cookies: Vec<Cookie> = all_cookies
             .into_iter()
             .filter(|cookie| {
-                cookie.domain.contains("slack") || 
-                cookie.domain.contains(domain) ||
-                domain.contains(&cookie.domain)
+                cookie.domain.contains("slack")
+                    || cookie.domain.contains(domain)
+                    || domain.contains(&cookie.domain)
             })
             .collect();
-            
+
         Ok(slack_cookies)
     }
 }
@@ -387,18 +428,24 @@ impl SessionManager for SlackAuth {
 
     fn get_auth_headers(&self) -> HashMap<String, String> {
         let mut headers = HashMap::new();
-        
+
         if let Some(session) = &self.current_session {
             // Add authorization header with xoxc token
-            headers.insert("Authorization".to_string(), format!("Bearer {}", session.xoxc_token));
-            
+            headers.insert(
+                "Authorization".to_string(),
+                format!("Bearer {}", session.xoxc_token),
+            );
+
             // Add common Slack headers
             headers.insert("User-Agent".to_string(), 
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:122.0) Gecko/20100101 Firefox/122.0".to_string());
             headers.insert("Accept".to_string(), "application/json".to_string());
-            headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+            headers.insert(
+                "Content-Type".to_string(),
+                "application/x-www-form-urlencoded".to_string(),
+            );
         }
-        
+
         headers
     }
 }

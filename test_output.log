@@ -1,0 +1,51 @@
+warning: unused import: `ContentType`
+ --> tests/e2e_regression.rs:7:40
+  |
+7 | use cs_cli::gong::cli::args::{CliArgs, ContentType};
+  |                                        ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `std::path::Path`
+ --> tests/e2e_regression.rs:9:5
+  |
+9 | use std::path::Path;
+  |     ^^^^^^^^^^^^^^^
+
+warning: unused variable: `args`
+  --> tests/e2e_regression.rs:69:9
+   |
+69 |     let args = CliArgs {
+   |         ^^^^ help: if this is intentional, prefix it with an underscore: `_args`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: fields `min_calls`, `min_emails`, and `expected_patterns` are never read
+  --> tests/e2e_regression.rs:17:5
+   |
+13 | struct RegressionTestData {
+   |        ------------------ fields in this struct
+...
+17 |     min_calls: usize,
+   |     ^^^^^^^^^
+18 |     min_emails: usize,
+   |     ^^^^^^^^^^
+19 |     /// Output validation patterns
+20 |     expected_patterns: Vec<String>,
+   |     ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: `cs-cli` (test "e2e_regression") generated 4 warnings (run `cargo fix --test "e2e_regression"` to apply 2 suggestions)
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.17s
+     Running tests/e2e_regression.rs (target/debug/deps/e2e_regression-dd18371ddfdfa285)
+
+running 1 test
+Validated args: ["customer", "TestCustomer", "30", "calls"]
+Validated args: ["customer", "TestCustomer", "7", "emails"]
+Validated args: ["customer", "TestCustomer", "90", "both"]
+Validated args: []
+test test_cli_argument_parsing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+

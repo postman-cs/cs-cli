@@ -35,11 +35,17 @@ impl BrowserHttpClient {
             "firefox" => Browser::Firefox,
             "chrome" => Browser::Chrome,
             "brave" | "edge" | "safari" | "chromium" | "arc" | "opera" | "vivaldi" => {
-                info!("Browser '{}' is Chromium-based, using Chrome fingerprinting", config.impersonate_browser);
+                info!(
+                    "Browser '{}' is Chromium-based, using Chrome fingerprinting",
+                    config.impersonate_browser
+                );
                 Browser::Chrome
             }
             _ => {
-                warn!("Unknown browser '{}', defaulting to Chrome", config.impersonate_browser);
+                warn!(
+                    "Unknown browser '{}', defaulting to Chrome",
+                    config.impersonate_browser
+                );
                 Browser::Chrome
             }
         };
@@ -57,18 +63,20 @@ impl BrowserHttpClient {
         } else {
             info!("HTTP client configured for HTTP/2 only");
         }
-        
+
         // Enhanced fingerprinting to match browser exactly
         // impit automatically handles:
-        // - TLS fingerprinting (JA3/JA4) 
+        // - TLS fingerprinting (JA3/JA4)
         // - HTTP/2 fingerprinting (frame ordering, settings, priorities)
         // - HTTP/3 fingerprinting (QUIC parameters, frame patterns)
         // - Header ordering and casing (browser-specific)
         // - Connection patterns and timing behaviors
         // - Browser-specific protocol negotiations
-        
-        info!("Building HTTP client with enhanced {} fingerprinting", 
-            config.impersonate_browser);
+
+        info!(
+            "Building HTTP client with enhanced {} fingerprinting",
+            config.impersonate_browser
+        );
         info!("Features: TLS(JA3/JA4) + HTTP/2 + HTTP/3(QUIC) + Headers + Timing");
 
         let client = builder.build();
@@ -89,19 +97,27 @@ impl BrowserHttpClient {
     }
 
     /// Make HTTP request with retry logic and rate limiting
-    async fn make_request_with_retries(&self, method: &str, url: &str, body: Option<&str>) -> Result<Response> {
+    async fn make_request_with_retries(
+        &self,
+        method: &str,
+        url: &str,
+        body: Option<&str>,
+    ) -> Result<Response> {
         const MAX_RETRIES: usize = 3;
         let mut last_error: Option<CsCliError> = None;
 
         // Acquire semaphore permit for rate limiting
-        let _permit = self.semaphore.acquire().await
+        let _permit = self
+            .semaphore
+            .acquire()
+            .await
             .map_err(|e| CsCliError::Generic(format!("Failed to acquire semaphore: {e}")))?;
 
         for attempt in 0..MAX_RETRIES {
             match self.make_request(method, url, body).await {
                 Ok(response) => {
                     let status = response.status().as_u16();
-                    
+
                     // Handle rate limiting (429)
                     if status == 429 {
                         if attempt < MAX_RETRIES - 1 {
@@ -170,10 +186,9 @@ impl BrowserHttpClient {
         // Add custom headers
         let headers = self.headers.lock().await;
         for (name, value) in headers.iter() {
-            if let (Ok(header_name), Ok(header_value)) = (
-                HeaderName::from_str(name),
-                HeaderValue::from_str(value),
-            ) {
+            if let (Ok(header_name), Ok(header_value)) =
+                (HeaderName::from_str(name), HeaderValue::from_str(value))
+            {
                 header_map.insert(header_name, header_value);
             }
         }
@@ -234,7 +249,12 @@ impl BrowserHttpClient {
                 .delete(url.to_string(), None, request_options)
                 .await
                 .map_err(|e| CsCliError::ApiRequest(format!("DELETE request failed: {e}"))),
-            _ => return Err(CsCliError::ApiRequest(format!("Unsupported HTTP method: {}", method))),
+            _ => {
+                return Err(CsCliError::ApiRequest(format!(
+                    "Unsupported HTTP method: {}",
+                    method
+                )))
+            }
         };
 
         response
@@ -245,7 +265,7 @@ impl BrowserHttpClient {
         let base_delay = Duration::from_millis(1000); // 1 second base
         let delay_ms = base_delay.as_millis() * (2_u128.pow(attempt as u32));
         let max_delay = Duration::from_secs(30); // Cap at 30 seconds
-        
+
         Duration::from_millis(std::cmp::min(delay_ms as u64, max_delay.as_millis() as u64))
     }
 }

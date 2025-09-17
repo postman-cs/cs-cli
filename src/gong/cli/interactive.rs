@@ -4,8 +4,8 @@
 //! don't provide command-line arguments, matching the Python version's experience.
 
 use console::Term;
-use owo_colors::OwoColorize;
 use dialoguer::Input;
+use owo_colors::OwoColorize;
 use std::io::Write;
 
 use crate::gong::cli::args::{ContentType, ParsedCommand};
@@ -99,7 +99,8 @@ fn get_time_period() -> Result<u32> {
     println!("{}", "How far back should I look?".truecolor(111, 44, 186));
     println!(
         "{}",
-        "Common choices: 30 days (1 month), 90 days (3 months), 180 days (6 months)".truecolor(230, 230, 230)
+        "Common choices: 30 days (1 month), 90 days (3 months), 180 days (6 months)"
+            .truecolor(230, 230, 230)
     );
 
     loop {
@@ -130,7 +131,10 @@ fn get_time_period() -> Result<u32> {
 /// Get content type selection with menu (matching Python table style)
 fn get_content_type() -> Result<ContentType> {
     println!();
-    println!("{}", "What would you like to analyze?".truecolor(111, 44, 186));
+    println!(
+        "{}",
+        "What would you like to analyze?".truecolor(111, 44, 186)
+    );
     println!();
 
     // Display options in table format like Python version
@@ -163,14 +167,22 @@ fn get_content_type() -> Result<ContentType> {
 fn show_confirmation_summary(customer: &str, days: u32, content_type: ContentType) {
     println!();
     println!("{} {}", "✓ Looking for:".truecolor(255, 255, 255), customer);
-    println!("{} Last {} days", "✓ Time period:".truecolor(255, 255, 255), days);
+    println!(
+        "{} Last {} days",
+        "✓ Time period:".truecolor(255, 255, 255),
+        days
+    );
 
     let content_display = match content_type {
         ContentType::Calls => "Calls",
         ContentType::Emails => "Emails",
         ContentType::Both => "Calls and emails",
     };
-    println!("{} {}", "✓ Content:".truecolor(255, 255, 255), content_display);
+    println!(
+        "{} {}",
+        "✓ Content:".truecolor(255, 255, 255),
+        content_display
+    );
     println!();
 }
 
@@ -190,11 +202,7 @@ pub fn interactive_team_mode(saved_stream_id: Option<String>) -> Result<ParsedCo
 
     let stream_id = if let Some(saved_id) = saved_stream_id {
         // Show reuse option
-        println!(
-            "{} {}",
-            "Previously used stream ID:".green(),
-            saved_id
-        );
+        println!("{} {}", "Previously used stream ID:".green(), saved_id);
         println!();
 
         let reuse_prompt = format!("Enter call stream ID (leave blank to reuse {saved_id})");
@@ -206,11 +214,7 @@ pub fn interactive_team_mode(saved_stream_id: Option<String>) -> Result<ParsedCo
             .map_err(|e| crate::CsCliError::Generic(format!("Input error: {e}")))?;
 
         if input.trim().is_empty() {
-            println!(
-                "{} {}",
-                "Reusing previous stream ID:".green(),
-                saved_id
-            );
+            println!("{} {}", "Reusing previous stream ID:".green(), saved_id);
             saved_id
         } else {
             println!("{}", "Saved new stream ID for future use".green());
@@ -221,7 +225,11 @@ pub fn interactive_team_mode(saved_stream_id: Option<String>) -> Result<ParsedCo
         show_team_instructions();
 
         let stream_id: String = Input::new()
-            .with_prompt("Enter your call stream ID".truecolor(111, 44, 186).to_string())
+            .with_prompt(
+                "Enter your call stream ID"
+                    .truecolor(111, 44, 186)
+                    .to_string(),
+            )
             .interact_text()
             .map_err(|e| crate::CsCliError::Generic(format!("Input error: {e}")))?;
 
@@ -285,10 +293,7 @@ pub fn confirm(message: &str, default: bool) -> Result<bool> {
             "y" | "yes" | "true" | "1" => return Ok(true),
             "n" | "no" | "false" | "0" => return Ok(false),
             _ => {
-                println!(
-                    "{}",
-                    "Please answer 'y' for yes or 'n' for no.".yellow()
-                );
+                println!("{}", "Please answer 'y' for yes or 'n' for no.".yellow());
                 continue;
             }
         }

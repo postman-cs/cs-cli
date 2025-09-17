@@ -11,8 +11,8 @@ use reqwest::Response;
 use tokio::sync::{Mutex, Semaphore};
 use tracing::{debug, info, warn};
 
-use crate::gong::config::settings::AppConfig;
 use crate::common::config::HttpSettings;
+use crate::gong::config::settings::AppConfig;
 use crate::{CsCliError, Result};
 
 /// HTTP client with TLS fingerprinting and browser impersonation
@@ -176,11 +176,13 @@ impl GongHttpClient {
 
         // Build cookie string
         let cookie_string = if !cookies.is_empty() {
-            Some(cookies
-                .iter()
-                .map(|(name, value)| format!("{name}={value}"))
-                .collect::<Vec<_>>()
-                .join("; "))
+            Some(
+                cookies
+                    .iter()
+                    .map(|(name, value)| format!("{name}={value}"))
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            )
         } else {
             None
         };
@@ -207,12 +209,11 @@ impl GongHttpClient {
 
         // Use impit's documented API: get(url, body, options) and post(url, body, options)
         match method.to_uppercase().as_str() {
-            "GET" => {
-                self.client
-                    .get(url.to_string(), None, request_options)
-                    .await
-                    .map_err(|e| CsCliError::ApiRequest(format!("GET request failed: {e}")))
-            }
+            "GET" => self
+                .client
+                .get(url.to_string(), None, request_options)
+                .await
+                .map_err(|e| CsCliError::ApiRequest(format!("GET request failed: {e}"))),
             "POST" => {
                 // Convert body to Vec<u8> for impit
                 let body_bytes = body.map(|b| b.as_bytes().to_vec());

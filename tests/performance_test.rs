@@ -41,17 +41,23 @@ async fn test_semaphore_rate_limiting() {
 
     let total_duration = start.elapsed();
 
-    println!("Total time for 10 tasks with max_concurrent={}: {:?}",
-             max_concurrent, total_duration);
+    println!(
+        "Total time for 10 tasks with max_concurrent={}: {:?}",
+        max_concurrent, total_duration
+    );
 
     // With max 3 concurrent and 100ms per task:
     // Should take at least 400ms (4 waves: 3+3+3+1)
-    assert!(total_duration >= Duration::from_millis(300),
-            "Should respect concurrency limit");
+    assert!(
+        total_duration >= Duration::from_millis(300),
+        "Should respect concurrency limit"
+    );
 
     // But shouldn't take as long as sequential (1000ms)
-    assert!(total_duration < Duration::from_millis(1000),
-            "Should run concurrently");
+    assert!(
+        total_duration < Duration::from_millis(1000),
+        "Should run concurrently"
+    );
 
     // Verify all tasks completed
     assert_eq!(results.len(), 10, "All tasks should complete");
@@ -62,7 +68,9 @@ async fn test_connection_pool_reuse() {
     // Test that connection pool properly reuses connections
     let config = HttpSettings::default();
     let pool = Arc::new(
-        HttpClientPool::new(Some(config)).await.expect("Failed to create pool")
+        HttpClientPool::new(Some(config))
+            .await
+            .expect("Failed to create pool"),
     );
 
     // Test that pool can handle multiple concurrent requests
@@ -117,11 +125,12 @@ async fn test_memory_usage_large_dataset() {
         tokio::time::sleep(Duration::from_micros(100)).await;
     }
 
-    assert_eq!(processed_count, initial_len,
-               "Should process all items");
+    assert_eq!(processed_count, initial_len, "Should process all items");
 
-    println!("Processed {} items in chunks of {}",
-             processed_count, chunk_size);
+    println!(
+        "Processed {} items in chunks of {}",
+        processed_count, chunk_size
+    );
 }
 
 #[tokio::test]
@@ -140,19 +149,25 @@ async fn test_exponential_backoff_timing() {
         let actual_delay = start.elapsed();
         total_delay += actual_delay;
 
-        println!("Attempt {}: Expected {}ms, Actual {:?}",
-                 attempt, delay_ms, actual_delay);
+        println!(
+            "Attempt {}: Expected {}ms, Actual {:?}",
+            attempt, delay_ms, actual_delay
+        );
 
         // Allow 10ms tolerance for timing
-        assert!(actual_delay >= delay - Duration::from_millis(10),
-                "Delay should be at least the expected value");
+        assert!(
+            actual_delay >= delay - Duration::from_millis(10),
+            "Delay should be at least the expected value"
+        );
     }
 
     println!("Total backoff time: {:?}", total_delay);
 
     // Total should be around 3.2 seconds
-    assert!(total_delay >= Duration::from_millis(3000),
-            "Total backoff should be substantial");
+    assert!(
+        total_delay >= Duration::from_millis(3000),
+        "Total backoff should be substantial"
+    );
 }
 
 #[tokio::test]
@@ -203,78 +218,82 @@ async fn test_concurrent_task_cancellation() {
         }
     }
 
-    println!("Completed: {}, Cancelled: {}",
-             completed_count, cancelled_count);
+    println!(
+        "Completed: {}, Cancelled: {}",
+        completed_count, cancelled_count
+    );
 
     // Most tasks should be cancelled
     assert!(cancelled_count > 0, "Some tasks should be cancelled");
 }
 
 #[tokio::test]
-async fn test_rate_limiter_throughput() {
-    /// Custom rate limiter for testing
-    struct RateLimiter {
-        semaphore: Arc<Semaphore>,
-        _refill_task: tokio::task::JoinHandle<()>,
-    }
+async fn test_rate_limiting_with_jitter() {
+    use cs_cli::common::http::rate_limiting::{api_delay, sleep_with_jitter};
 
-    impl RateLimiter {
-        fn new(requests_per_second: usize) -> Self {
-            let semaphore = Arc::new(Semaphore::new(requests_per_second));
-            let sem_clone = semaphore.clone();
-
-            let refill_task = tokio::spawn(async move {
-                let interval = Duration::from_secs(1) / requests_per_second as u32;
-                loop {
-                    tokio::time::sleep(interval).await;
-                    if sem_clone.available_permits() < requests_per_second {
-                        sem_clone.add_permits(1);
-                    }
-                }
-            });
-
-            Self {
-                semaphore,
-                _refill_task: refill_task,
-            }
-        }
-
-        async fn acquire(&self) {
-            let _ = self.semaphore.acquire().await.expect("Failed to acquire permit");
-        }
-    }
-
-    // Test custom rate limiter implementation
-    let requests_per_second = 10;
-    let rate_limiter = RateLimiter::new(requests_per_second);
-
+    // Test basic jitter functionality
     let start = Instant::now();
-    let mut request_times = vec![];
+    sleep_with_jitter(100, 0.5).await; // 100ms ±50%
+    let duration = start.elapsed();
 
-    // Make 20 requests
-    for i in 0..20 {
-        rate_limiter.acquire().await;
-        request_times.push(Instant::now());
-        println!("Request {} at {:?}", i, request_times.last().unwrap().duration_since(start));
+    // Should be between 50ms and 150ms
+    assert!(
+        duration >= Duration::from_millis(40),
+        "Jitter delay too short: {:?}",
+        duration
+    );
+    assert!(
+        duration <= Duration::from_millis(200),
+        "Jitter delay too long: {:?}",
+        duration
+    );
+
+    println!("Jitter test: {}ms base -> {:?} actual", 100, duration);
+
+    // Test API delay
+    let start = Instant::now();
+    api_delay().await; // 1000ms ±25%
+    let duration = start.elapsed();
+
+    // Should be between 750ms and 1250ms
+    assert!(
+        duration >= Duration::from_millis(700),
+        "API delay too short: {:?}",
+        duration
+    );
+    assert!(
+        duration <= Duration::from_millis(1300),
+        "API delay too long: {:?}",
+        duration
+    );
+
+    println!("API delay test: {:?} (expected 750ms-1250ms)", duration);
+
+    // Test that multiple delays have variation (jitter working)
+    let mut delays = Vec::new();
+    for _ in 0..5 {
+        let start = Instant::now();
+        sleep_with_jitter(200, 0.3).await;
+        delays.push(start.elapsed());
     }
 
-    let total_duration = start.elapsed();
+    // Check that we have variation in delays (not all identical)
+    let min_delay = delays.iter().min().unwrap();
+    let max_delay = delays.iter().max().unwrap();
+    let variation = max_delay.saturating_sub(*min_delay);
 
-    // 20 requests at 10/second should take about 2 seconds
-    println!("20 requests at {}/sec took {:?}",
-             requests_per_second, total_duration);
+    assert!(
+        variation >= Duration::from_millis(20),
+        "Insufficient jitter variation: min={:?}, max={:?}, variation={:?}",
+        min_delay,
+        max_delay,
+        variation
+    );
 
-    assert!(total_duration >= Duration::from_millis(1900),
-            "Should respect rate limit");
-    assert!(total_duration < Duration::from_millis(2500),
-            "Should not be too slow");
-
-    // Verify spacing between requests
-    for i in 1..request_times.len() {
-        let gap = request_times[i].duration_since(request_times[i - 1]);
-        assert!(gap >= Duration::from_millis(90),
-                "Requests should be properly spaced");
-    }
+    println!(
+        "Jitter variation test: {:?} range across 5 delays",
+        variation
+    );
 }
 
 #[tokio::test]
@@ -310,8 +329,10 @@ async fn test_parallel_data_processing() {
     println!("Parallel processing of 1000 items took {:?}", duration);
 
     // Should be faster than sequential (100ms)
-    assert!(duration < Duration::from_millis(100),
-            "Parallel should be faster than sequential");
+    assert!(
+        duration < Duration::from_millis(100),
+        "Parallel should be faster than sequential"
+    );
 }
 
 #[tokio::test]
@@ -370,4 +391,3 @@ async fn test_thread_safety_shared_state() {
 
     println!("Thread-safe counter reached {}", final_count);
 }
-

@@ -47,11 +47,17 @@ pub enum MessageDirection {
 impl CommunicationType {
     /// Check if this communication type supports direction
     pub fn supports_direction(&self) -> bool {
-        matches!(self, CommunicationType::Call | CommunicationType::Email | CommunicationType::Chat)
+        matches!(
+            self,
+            CommunicationType::Call | CommunicationType::Email | CommunicationType::Chat
+        )
     }
-    
+
     /// Check if this is a real-time communication type
     pub fn is_realtime(&self) -> bool {
-        matches!(self, CommunicationType::Call | CommunicationType::Meeting | CommunicationType::Chat)
+        matches!(
+            self,
+            CommunicationType::Call | CommunicationType::Meeting | CommunicationType::Chat
+        )
     }
 }

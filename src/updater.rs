@@ -10,12 +10,15 @@ pub async fn check_and_update() -> crate::Result<()> {
     let latest_version = match timeout(Duration::from_secs(5), get_latest_version()).await {
         Ok(Ok(version)) => version,
         Ok(Err(_)) => return Ok(()), // Network error, skip update
-        Err(_) => return Ok(()), // Timeout, skip update
+        Err(_) => return Ok(()),     // Timeout, skip update
     };
 
     // Compare versions
     if version_is_newer(&latest_version, current_version) {
-        println!("🔄 Update available: v{} → v{}", current_version, latest_version);
+        println!(
+            "🔄 Update available: v{} → v{}",
+            current_version, latest_version
+        );
         println!("📦 Installing update...");
 
         // Run the install script

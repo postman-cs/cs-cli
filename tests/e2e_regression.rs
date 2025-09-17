@@ -23,7 +23,8 @@ struct RegressionTestData {
 impl Default for RegressionTestData {
     fn default() -> Self {
         Self {
-            customer_name: std::env::var("TEST_CUSTOMER_NAME").unwrap_or_else(|_| "Fiserv".to_string()),
+            customer_name: std::env::var("TEST_CUSTOMER_NAME")
+                .unwrap_or_else(|_| "Fiserv".to_string()),
             min_calls: 1,
             min_emails: 1,
             expected_patterns: vec![
@@ -78,8 +79,10 @@ async fn test_complete_workflow_cli_args() {
         ],
     };
 
-    println!("Testing with args: customer={}, days=30, mode=Both",
-             test_data.customer_name);
+    println!(
+        "Testing with args: customer={}, days=30, mode=Both",
+        test_data.customer_name
+    );
 
     // Note: Actually running the full CLI would require authentication
     // and would write to the Desktop. This test validates the structure.
@@ -129,25 +132,33 @@ Hello Jane,
 Here's the latest project update...
 "#;
 
-    fs::write(&sample_call_file, sample_call_content)
-        .expect("Failed to write sample call file");
-    fs::write(&sample_email_file, sample_email_content)
-        .expect("Failed to write sample email file");
+    fs::write(&sample_call_file, sample_call_content).expect("Failed to write sample call file");
+    fs::write(&sample_email_file, sample_email_content).expect("Failed to write sample email file");
 
     // Verify files were created correctly
     assert!(sample_call_file.exists(), "Call file should exist");
     assert!(sample_email_file.exists(), "Email file should exist");
 
     // Verify content structure
-    let call_content = fs::read_to_string(&sample_call_file)
-        .expect("Failed to read call file");
-    assert!(call_content.contains("## Call Summary"), "Call should have summary section");
-    assert!(call_content.contains("**Participants:**"), "Call should list participants");
+    let call_content = fs::read_to_string(&sample_call_file).expect("Failed to read call file");
+    assert!(
+        call_content.contains("## Call Summary"),
+        "Call should have summary section"
+    );
+    assert!(
+        call_content.contains("**Participants:**"),
+        "Call should list participants"
+    );
 
-    let email_content = fs::read_to_string(&sample_email_file)
-        .expect("Failed to read email file");
-    assert!(email_content.contains("## Email Content"), "Email should have content section");
-    assert!(email_content.contains("**Subject:**"), "Email should have subject");
+    let email_content = fs::read_to_string(&sample_email_file).expect("Failed to read email file");
+    assert!(
+        email_content.contains("## Email Content"),
+        "Email should have content section"
+    );
+    assert!(
+        email_content.contains("**Subject:**"),
+        "Email should have subject"
+    );
 
     // Cleanup
     temp_dir.close().expect("Failed to cleanup temp dir");
@@ -173,8 +184,7 @@ async fn test_output_directory_structure() {
         // Create some test files
         for i in 1..=3 {
             let file_path = customer_dir.join(format!("2024-01-{:02}_call_test_{}.md", i, i));
-            fs::write(&file_path, format!("# Test Call {}", i))
-                .expect("Failed to write test file");
+            fs::write(&file_path, format!("# Test Call {}", i)).expect("Failed to write test file");
         }
 
         // Verify files were created
@@ -187,7 +197,10 @@ async fn test_output_directory_structure() {
     // Verify all customer directories exist
     for customer in &customer_names {
         let customer_dir = base_path.join(format!("ct_{}", customer));
-        assert!(customer_dir.exists(), "Customer directory should still exist");
+        assert!(
+            customer_dir.exists(),
+            "Customer directory should still exist"
+        );
     }
 
     temp_dir.close().expect("Failed to cleanup temp dir");
@@ -262,13 +275,34 @@ workspace_id: ws-12345
 "#;
 
     // Validate markdown structure
-    assert!(sample_markdown.starts_with("---"), "Should have YAML frontmatter");
-    assert!(sample_markdown.contains("title:"), "Should have title in frontmatter");
-    assert!(sample_markdown.contains("date:"), "Should have date in frontmatter");
-    assert!(sample_markdown.contains("## Call Summary"), "Should have summary section");
-    assert!(sample_markdown.contains("**Participants:**"), "Should list participants");
-    assert!(sample_markdown.contains("## Key Topics"), "Should have topics section");
-    assert!(sample_markdown.contains("## Action Items"), "Should have action items");
+    assert!(
+        sample_markdown.starts_with("---"),
+        "Should have YAML frontmatter"
+    );
+    assert!(
+        sample_markdown.contains("title:"),
+        "Should have title in frontmatter"
+    );
+    assert!(
+        sample_markdown.contains("date:"),
+        "Should have date in frontmatter"
+    );
+    assert!(
+        sample_markdown.contains("## Call Summary"),
+        "Should have summary section"
+    );
+    assert!(
+        sample_markdown.contains("**Participants:**"),
+        "Should list participants"
+    );
+    assert!(
+        sample_markdown.contains("## Key Topics"),
+        "Should have topics section"
+    );
+    assert!(
+        sample_markdown.contains("## Action Items"),
+        "Should have action items"
+    );
 
     // Validate frontmatter can be parsed
     let frontmatter_end = sample_markdown[3..]
@@ -278,7 +312,10 @@ workspace_id: ws-12345
 
     assert!(frontmatter.contains("type: call"), "Should specify type");
     assert!(frontmatter.contains("duration:"), "Should include duration");
-    assert!(frontmatter.contains("participants:"), "Should list participants in frontmatter");
+    assert!(
+        frontmatter.contains("participants:"),
+        "Should list participants in frontmatter"
+    );
 }
 
 #[tokio::test]
@@ -303,7 +340,10 @@ async fn test_cli_argument_parsing() {
         if !args.raw_args.is_empty() {
             if args.raw_args[0] == "customer" && args.raw_args.len() > 1 {
                 let customer_name = &args.raw_args[1];
-                assert!(!customer_name.is_empty(), "Customer name should not be empty");
+                assert!(
+                    !customer_name.is_empty(),
+                    "Customer name should not be empty"
+                );
             }
 
             if args.raw_args.len() > 2 {
@@ -343,7 +383,10 @@ async fn test_error_recovery_disk_full() {
     let test_file = output_path.join("test.md");
     let write_result = fs::write(&test_file, "test content");
 
-    assert!(write_result.is_err(), "Write should fail with permission denied");
+    assert!(
+        write_result.is_err(),
+        "Write should fail with permission denied"
+    );
 
     println!("Permission denied handling works correctly");
 
@@ -382,10 +425,7 @@ async fn test_interrupted_download_recovery() {
     });
 
     // Simulate interruption by timing out
-    let result = tokio::time::timeout(
-        tokio::time::Duration::from_secs(1),
-        download_task
-    ).await;
+    let result = tokio::time::timeout(tokio::time::Duration::from_secs(1), download_task).await;
 
     match result {
         Ok(Ok(Ok(msg))) => {

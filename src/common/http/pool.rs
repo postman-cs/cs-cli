@@ -35,9 +35,9 @@ impl<T: HttpClient + 'static> GenericHttpClientPool<T> {
 
         // Create pool of clients
         for i in 0..pool_size {
-            let client = client_factory(config.clone())
-                .await
-                .map_err(|e| CsCliError::ApiRequest(format!("Failed to create HTTP client {}: {}", i, e)))?;
+            let client = client_factory(config.clone()).await.map_err(|e| {
+                CsCliError::ApiRequest(format!("Failed to create HTTP client {}: {}", i, e))
+            })?;
             clients.push(Arc::new(client));
         }
 
@@ -87,14 +87,14 @@ impl<T: HttpClient + 'static> GenericHttpClientPool<T> {
             .clients
             .iter()
             .map(|client| client.set_cookies(cookies.clone()));
-        
+
         let results = futures::future::join_all(tasks).await;
-        
+
         // Check if any failed
         for result in results {
             result?;
         }
-        
+
         Ok(())
     }
 
@@ -104,14 +104,14 @@ impl<T: HttpClient + 'static> GenericHttpClientPool<T> {
             .clients
             .iter()
             .map(|client| client.set_headers(headers.clone()));
-            
+
         let results = futures::future::join_all(tasks).await;
-        
+
         // Check if any failed
         for result in results {
             result?;
         }
-        
+
         Ok(())
     }
 
@@ -141,8 +141,9 @@ impl<T: HttpClient + 'static> GenericHttpClientPool<T> {
                 stats.requests_completed += 1;
                 // Simple running average
                 let total_requests = stats.requests_completed + stats.requests_failed;
-                stats.average_response_time_ms = 
-                    (stats.average_response_time_ms * (total_requests - 1) as f64 + elapsed_ms) / total_requests as f64;
+                stats.average_response_time_ms =
+                    (stats.average_response_time_ms * (total_requests - 1) as f64 + elapsed_ms)
+                        / total_requests as f64;
             }
             Err(_) => {
                 stats.requests_failed += 1;
@@ -154,30 +155,26 @@ impl<T: HttpClient + 'static> GenericHttpClientPool<T> {
 
     /// Perform GET request using the pool
     pub async fn get(&self, url: &str) -> Result<Response> {
-        self.make_pooled_request(|client| async move {
-            client.get(url).await
-        }).await
+        self.make_pooled_request(|client| async move { client.get(url).await })
+            .await
     }
 
     /// Perform POST request using the pool
     pub async fn post(&self, url: &str, body: Option<&str>) -> Result<Response> {
-        self.make_pooled_request(|client| async move {
-            client.post(url, body).await
-        }).await
+        self.make_pooled_request(|client| async move { client.post(url, body).await })
+            .await
     }
 
     /// Perform PUT request using the pool
     pub async fn put(&self, url: &str, body: Option<&str>) -> Result<Response> {
-        self.make_pooled_request(|client| async move {
-            client.put(url, body).await
-        }).await
+        self.make_pooled_request(|client| async move { client.put(url, body).await })
+            .await
     }
 
     /// Perform DELETE request using the pool
     pub async fn delete(&self, url: &str) -> Result<Response> {
-        self.make_pooled_request(|client| async move {
-            client.delete(url).await
-        }).await
+        self.make_pooled_request(|client| async move { client.delete(url).await })
+            .await
     }
 
     /// Get pool configuration
@@ -186,7 +183,10 @@ impl<T: HttpClient + 'static> GenericHttpClientPool<T> {
     }
 
     /// Execute multiple requests in parallel across the pool
-    pub async fn batch_requests(&self, requests: Vec<(String, String, Option<String>)>) -> Vec<Result<Response>> {
+    pub async fn batch_requests(
+        &self,
+        requests: Vec<(String, String, Option<String>)>,
+    ) -> Vec<Result<Response>> {
         if requests.is_empty() {
             return Vec::new();
         }
@@ -203,13 +203,16 @@ impl<T: HttpClient + 'static> GenericHttpClientPool<T> {
                     let _global_permit = global_sem.acquire().await.map_err(|e| {
                         CsCliError::ApiRequest(format!("Failed to acquire global semaphore: {}", e))
                     })?;
-                    
+
                     match method.to_uppercase().as_str() {
                         "GET" => client.get(&url).await,
                         "POST" => client.post(&url, body.as_deref()).await,
                         "PUT" => client.put(&url, body.as_deref()).await,
                         "DELETE" => client.delete(&url).await,
-                        _ => Err(CsCliError::ApiRequest(format!("Unsupported HTTP method: {}", method))),
+                        _ => Err(CsCliError::ApiRequest(format!(
+                            "Unsupported HTTP method: {}",
+                            method
+                        ))),
                     }
                 } else {
                     match method.to_uppercase().as_str() {
@@ -217,7 +220,10 @@ impl<T: HttpClient + 'static> GenericHttpClientPool<T> {
                         "POST" => client.post(&url, body.as_deref()).await,
                         "PUT" => client.put(&url, body.as_deref()).await,
                         "DELETE" => client.delete(&url).await,
-                        _ => Err(CsCliError::ApiRequest(format!("Unsupported HTTP method: {}", method))),
+                        _ => Err(CsCliError::ApiRequest(format!(
+                            "Unsupported HTTP method: {}",
+                            method
+                        ))),
                     }
                 };
                 result
@@ -251,10 +257,10 @@ impl<T: HttpClient + 'static> HttpClientPool<T> for GenericHttpClientPool<T> {
         // Check if all clients are healthy
         let health_checks = self.clients.iter().map(|client| client.health_check());
         let results = futures::future::join_all(health_checks).await;
-        
+
         let healthy_count = results.iter().filter(|&&healthy| healthy).count();
         let health_ratio = healthy_count as f64 / self.clients.len() as f64;
-        
+
         // Consider the pool healthy if at least 50% of clients are healthy
         health_ratio >= 0.5
     }

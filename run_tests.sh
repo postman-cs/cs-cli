@@ -27,7 +27,9 @@ NC='\033[0m' # No Color
 
 # Test configuration - Load from .env if available
 if [ -f .env ]; then
-    export $(cat .env | grep -v ^# | xargs)
+    set -a  # Automatically export all variables
+    source .env
+    set +a  # Turn off auto-export
 fi
 
 # Default test configuration (can be overridden by .env or environment)
@@ -86,11 +88,11 @@ FAILED_TESTS=()
 
 echo "1. Running Unit Tests"
 echo "===================="
-if ! run_test_suite "HTML Processing Tests" "html_test" "false"; then
+if ! run_test_suite "HTML Processing Tests" "--lib" "false"; then
     FAILED_TESTS+=("HTML Processing")
 fi
 
-if ! run_test_suite "Performance Tests" "performance_test" "false"; then
+if ! run_test_suite "Performance Tests" "--test performance_test" "false"; then
     FAILED_TESTS+=("Performance")
 fi
 
@@ -100,11 +102,11 @@ echo "================================="
 # These tests use mocked APIs
 export USE_REAL_API=false
 
-if ! run_test_suite "Authentication Mock Tests" "test_authentication_without_cookies" "false"; then
+if ! run_test_suite "Authentication Mock Tests" "--test auth_integration test_authentication_without_cookies" "false"; then
     FAILED_TESTS+=("Auth Mocks")
 fi
 
-if ! run_test_suite "E2E Workflow Tests" "e2e_regression::test_cli" "false"; then
+if ! run_test_suite "E2E Workflow Tests" "--test e2e_regression test_cli_argument_parsing" "false"; then
     FAILED_TESTS+=("E2E Workflow")
 fi
 

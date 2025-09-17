@@ -1,6 +1,6 @@
 use std::env;
 use std::io::IsTerminal;
-use std::process::{Command, exit};
+use std::process::{exit, Command};
 
 /// Check if we're running in a terminal and self-launch if not
 pub fn ensure_terminal() {
@@ -108,8 +108,10 @@ fn launch_in_powershell_windows(exe_path: &std::path::Path, args: &[String]) {
     let result = Command::new("powershell.exe")
         .args(&[
             "-NoExit",
-            "-ExecutionPolicy", "Bypass",
-            "-Command", &full_command
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &full_command,
         ])
         .spawn();
 
@@ -129,7 +131,9 @@ fn launch_in_powershell_windows(exe_path: &std::path::Path, args: &[String]) {
                 }
                 Err(_) => {
                     eprintln!("Failed to launch PowerShell: {}", e);
-                    eprintln!("Please run this application from PowerShell or Command Prompt manually.");
+                    eprintln!(
+                        "Please run this application from PowerShell or Command Prompt manually."
+                    );
 
                     // Show a message box on Windows
                     show_windows_error_dialog();
@@ -144,20 +148,18 @@ fn launch_in_powershell_windows(exe_path: &std::path::Path, args: &[String]) {
 fn show_windows_error_dialog() {
     #[cfg(target_os = "windows")]
     {
-        use winapi::um::winuser::{MessageBoxW, MB_ICONERROR, MB_OK};
-        use std::ptr::null_mut;
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
+        use std::ptr::null_mut;
+        use winapi::um::winuser::{MessageBoxW, MB_ICONERROR, MB_OK};
 
         unsafe {
-            let title: Vec<u16> = OsStr::new("CS-CLI")
-                .encode_wide()
-                .chain(Some(0))
-                .collect();
-            let message: Vec<u16> = OsStr::new("Please run cs-cli from PowerShell or Command Prompt")
-                .encode_wide()
-                .chain(Some(0))
-                .collect();
+            let title: Vec<u16> = OsStr::new("CS-CLI").encode_wide().chain(Some(0)).collect();
+            let message: Vec<u16> =
+                OsStr::new("Please run cs-cli from PowerShell or Command Prompt")
+                    .encode_wide()
+                    .chain(Some(0))
+                    .collect();
 
             MessageBoxW(
                 null_mut(),

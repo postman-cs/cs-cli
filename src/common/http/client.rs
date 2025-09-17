@@ -13,25 +13,25 @@ use std::collections::HashMap;
 pub trait HttpClient: Send + Sync {
     /// Make an HTTP GET request
     async fn get(&self, url: &str) -> Result<Response>;
-    
+
     /// Make an HTTP POST request with JSON body
     async fn post(&self, url: &str, body: Option<&str>) -> Result<Response>;
-    
+
     /// Make an HTTP PUT request with JSON body
     async fn put(&self, url: &str, body: Option<&str>) -> Result<Response>;
-    
+
     /// Make an HTTP DELETE request
     async fn delete(&self, url: &str) -> Result<Response>;
-    
+
     /// Set cookies for all subsequent requests
     async fn set_cookies(&self, cookies: HashMap<String, String>) -> Result<()>;
-    
+
     /// Set headers for all subsequent requests
     async fn set_headers(&self, headers: HashMap<String, String>) -> Result<()>;
-    
+
     /// Get current request headers
     async fn get_headers(&self) -> HashMap<String, String>;
-    
+
     /// Check if the client is healthy/available
     async fn health_check(&self) -> bool;
 }
@@ -41,10 +41,10 @@ pub trait HttpClient: Send + Sync {
 pub trait HttpClientPool<T: HttpClient>: Send + Sync {
     /// Get the next available client from the pool
     async fn get_client(&self) -> Result<&T>;
-    
+
     /// Get pool statistics
     fn get_pool_stats(&self) -> PoolStats;
-    
+
     /// Check pool health
     async fn health_check(&self) -> bool;
 }
@@ -96,7 +96,7 @@ impl HttpMethod {
     pub fn as_str(&self) -> &'static str {
         match self {
             HttpMethod::Get => "GET",
-            HttpMethod::Post => "POST", 
+            HttpMethod::Post => "POST",
             HttpMethod::Put => "PUT",
             HttpMethod::Delete => "DELETE",
             HttpMethod::Patch => "PATCH",

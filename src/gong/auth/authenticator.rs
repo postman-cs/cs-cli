@@ -1,7 +1,7 @@
 use super::CSRFManager;
 use crate::common::auth::{Cookie, CookieExtractor};
-use crate::gong::api::client::GongHttpClient;
 use crate::common::config::{AuthSettings, HttpSettings};
+use crate::gong::api::client::GongHttpClient;
 use crate::{CsCliError, Result};
 use regex::Regex;
 use std::collections::HashMap;
@@ -104,7 +104,6 @@ impl GongAuthenticator {
             info!("Make sure you're logged into Gong in any supported browser: Firefox, Chrome, Edge, Arc, Brave, Chromium, LibreWolf, Opera, Opera GX, Vivaldi, Zen, Safari, or Cachy");
             return Ok(false);
         }
-
 
         info!(
             cookies_found = cookies.len(),

@@ -8,14 +8,14 @@ use crate::Result;
 /// Test basic Slack integration using common abstractions
 pub async fn test_slack_integration(workspace_domain: Option<String>) -> Result<()> {
     let domain = workspace_domain.unwrap_or_else(|| "postman.enterprise.slack.com".to_string());
-    
+
     println!("Testing Slack Integration");
     println!("{}", "=".repeat(50));
     println!("Workspace: {}", domain);
     println!();
-    
+
     let mut client = SlackClient::new(domain);
-    
+
     // Test the integration
     match client.test_basic_functionality().await {
         Ok(_) => {

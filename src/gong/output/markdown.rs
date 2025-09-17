@@ -29,7 +29,9 @@ impl CallMarkdownFormatter {
     pub fn format_call_to_markdown(&self, call: &Call) -> String {
         // Extract call information
         let title = &call.title;
-        let customer = call.customer_name.as_deref()
+        let customer = call
+            .customer_name
+            .as_deref()
             .unwrap_or_else(|| "Unknown Customer");
         let date = &call.scheduled_start;
         let attendees = &call.participants;

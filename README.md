@@ -8,7 +8,7 @@
 
 Just download the latest PKG file and double-click. That's it!
 
-Alternative: Use it via Command Line
+**If you're comfortable with Terminal, just run this via Command Line instead**
 
 ```bash
 curl -s https://raw.githubusercontent.com/postman-cs/cs-cli/main/install.sh | bash

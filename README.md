@@ -8,8 +8,7 @@
 
 Just download the latest PKG file and double-click. That's it!
 
-<details>
-<summary>Alternative: Use it via Command Line</summary>
+Alternative: Use it via Command Line
 
 ```bash
 curl -s https://raw.githubusercontent.com/postman-cs/cs-cli/main/install.sh | bash
@@ -17,7 +16,6 @@ curl -s https://raw.githubusercontent.com/postman-cs/cs-cli/main/install.sh | ba
 ```bash
 source ~/.zshrc && cs-cli
 ```
-</details>
 
 ### Step 1: Get Your Data
 

@@ -1,6 +1,7 @@
 # Rust build artifacts
 /target
 **/*.rs.bk
+CL*.md
 # Note: Cargo.lock is committed for binary applications (reproducible builds)
 
 # Pre-release files

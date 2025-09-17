@@ -2,14 +2,20 @@
 
 # CS Deep Research CLI
 
+**What you'll discover:**
+- Issues your customer forgot to follow up on
+- Problems brewing beneath the surface  
+- Exact quotes to reference in your next call
+- Exactly what you need to do to deliver value, and exactly how you need to do it
+
 ## Installation
 
-**[Download CS-CLI Installer (.pkg)](https://github.com/postman-cs/cs-cli/releases/latest/download/cs-cli-macos.pkg)**
+### **[Download CS-CLI Installer (.pkg)](https://github.com/postman-cs/cs-cli/releases/latest/download/cs-cli-macos.pkg)** 
 
 Just download the latest PKG file and double-click. That's it!
 
-<details>
-<summary>Alternative: Use it via Command Line</summary>
+### Quickstart
+**If you're comfortable with Terminal, just run this via Command Line instead**
 
 ```bash
 curl -s https://raw.githubusercontent.com/postman-cs/cs-cli/main/install.sh | bash
@@ -17,37 +23,19 @@ curl -s https://raw.githubusercontent.com/postman-cs/cs-cli/main/install.sh | ba
 ```bash
 source ~/.zshrc && cs-cli
 ```
-</details>
 
-**Important:** Before using the tool, make sure you're logged into Gοng in your browser. The tool needs Gοng to download your customer conversations.
-
-Just answer 3 simple questions: 
-- WHO: Which Customer?
-- WHEN: How far back do you want to go?
-- WHAT: Calls? Emails?
-
-Critical customer issues hide in a sea of data; by the time they surface, most of the time you're too late. This tool changes that.
-
-**What you'll discover:**
-- Issues your customer forgot to follow up on
-- Problems brewing beneath the surface  
-- Exact quotes to reference in your next call
-- Opportunities to shift from vendor to trusted advisor
-
-## Get Started in 2 Minutes
+### Step 1: Get Your Data
 
 <div align="center">
   <img src="demo.gif" alt="Demo Gif">
 </div>
 
-### Find Customer Insights
+**Important:** Before using the tool, make sure you're logged into Gοng in your browser. The tool needs Gοng to download your customer conversations.
 
-The tool will ask you everything it needs:
-- What customer are you looking for?
-- How far back should I look?
-- What would you like to analyze?
-
-**No commands, no code. Just answer the questions.**
+Just click the app or run `cs-cli` in your terminal and answer 3 simple questions: 
+- WHO: Which Customer?
+- WHEN: How far back do you want to go?
+- WHAT: Calls? Emails?
 
 #### Advanced: Command-Line Mode
 Arguments can be in any order. If you don't specify days, it defaults to 90:
@@ -58,14 +46,14 @@ cs-cli 7 - 11 365                     # Last year of 7-Eleven
 cs-cli emails Stripe 30                # Last month of Stripe emails
 ```
 
-### Step 3: Find Your Results
+### Step 2: Find Your Results
 
 Look on your Desktop - you'll see a new folder named after your customer:
 - `ct_postman` for Postman
 - `ct_wells_fargo` for Wells Fargo
 - `ct_stripe` for Stripe
 
-### Step 4: Analyze with AI
+### Step 3: Analyze with AI
 
 1. Open your AI Agent (eg. Cursor)
 2. Click "File" → "Open Folder"

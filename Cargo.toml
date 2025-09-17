@@ -92,6 +92,12 @@ slack = []                  # Slack integration feature flag
 tokio-test = "0.4"
 criterion = "0.5"           # Professional benchmarking
 proptest = "1.6"            # Property-based testing
+tempfile = "3.8"            # Temporary directories for test output
+mockito = "1.2"             # HTTP mocking for API tests
+wiremock = "0.6"            # Alternative HTTP mocking
+serial_test = "3.0"         # Serialize tests that use shared resources
+pretty_assertions = "1.4"   # Better test assertion diffs
+tokio-stream = "0.1"        # Stream utilities for testing
 
 # Fast development builds with reasonable performance
 [profile.dev]

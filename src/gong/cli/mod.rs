@@ -282,7 +282,7 @@ impl TeamCallsExtractor {
         );
 
         // Initialize HTTP client pool
-        self.http = Some(HttpClientPool::new(Some(self.config.http.clone())).await?);
+        self.http = Some(HttpClientPool::new_gong_pool(Some(self.config.http.clone())).await?);
 
         // Initialize authenticator and authenticate
         let mut auth = GongAuthenticator::new(self.config.auth.clone()).await?;

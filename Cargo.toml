@@ -48,6 +48,10 @@ htmd = "0.2"                # Better HTML to markdown conversion
 anyhow = "1.0"             # Generic error handling
 async-trait = "0.1"        # Async traits for common interfaces
 
+# Async utilities
+futures = "0.3"            # Future utilities for concurrent operations
+rand = "0.8"               # Random number generation for retry jitter
+
 # Logging - with monitoring
 tracing = "0.1"
 
@@ -55,7 +59,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
 
 # Concurrency control
-futures = "0.3"
 
 # Terminal UI
 console = "0.15"           # Basic terminal functionality
@@ -72,7 +75,6 @@ figment = { version = "0.10", features = ["env", "json", "toml", "yaml"] }
 regex = "1.10"              # Keep as primary
 
 # Random number generation for retry jitter
-rand = "0.8"
 
 # Base64 encoding/decoding - SIMD optimized
 base64-simd = "0.8"

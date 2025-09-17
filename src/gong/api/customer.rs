@@ -589,7 +589,7 @@ impl GongCustomerSearchClient {
         let json_body = serde_json::to_string(&payload)
             .map_err(|e| CsCliError::ApiRequest(format!("Failed to serialize payload: {e}")))?;
 
-        let response = self.http_client.post(&full_url, Some(json_body)).await?;
+        let response = self.http_client.post(&full_url, Some(&json_body)).await?;
 
         if response.status().is_success() {
             let response_text = response

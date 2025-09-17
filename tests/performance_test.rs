@@ -68,7 +68,7 @@ async fn test_connection_pool_reuse() {
     // Test that connection pool properly reuses connections
     let config = HttpSettings::default();
     let pool = Arc::new(
-        HttpClientPool::new(Some(config))
+        HttpClientPool::new_gong_pool(Some(config))
             .await
             .expect("Failed to create pool"),
     );

@@ -1,6 +1,33 @@
-   Compiling cs-cli v1.0.0 (/Users/jaredboynton/Desktop/_dev/postman/cs-cli)
-    Finished `test` profile [optimized + debuginfo] target(s) in 2.27s
-     Running unittests src/lib.rs (target/debug/deps/cs_cli-a020c2ae2d49104b)
+warning: unused variable: `authenticator`
+   --> tests/auth_integration.rs:167:13
+    |
+167 |     let mut authenticator = GongAuthenticator::new(auth_config)
+    |             ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_authenticator`
+    |
+    = note: `#[warn(unused_variables)]` on by default
 
-running 11 tests
-test gong::cli::args::tests::test_customer_parsing_flexible_order ... ok
+warning: unused variable: `expired_cookies`
+   --> tests/auth_integration.rs:172:9
+    |
+172 |     let expired_cookies = vec![Cookie {
+    |         ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_expired_cookies`
+
+warning: variable does not need to be mutable
+   --> tests/auth_integration.rs:167:9
+    |
+167 |     let mut authenticator = GongAuthenticator::new(auth_config)
+    |         ----^^^^^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: `cs-cli` (test "auth_integration") generated 3 warnings (run `cargo fix --test "auth_integration"` to apply 1 suggestion)
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.18s
+     Running tests/auth_integration.rs (target/debug/deps/auth_integration-6440be10ba80b1f3)
+
+running 1 test
+test test_authentication_without_cookies ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 4.42s
+

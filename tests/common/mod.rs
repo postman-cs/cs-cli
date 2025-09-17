@@ -36,9 +36,7 @@ impl TestConfig {
                 .unwrap_or_else(|_| "30".to_string())
                 .parse()
                 .unwrap_or(30),
-            use_real_api: env::var("USE_REAL_API")
-                .map(|v| v.to_lowercase() == "true" || v == "1")
-                .unwrap_or(false),
+            use_real_api: true, // Always use real API for production-ready tests
             fixtures_dir: PathBuf::from("tests/fixtures"),
             temp_dir: None,
         }

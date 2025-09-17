@@ -1,6 +1,7 @@
 use super::CSRFManager;
 use crate::common::auth::{Cookie, CookieExtractor};
 use crate::common::config::{AuthSettings, HttpSettings};
+use crate::common::http::HttpClient; // For trait methods
 use crate::gong::api::client::GongHttpClient;
 use crate::{CsCliError, Result};
 use regex::Regex;

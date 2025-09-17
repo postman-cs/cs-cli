@@ -1,4 +1,5 @@
 use crate::common::config::AuthSettings;
+use crate::common::http::HttpClient; // For trait methods
 use crate::gong::api::client::GongHttpClient;
 use crate::{CsCliError, Result};
 use serde_json::Value;

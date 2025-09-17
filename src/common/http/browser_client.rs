@@ -4,9 +4,11 @@
 //! that can be used by both Gong and Slack integrations.
 
 use super::client::HttpClient;
+use super::pool::GenericHttpClientPool;
 use crate::common::config::HttpSettings;
 use crate::{CsCliError, Result};
 use async_trait::async_trait;
+use futures;
 use impit::cookie::Jar;
 use impit::emulation::Browser;
 use impit::impit::Impit;
@@ -96,14 +98,14 @@ impl BrowserHttpClient {
         })
     }
 
-    /// Make HTTP request with retry logic and rate limiting
+    /// Make HTTP request with advanced retry logic and rate limiting (from Gong client)
     async fn make_request_with_retries(
         &self,
         method: &str,
         url: &str,
         body: Option<&str>,
     ) -> Result<Response> {
-        const MAX_RETRIES: usize = 3;
+        const MAX_RETRIES: u32 = 3;
         let mut last_error: Option<CsCliError> = None;
 
         // Acquire semaphore permit for rate limiting
@@ -111,26 +113,24 @@ impl BrowserHttpClient {
             .semaphore
             .acquire()
             .await
-            .map_err(|e| CsCliError::Generic(format!("Failed to acquire semaphore: {e}")))?;
+            .map_err(|e| CsCliError::ApiRequest(format!("Failed to acquire semaphore: {e}")))?;
 
         for attempt in 0..MAX_RETRIES {
             match self.make_request(method, url, body).await {
                 Ok(response) => {
                     let status = response.status().as_u16();
 
-                    // Handle rate limiting (429)
+                    // Handle rate limiting (429) - honor Retry-After header
                     if status == 429 {
-                        if attempt < MAX_RETRIES - 1 {
-                            let sleep_duration = self.exponential_backoff_delay(attempt);
-                            warn!(
-                                "Rate limited - will retry: url={}, attempt={}, delay={:.1}s",
-                                url,
-                                attempt,
-                                sleep_duration.as_secs_f64()
-                            );
-                            tokio::time::sleep(sleep_duration).await;
-                            continue;
-                        }
+                        let sleep_duration = self.calculate_retry_delay(&response, attempt).await;
+                        warn!(
+                            "Rate limited: url={}, attempt={}, retry_after={:.1}s",
+                            url,
+                            attempt,
+                            sleep_duration.as_secs_f64()
+                        );
+                        tokio::time::sleep(sleep_duration).await;
+                        continue;
                     }
 
                     // Handle server errors (5xx)
@@ -173,6 +173,25 @@ impl BrowserHttpClient {
 
         Err(last_error
             .unwrap_or_else(|| CsCliError::ApiRequest("Request failed after retries".to_string())))
+    }
+
+    /// Calculate retry delay for rate limiting (honor Retry-After header) - from Gong client
+    async fn calculate_retry_delay(&self, response: &Response, attempt: u32) -> Duration {
+        // Try to get Retry-After header
+        if let Some(retry_after) = response.headers().get("retry-after") {
+            if let Ok(retry_after_str) = retry_after.to_str() {
+                // Try parsing as seconds
+                if let Ok(seconds) = retry_after_str.parse::<u64>() {
+                    return Duration::from_secs(seconds);
+                }
+
+                // Could also handle HTTP date format here if needed
+                // For now, fall back to exponential backoff
+            }
+        }
+
+        // Exponential backoff with jitter
+        self.exponential_backoff_delay(attempt)
     }
 
     /// Make the actual HTTP request using impit API
@@ -260,13 +279,36 @@ impl BrowserHttpClient {
         response
     }
 
-    /// Calculate exponential backoff delay for retries
-    fn exponential_backoff_delay(&self, attempt: usize) -> Duration {
-        let base_delay = Duration::from_millis(1000); // 1 second base
-        let delay_ms = base_delay.as_millis() * (2_u128.pow(attempt as u32));
-        let max_delay = Duration::from_secs(30); // Cap at 30 seconds
+    /// Calculate exponential backoff delay with jitter (from Gong client)
+    fn exponential_backoff_delay(&self, attempt: u32) -> Duration {
+        use rand::Rng;
 
-        Duration::from_millis(std::cmp::min(delay_ms as u64, max_delay.as_millis() as u64))
+        let base_delay = 2_u64.pow(attempt);
+        let jitter = rand::thread_rng().gen_range(0.0..=0.5);
+        let total_seconds = base_delay as f64 + (jitter * base_delay as f64);
+
+        Duration::from_secs_f64(total_seconds)
+    }
+
+    /// Perform multiple GET requests concurrently (from Gong client)
+    pub async fn batch_get(&self, urls: Vec<String>) -> Vec<Result<Response>> {
+        let tasks = urls.into_iter().map(|url| {
+            let client = self;
+            async move { client.get(&url).await }
+        });
+        futures::future::join_all(tasks).await
+    }
+
+    /// Perform multiple POST requests concurrently (from Gong client)
+    pub async fn batch_post(
+        &self,
+        requests: Vec<(String, Option<String>)>,
+    ) -> Vec<Result<Response>> {
+        let tasks = requests.into_iter().map(|(url, body)| {
+            let client = self;
+            async move { client.post(&url, body.as_deref()).await }
+        });
+        futures::future::join_all(tasks).await
     }
 }
 
@@ -317,5 +359,18 @@ impl HttpClient for BrowserHttpClient {
             Ok(_permit) => true,
             Err(_) => false,
         }
+    }
+}
+
+/// Type alias for a pool of browser HTTP clients
+pub type BrowserHttpClientPool = GenericHttpClientPool<BrowserHttpClient>;
+
+impl BrowserHttpClientPool {
+    /// Create a new pool of browser HTTP clients
+    pub async fn new_browser_pool(config: HttpSettings) -> Result<Self> {
+        GenericHttpClientPool::<BrowserHttpClient>::new(config, |config| async move {
+            BrowserHttpClient::new(config).await
+        })
+        .await
     }
 }

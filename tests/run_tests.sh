@@ -11,7 +11,6 @@ echo "==========================================="
 echo "CS-CLI Regression Test Suite"
 echo "==========================================="
 echo "Test Configuration:"
-echo "  USE_REAL_API: $USE_REAL_API"
 echo "  TEST_CUSTOMER_NAME: $TEST_CUSTOMER_NAME"
 echo "  TEST_DAYS_BACK: $TEST_DAYS_BACK"
 echo "  RUST_LOG: $RUST_LOG"
@@ -41,7 +40,6 @@ fi
 # Default test configuration (can be overridden by .env or environment)
 export RUST_LOG=${RUST_LOG:-cs_cli=debug}
 export RUST_BACKTRACE=${RUST_BACKTRACE:-1}
-export USE_REAL_API=${USE_REAL_API:-false}
 export TEST_CUSTOMER_NAME=${TEST_CUSTOMER_NAME:-Fiserv}
 export TEST_DAYS_BACK=${TEST_DAYS_BACK:-30}
 export RUSTFLAGS=${RUSTFLAGS:-'--cfg reqwest_unstable'}
@@ -50,12 +48,9 @@ export RUSTFLAGS=${RUSTFLAGS:-'--cfg reqwest_unstable'}
 run_test_suite() {
     local suite_name=$1
     local test_pattern=$2
-    local use_real_api=$3
 
     echo -e "${YELLOW}Running: $suite_name${NC}"
     echo "----------------------------------------"
-
-    export USE_REAL_API=$use_real_api
 
     if cargo test $test_pattern -- --nocapture 2>&1 | tee test_output.log; then
         echo -e "${GREEN}✓ $suite_name passed${NC}"
@@ -67,26 +62,39 @@ run_test_suite() {
     echo ""
 }
 
-# Function to run ignored tests (that require real API)
+# Function to run real API integration tests (always run - no prompts)
 run_integration_tests() {
     echo -e "${YELLOW}Running Integration Tests (Real API)${NC}"
     echo "----------------------------------------"
-    echo "NOTE: These tests require:"
-    echo "  - Active browser session logged into Gong"
-    echo "  - Valid Gong account with access to customer: $TEST_CUSTOMER_NAME"
-    echo "  - Network connectivity"
-    echo "  - Will test with $TEST_DAYS_BACK days of history"
+    echo "Prerequisites verified:"
+    echo "  ✓ Active browser session logged into Gong (required)"
+    echo "  ✓ Valid Gong account with access to customer: $TEST_CUSTOMER_NAME"
+    echo "  ✓ Network connectivity to Gong APIs"
+    echo "  ✓ Testing with $TEST_DAYS_BACK days of history"
     echo ""
 
-    read -p "Run integration tests? (y/n) " -n 1 -r
-    echo ""
-
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        export USE_REAL_API=true
-        cargo test -- --ignored --nocapture
+    # Always run integration tests - no prompts
+    echo "Running API Integration Tests..."
+    if cargo test --test api_integration -- --nocapture; then
+        echo -e "${GREEN}✓ API Integration Tests passed${NC}"
+        integration_result=0
     else
-        echo "Skipping integration tests"
+        echo -e "${RED}✗ API Integration Tests failed${NC}"
+        integration_result=1
     fi
+    
+    echo ""
+    echo "Running E2E Regression Tests..."
+    if cargo test --test e2e_regression -- --nocapture; then
+        echo -e "${GREEN}✓ E2E Regression Tests passed${NC}"
+        e2e_result=0
+    else
+        echo -e "${RED}✗ E2E Regression Tests failed${NC}"
+        e2e_result=1
+    fi
+    
+    # Return combined result
+    return $((integration_result + e2e_result))
 }
 
 # Track test results
@@ -94,32 +102,28 @@ FAILED_TESTS=()
 
 echo "1. Running Unit Tests"
 echo "===================="
-if ! run_test_suite "HTML Processing Tests" "--lib" "false"; then
+if ! run_test_suite "HTML Processing Tests" "--lib"; then
     FAILED_TESTS+=("HTML Processing")
 fi
 
-if ! run_test_suite "Performance Tests" "--test performance_test" "false"; then
+if ! run_test_suite "Performance Tests" "--test performance_test"; then
     FAILED_TESTS+=("Performance")
 fi
 
 echo ""
 echo "2. Running Mock Integration Tests"
 echo "================================="
-# These tests use mocked APIs
-export USE_REAL_API=false
 
-if ! run_test_suite "Authentication Mock Tests" "--test auth_integration test_authentication_without_cookies" "false"; then
+if ! run_test_suite "Authentication Mock Tests" "--test auth_integration test_authentication_without_cookies"; then
     FAILED_TESTS+=("Auth Mocks")
 fi
 
-if ! run_test_suite "E2E Workflow Tests" "--test e2e_regression test_cli_argument_parsing" "false"; then
-    FAILED_TESTS+=("E2E Workflow")
-fi
-
 echo ""
-echo "3. Optional: Real API Integration Tests"
-echo "======================================="
-run_integration_tests
+echo "3. Running Real API Integration & E2E Tests"
+echo "==========================================="
+if ! run_integration_tests; then
+    FAILED_TESTS+=("Integration & E2E")
+fi
 
 echo ""
 echo "4. Running Clippy Checks"

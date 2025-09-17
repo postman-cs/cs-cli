@@ -40,7 +40,6 @@ impl Default for TestConfig {
 }
 
 #[tokio::test]
-#[ignore = "Requires real Gong API access and test data"]
 async fn test_customer_search_real_api() {
     let config = TestConfig::default();
     let auth_config = AuthSettings::default();
@@ -54,7 +53,7 @@ async fn test_customer_search_real_api() {
     }
 
     let client_pool = Arc::new(
-        HttpClientPool::new(Some(HttpSettings::default()))
+        HttpClientPool::new_gong_pool(Some(HttpSettings::default()))
             .await
             .expect("Failed to create client pool"),
     );
@@ -91,7 +90,6 @@ async fn test_customer_search_real_api() {
 }
 
 #[tokio::test]
-#[ignore = "Requires real Gong API access and test data"]
 async fn test_timeline_extraction_real_api() {
     let config = TestConfig::default();
     let auth_config = AuthSettings::default();
@@ -105,7 +103,7 @@ async fn test_timeline_extraction_real_api() {
     }
 
     let client_pool = Arc::new(
-        HttpClientPool::new(Some(HttpSettings::default()))
+        HttpClientPool::new_gong_pool(Some(HttpSettings::default()))
             .await
             .expect("Failed to create client pool"),
     );
@@ -185,7 +183,6 @@ async fn test_timeline_extraction_real_api() {
 }
 
 #[tokio::test]
-#[ignore = "Requires real Gong API access"]
 async fn test_email_enhancement_real_api() {
     let auth_config = AuthSettings::default();
     let mut authenticator = GongAuthenticator::new(auth_config)
@@ -198,7 +195,7 @@ async fn test_email_enhancement_real_api() {
     }
 
     let client_pool = Arc::new(
-        HttpClientPool::new(Some(HttpSettings::default()))
+        HttpClientPool::new_gong_pool(Some(HttpSettings::default()))
             .await
             .expect("Failed to create client pool"),
     );
@@ -219,7 +216,6 @@ async fn test_email_enhancement_real_api() {
 }
 
 #[tokio::test]
-#[ignore = "Requires real Gong API access"]
 async fn test_library_client_call_search() {
     let auth_config = AuthSettings::default();
     let mut authenticator = GongAuthenticator::new(auth_config)
@@ -232,7 +228,7 @@ async fn test_library_client_call_search() {
     }
 
     let client_pool = Arc::new(
-        HttpClientPool::new(Some(HttpSettings::default()))
+        HttpClientPool::new_gong_pool(Some(HttpSettings::default()))
             .await
             .expect("Failed to create client pool"),
     );
@@ -275,7 +271,6 @@ async fn test_library_client_call_search() {
 }
 
 #[tokio::test]
-#[ignore = "Requires real Gong API access"]
 async fn test_concurrent_api_calls_with_rate_limiting() {
     let config = TestConfig::default();
     let auth_config = AuthSettings::default();
@@ -289,7 +284,7 @@ async fn test_concurrent_api_calls_with_rate_limiting() {
     }
 
     let client_pool = Arc::new(
-        HttpClientPool::new(Some(HttpSettings::default()))
+        HttpClientPool::new_gong_pool(Some(HttpSettings::default()))
             .await
             .expect("Failed to create client pool"),
     );
@@ -347,7 +342,6 @@ async fn test_concurrent_api_calls_with_rate_limiting() {
 }
 
 #[tokio::test]
-#[ignore = "Requires real Gong API access"]
 async fn test_retry_logic_on_transient_failures() {
     // Test that the client properly retries on transient failures
     let auth_config = AuthSettings::default();
@@ -364,7 +358,7 @@ async fn test_retry_logic_on_transient_failures() {
     let http_config = HttpSettings::default();
 
     let client_pool = Arc::new(
-        HttpClientPool::new(Some(http_config))
+        HttpClientPool::new_gong_pool(Some(http_config))
             .await
             .expect("Failed to create client pool"),
     );
@@ -397,7 +391,6 @@ async fn test_retry_logic_on_transient_failures() {
 }
 
 #[tokio::test]
-#[ignore = "Requires real Gong API access"]
 async fn test_empty_results_handling() {
     let auth_config = AuthSettings::default();
     let mut authenticator = GongAuthenticator::new(auth_config)
@@ -410,7 +403,7 @@ async fn test_empty_results_handling() {
     }
 
     let client_pool = Arc::new(
-        HttpClientPool::new(Some(HttpSettings::default()))
+        HttpClientPool::new_gong_pool(Some(HttpSettings::default()))
             .await
             .expect("Failed to create client pool"),
     );
@@ -444,7 +437,6 @@ async fn test_empty_results_handling() {
 }
 
 #[tokio::test]
-#[ignore = "Requires real Gong API access and specific test data"]
 async fn test_large_dataset_pagination() {
     let auth_config = AuthSettings::default();
     let mut authenticator = GongAuthenticator::new(auth_config)
@@ -457,7 +449,7 @@ async fn test_large_dataset_pagination() {
     }
 
     let client_pool = Arc::new(
-        HttpClientPool::new(Some(HttpSettings::default()))
+        HttpClientPool::new_gong_pool(Some(HttpSettings::default()))
             .await
             .expect("Failed to create client pool"),
     );

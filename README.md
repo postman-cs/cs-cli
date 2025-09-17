@@ -105,6 +105,43 @@ Always on your Desktop! Each customer gets their own folder: `ct_postman`, `ct_s
 **"How do I update the tool?"**
 Download the latest version from the [releases page](https://github.com/postman-cs/cs-cli/releases/latest) and install it.
 
+**"What browsers are supported?"**
+The tool automatically uses authentication from whichever browser you're logged into. It tries browsers in this order:
+
+| Browser | Platform Support |
+|---------|------------------|
+| Firefox | All |
+| Chrome | All |
+| Edge | All |
+| Arc | All |
+| Brave | All |
+| Chromium | All |
+| LibreWolf | All |
+| Opera | All |
+| Opera GX | All |
+| Vivaldi | All |
+| Zen | All |
+| Safari | macOS only |
+| Cachy Browser | Linux only |
+
+Just be logged into Gοng in any of these browsers and the tool will find your session automatically.
+
+## Roadmap
+
+Here's what's coming:
+
+| Feature | Status | Value |
+|---------|--------|-------|
+| **Autocomplete Customer Search** | In Development | Type "Wells" and get "Wells Fargo" instantly - much better UX |
+| **Multiselect Customers** | In Development | Output data from multiple related customers at once for portfolio insights and trend analysis |
+| **Auto-analysis** | In Development | Automatically run analysis steps via cursor-agent |
+| **Slack Integration** | Pre-release | Pull customer conversations and mentions from Slack |
+| **Gainsight Integration** | Research Phase | CTAs, health scores, timeline events, usage data |
+| **LinkedIn Integration** | Planned | Automatically build out an org chart, track recent job changes |
+| **Web Search Augmentation** | Planned | Automatic news, earnings, acquisitions, layoffs - full customer context |
+
+Each integration follows the same pattern: authenticate once with your browser, get comprehensive data automatically. The goal is complete customer context in under 60 seconds.
+
 ## Your Next Move
 
 1. Pick a customer you're worried about

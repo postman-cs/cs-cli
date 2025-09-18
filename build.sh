@@ -35,9 +35,9 @@ APP_NAME="Postman CS-CLI"
 BUNDLE_ID="com.postman.cs-cli"
 VERSION=$(awk -F ' = ' '/^version/ { gsub(/"/, "", $2); print $2 }' Cargo.toml)
 
-# Target definitions
-TARGETS_MACOS="aarch64-apple-darwin x86_64-apple-darwin"
-TARGETS_ALL="$TARGETS_MACOS"
+# Target definitions - Apple Silicon only
+TARGETS_DEFAULT="aarch64-apple-darwin"
+TARGETS_ALL="aarch64-apple-darwin"
 
 # --- Script State ---
 SELECTED_TARGETS=""
@@ -68,13 +68,12 @@ log() {
 usage() {
     echo "Usage: $0 [OPTIONS]"
     echo "Options:"
-    echo "  --targets TARGET[,TARGET...]  Build specific targets (default: all)"
-    echo "  --all                         Build all macOS targets (default)"
     echo "  --pkg                         Build PKG installer for macOS"
     echo "  --sign-debug                  Sign debug binary for 'cargo run' (development)"
     echo "  --help                        Show this help"
     echo ""
-    echo "Available targets: $TARGETS_ALL"
+    echo "Default target: $TARGETS_DEFAULT (Apple Silicon macOS)"
+    echo "Note: CS-CLI is Apple Silicon only due to bundled lightpanda browser"
     exit 1
 }
 
@@ -133,23 +132,14 @@ download_lightpanda() {
 }
 
 parse_args() {
-    SELECTED_TARGETS="$TARGETS_ALL" # Default to all targets
+    SELECTED_TARGETS="$TARGETS_DEFAULT" # Default to Apple Silicon
 
     if [[ $# -eq 0 ]]; then
         return
     fi
 
-    local requested_targets=""
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --targets)
-                requested_targets+="$(echo "$2" | tr ',' ' ') "
-                shift 2
-                ;;
-            --all)
-                requested_targets+=" $TARGETS_ALL "
-                shift
-                ;;
             --pkg)
                 DO_PKG_BUILD=true
                 shift
@@ -166,12 +156,6 @@ parse_args() {
                 ;;
         esac
     done
-
-    # Only update SELECTED_TARGETS if targets were explicitly requested
-    if [ -n "$requested_targets" ]; then
-        # Deduplicate and trim whitespace
-        SELECTED_TARGETS=$(echo "$requested_targets" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/ $//')
-    fi
 }
 
 build_target() {
@@ -211,24 +195,19 @@ build_target() {
     fi
 }
 
-create_universal_macos() {
-    if [[ ! " $SELECTED_TARGETS " =~ " x86_64-apple-darwin " ]] || [[ ! " $SELECTED_TARGETS " =~ " aarch64-apple-darwin " ]]; then
-        log WARN "Not all macOS targets were built. Skipping universal binary creation."
-        return
-    fi
+create_macos_binary() {
+    log STEP "Preparing macOS binary for distribution..."
     
-    log STEP "Creating universal macOS binary..."
-    
-    local intel_bin="dist/binaries/${BINARY_NAME}-x86_64-apple-darwin"
     local arm_bin="dist/binaries/${BINARY_NAME}-aarch64-apple-darwin"
-    local universal_bin="dist/binaries/${BINARY_NAME}-macos-universal"
+    local macos_bin="dist/binaries/${BINARY_NAME}-macos"
 
-    if [ ! -f "$intel_bin" ] || [ ! -f "$arm_bin" ]; then
-        log ERROR "Missing required binaries for universal package. Cannot proceed."
+    if [ ! -f "$arm_bin" ]; then
+        log ERROR "Apple Silicon binary not found. Cannot proceed."
     fi
 
-    lipo -create -output "$universal_bin" "$intel_bin" "$arm_bin"
-    log SUCCESS "Created universal binary at $universal_bin"
+    # Copy the Apple Silicon binary as the main macOS binary
+    cp "$arm_bin" "$macos_bin"
+    log SUCCESS "Created macOS binary at $macos_bin"
 }
 
 sign_file() {
@@ -259,27 +238,22 @@ sign_file() {
 sign_debug_binary() {
     log STEP "Signing debug binary for development use..."
 
-    # Determine host architecture
-    local host_arch="$(uname -m)"
-    local target_dir=""
-
-    if [ "$host_arch" = "arm64" ]; then
-        target_dir="target/aarch64-apple-darwin/debug"
-    else
-        target_dir="target/x86_64-apple-darwin/debug"
-    fi
-
-    # Check for default debug directory first
-    if [ -f "target/debug/$BINARY_NAME" ]; then
-        target_dir="target/debug"
-    fi
-
+    # Always use Apple Silicon target for consistency
+    local target_dir="target/aarch64-apple-darwin/debug"
     local debug_binary="$target_dir/$BINARY_NAME"
+
+    # Check for default debug directory first (cargo build without --target)
+    if [ -f "target/debug/$BINARY_NAME" ]; then
+        debug_binary="target/debug/$BINARY_NAME"
+    fi
 
     if [ ! -f "$debug_binary" ]; then
         log WARN "Debug binary not found at $debug_binary"
-        log INFO "Building debug binary first..."
-        RUSTFLAGS='--cfg reqwest_unstable' cargo build
+        log INFO "Building debug binary for Apple Silicon..."
+        
+        # Use same RUSTFLAGS as release build for consistency
+        RUSTFLAGS='--cfg reqwest_unstable -C target-feature=+neon,+aes,+sha2' \
+            cargo build --target aarch64-apple-darwin
 
         # Re-check after build
         if [ ! -f "$debug_binary" ]; then
@@ -306,25 +280,8 @@ sign_debug_binary() {
     codesign --verify --verbose "$debug_binary"
     log SUCCESS "Successfully signed $debug_binary with bundle ID: $BUNDLE_ID"
 
-    # Also sign the keychain helper if it exists
-    local helper_path=""
-    for dir in "target/debug/build" "$target_dir/build"; do
-        if [ -d "$dir" ]; then
-            found_helper=$(find "$dir" -name "keychain_helper" -type f 2>/dev/null | head -1)
-            if [ -n "$found_helper" ]; then
-                helper_path="$found_helper"
-                break
-            fi
-        fi
-    done
-
-    if [ -n "$helper_path" ]; then
-        log INFO "Signing keychain helper..."
-        sign_file "$helper_path"
-    fi
-
-    log SUCCESS "Debug binary signed and ready for 'cargo run'"
-    log INFO "You can now use: cargo run -- [args]"
+    log SUCCESS "Debug binary signed and ready for development use"
+    log INFO "You can now use: cargo run --target aarch64-apple-darwin -- [args]"
 }
 
 create_app_bundle() {
@@ -432,15 +389,15 @@ build_macos_pkg() {
     # Check for required files
     local app_name="${APP_NAME}.app"
     local app_path="dist/$app_name"
-    local universal_bin="dist/binaries/${BINARY_NAME}-macos-universal"
+    local macos_bin="dist/binaries/${BINARY_NAME}-macos"
 
     if [ ! -d "$app_path" ]; then
         log WARN "App bundle not found. Skipping PKG build."
         return
     fi
 
-    if [ ! -f "$universal_bin" ]; then
-        log WARN "Universal binary not found. Skipping PKG build."
+    if [ ! -f "$macos_bin" ]; then
+        log WARN "macOS binary not found. Skipping PKG build."
         return
     fi
 
@@ -461,22 +418,19 @@ build_macos_pkg() {
     cp -R "$app_path" "$pkg_build_dir/root/Applications/"
 
     # 3. Copy the binary to /usr/local/bin
-    cp "$universal_bin" "$pkg_build_dir/root/usr/local/bin/${BINARY_NAME}"
+    cp "$macos_bin" "$pkg_build_dir/root/usr/local/bin/${BINARY_NAME}"
     chmod +x "$pkg_build_dir/root/usr/local/bin/${BINARY_NAME}"
 
     # 3.5. Copy the Swift keychain helper if it exists
-    # Find the helper in the target directory
+    # Find the helper in the Apple Silicon target directory
     helper_path=""
-    for target in $TARGETS_MACOS; do
-        potential_path="target/$target/release/build"
-        if [ -d "$potential_path" ]; then
-            found_helper=$(find "$potential_path" -name "keychain_helper" -type f 2>/dev/null | head -1)
-            if [ -n "$found_helper" ]; then
-                helper_path="$found_helper"
-                break
-            fi
+    potential_path="target/aarch64-apple-darwin/release/build"
+    if [ -d "$potential_path" ]; then
+        found_helper=$(find "$potential_path" -name "keychain_helper" -type f 2>/dev/null | head -1)
+        if [ -n "$found_helper" ]; then
+            helper_path="$found_helper"
         fi
-    done
+    fi
 
     if [ -n "$helper_path" ]; then
         log INFO "Copying Swift keychain helper..."
@@ -627,10 +581,10 @@ main() {
         build_target "$target"
     done
 
-    # Always create universal binary and sign it
-    create_universal_macos
-    if [ -f "dist/binaries/${BINARY_NAME}-macos-universal" ]; then
-        sign_file "dist/binaries/${BINARY_NAME}-macos-universal"
+    # Create macOS distribution binary and sign it
+    create_macos_binary
+    if [ -f "dist/binaries/${BINARY_NAME}-macos" ]; then
+        sign_file "dist/binaries/${BINARY_NAME}-macos"
     fi
 
     # Create the app bundle (launcher)

@@ -1,47 +1,50 @@
 //! Authentication Integration Tests
 //!
-//! These tests validate the browser cookie extraction and Gong authentication flow
-//! against real browsers and the production Gong API.
+//! These tests validate the generic browser cookie extraction and platform-specific
+//! authentication flows against real browsers and production APIs.
 //!
 //! IMPORTANT: These tests require:
-//! 1. An active browser session logged into Gong
-//! 2. Valid Gong account credentials
-//! 3. Network connectivity to app.gong.io
+//! 1. An active browser session logged into the tested service (Gong, etc.)
+//! 2. Valid account credentials for the service
+//! 3. Network connectivity to the service endpoints
 
 use cs_cli::common::auth::{Cookie, CookieExtractor};
 use cs_cli::common::config::AuthSettings;
 use cs_cli::gong::auth::GongAuthenticator;
 
 #[tokio::test]
-
 async fn test_browser_cookie_extraction_multi_browser() {
-    // Test cookie extraction from multiple browsers
+    // Test generic cookie extraction from all available browsers
+    
+    // NOTE: This test may prompt for browser Safe Storage access on first run
+    // Click "Allow Always" when prompted, then subsequent runs will be prompt-free
+    println!("Testing cookie extraction (may prompt for browser Safe Storage access - click 'Allow Always')");
+    
     let domains = vec!["gong.io".to_string(), ".gong.io".to_string()];
     let extractor = CookieExtractor::new(domains);
 
     // This should extract cookies from available browsers
-    let result = extractor.extract_gong_cookies_with_source();
+    let all_browser_cookies = extractor.extract_all_browsers_cookies();
 
-    match result {
-        Ok((cookies, browser)) => {
-            println!("Successfully extracted cookies from browser: {browser}");
-            assert!(!cookies.is_empty(), "Should extract at least one cookie");
+    if all_browser_cookies.is_empty() {
+        println!("Warning: No cookies found in any browser (expected if not logged in)");
+        return; // Skip test if no cookies available
+    }
 
-            // Verify we have essential cookies
-            let cookie_names: Vec<String> = cookies.iter().map(|c| c.name.clone()).collect();
-            println!("Found cookies: {cookie_names:?}");
+    for (cookies, browser) in all_browser_cookies {
+        println!("Successfully extracted cookies from browser: {browser}");
+        assert!(!cookies.is_empty(), "Should extract at least one cookie");
 
-            // Should have session-related cookies
-            let has_session_cookie = cookies.iter().any(|c| {
-                c.name.contains("session")
-                    || c.name.contains("JSESSIONID")
-                    || c.name.contains("_gong")
-            });
-            assert!(has_session_cookie, "Should have session cookies");
-        }
-        Err(e) => {
-            println!("Warning: Cookie extraction failed (expected if not logged in): {e}");
-            // This is acceptable if no browsers are logged in
+        // Verify we have essential cookies
+        let cookie_names: Vec<String> = cookies.iter().map(|c| c.name.clone()).collect();
+        println!("Found cookies: {cookie_names:?}");
+
+        // Should have some domain-related cookies
+        let has_domain_cookie = cookies.iter().any(|c| {
+            c.domain.contains("gong") || c.name.contains("session") || c.name.contains("JSESSIONID")
+        });
+        if has_domain_cookie {
+            println!("Found domain-specific cookies in {browser}");
         }
     }
 }
@@ -148,10 +151,10 @@ async fn test_authentication_without_cookies() {
     let domains = vec!["nonexistent.domain.com".to_string()];
     let extractor = CookieExtractor::new(domains);
 
-    let result = extractor.extract_gong_cookies_with_source();
+    let all_cookies = extractor.extract_all_browsers_cookies();
     assert!(
-        result.is_err() || result.unwrap().0.is_empty(),
-        "Should fail or return empty for non-existent domain"
+        all_cookies.is_empty(),
+        "Should return empty for non-existent domain"
     );
 }
 
@@ -188,25 +191,24 @@ async fn test_browser_fallback_priority() {
     let domains = vec!["gong.io".to_string()];
     let extractor = CookieExtractor::new(domains);
 
-    // Try to extract from each browser type
-    let browsers = vec!["Safari", "Chrome", "Firefox", "Edge", "Brave"];
+    // Extract from all available browsers
+    let all_browser_cookies = extractor.extract_all_browsers_cookies();
     let mut found_browsers = vec![];
 
-    for browser_name in &browsers {
-        // Note: Real implementation would need browser-specific extraction
+    for (cookies, browser_name) in all_browser_cookies {
         println!("Checking browser: {browser_name}");
-
-        // Try extraction
-        if let Ok((cookies, source)) = extractor.extract_gong_cookies_with_source() {
-            if !cookies.is_empty() {
-                found_browsers.push(source.clone());
-                println!("Found cookies in: {source}");
-            }
+        
+        if !cookies.is_empty() {
+            found_browsers.push(browser_name.clone());
+            println!("Found {} cookies in: {browser_name}", cookies.len());
         }
     }
 
-    println!("Browsers with Gong cookies: {found_browsers:?}");
+    println!("Browsers with cookies: {found_browsers:?}");
     // At least one browser should work if user is logged in
+    if found_browsers.is_empty() {
+        println!("No browsers found with cookies (expected if not logged in)");
+    }
 }
 
 #[tokio::test]

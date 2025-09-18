@@ -38,9 +38,6 @@ pub struct GongAuthenticator {
     /// HTTP client for API requests (using impit)
     http_client: Arc<GongHttpClient>,
 
-    /// Authentication configuration settings
-    config: AuthSettings,
-
     /// Multi-browser cookie extractor using rookie
     cookie_extractor: CookieExtractor,
 
@@ -71,11 +68,10 @@ impl GongAuthenticator {
             ".gong.io".to_string(), // All subdomains (*.gong.io)
         ];
         let cookie_extractor = CookieExtractor::new(domains);
-        let csrf_manager = CSRFManager::new(config.clone(), http_client.clone());
+        let csrf_manager = CSRFManager::new(config, http_client.clone());
 
         Ok(Self {
             http_client,
-            config,
             cookie_extractor,
             csrf_manager,
             gong_cookies: None,
@@ -88,91 +84,121 @@ impl GongAuthenticator {
     ///
     /// This is the main entry point that:
     /// 1. Extracts cookies from available browsers
-    /// 2. Determines Gong cell identifier
-    /// 3. Sets up base URL and session cookies
-    /// 4. Fetches initial CSRF token
-    /// 5. Extracts workspace ID
+    /// 2. Validates cookies with server (tries multiple browsers if needed)
+    /// 3. Determines Gong cell identifier
+    /// 4. Sets up base URL and session cookies
+    /// 5. Fetches initial CSRF token
+    /// 6. Extracts workspace ID
     ///
     /// # Returns
     /// true if authentication succeeds, false otherwise
     pub async fn authenticate(&mut self) -> Result<bool> {
         info!("Starting Gong authentication with multi-browser support");
 
-        // Extract cookies from available browsers (rookie handles fallback)
-        let (cookies, browser_source) = self.cookie_extractor.extract_gong_cookies_with_source()?;
+        // Ensure keychain access for browser cookies (macOS-only)
+        use crate::common::auth::smart_keychain::SmartKeychainManager;
+        let keychain_manager = SmartKeychainManager::new()?;
+        keychain_manager.ensure_keychain_access()?;
 
-        if cookies.is_empty() {
-            error!("No Gong cookies found in any supported browser");
+        // Extract cookies from ALL available browsers for validation
+        let all_browser_cookies = self.cookie_extractor.extract_all_browsers_cookies();
+
+        if all_browser_cookies.is_empty() {
+            error!("No cookies found in any supported browser");
             info!("Make sure you're logged into Gong in any supported browser: Firefox, Chrome, Edge, Arc, Brave, Chromium, LibreWolf, Opera, Opera GX, Vivaldi, Zen, Safari, or Cachy");
             return Ok(false);
         }
+
+        // Try each browser's cookies until we find working ones
+        let mut working_cookies: Option<(Vec<Cookie>, String)> = None;
+
+        for (cookies, browser_name) in all_browser_cookies {
+            if cookies.is_empty() {
+                continue;
+            }
+
+            info!(
+                "Testing cookies from {} ({} cookies)",
+                browser_name,
+                cookies.len()
+            );
+
+            // Try to extract cell and test authentication
+            match self.extract_cell_from_cookies(&cookies) {
+                Ok(cell) => {
+                    // Build session cookies map
+                    let mut session_cookies = HashMap::new();
+                    for cookie in &cookies {
+                        session_cookies.insert(cookie.name.clone(), cookie.value.clone());
+                    }
+
+                    // Store authentication state temporarily
+                    self.gong_cookies = Some(GongCookies {
+                        cell: cell.clone(),
+                        session_cookies: session_cookies.clone(),
+                        extracted_at: SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs_f64(),
+                        browser: browser_name.clone(),
+                    });
+
+                    self.base_url = Some(format!("https://{cell}.app.gong.io"));
+
+                    // Set cookies on HTTP client
+                    self.http_client.set_cookies(session_cookies.clone()).await?;
+
+                    // Try to get CSRF token to validate the cookies
+                    match self.csrf_manager.get_csrf_token(&cell, false).await {
+                        Ok(Some(_token)) => {
+                            info!(
+                                "Successfully authenticated with {} cookies",
+                                browser_name
+                            );
+                            working_cookies = Some((cookies, browser_name));
+                            break;
+                        }
+                        Ok(None) | Err(_) => {
+                            warn!(
+                                "{} cookies are expired or invalid, trying next browser",
+                                browser_name
+                            );
+                            // Clear the failed state
+                            self.gong_cookies = None;
+                            self.base_url = None;
+                            continue;
+                        }
+                    }
+                }
+                Err(e) => {
+                    debug!("Could not extract cell from {} cookies: {}", browser_name, e);
+                    continue;
+                }
+            }
+        }
+
+        // Check if we found working cookies
+        let (cookies, browser_source) = match working_cookies {
+            Some(result) => result,
+            None => {
+                error!("All browser cookies are expired or invalid");
+                info!("Please log into Gong in any browser and try again");
+                return Ok(false);
+            }
+        };
 
         info!(
             cookies_found = cookies.len(),
             browser_used = %browser_source,
             browsers_supported = "Firefox, Chrome, Edge, Arc, Brave, Chromium, LibreWolf, Opera, Opera GX, Vivaldi, Zen, Safari, Cachy",
-            "Successfully extracted browser cookies"
+            "Successfully authenticated"
         );
 
-        // Find cell identifier from cookies
-        let cell = self.extract_cell_from_cookies(&cookies)?;
+        // The authentication state is already set up from the successful attempt above
+        // Just need to get the cell for logging
+        let cell = self.gong_cookies.as_ref().unwrap().cell.clone();
 
-        // Build session cookies map
-        let mut session_cookies = HashMap::new();
-        for cookie in &cookies {
-            session_cookies.insert(cookie.name.clone(), cookie.value.clone());
-        }
-
-        // Store authentication state (browser source already detected)
-        self.gong_cookies = Some(GongCookies {
-            cell: cell.clone(),
-            session_cookies,
-            extracted_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs_f64(),
-            browser: browser_source.clone(),
-        });
-
-        self.base_url = Some(format!("https://{cell}.app.gong.io"));
-
-        // Set cookies for multiple domains to ensure cell-specific authentication
-        // This matches the Python implementation's domain strategy
-        if let Some(gong_cookies) = &self.gong_cookies {
-            let domains_to_set = vec![
-                ".gong.io".to_string(),
-                ".app.gong.io".to_string(),
-                format!(".{}.app.gong.io", gong_cookies.cell),
-            ];
-
-            // Set cookies for each domain (matching Python behavior)
-            for _domain in &domains_to_set {
-                // Note: Since our HTTP client doesn't support domain-specific cookies,
-                // we set them globally. The original domain info is preserved in cookie metadata.
-                self.http_client
-                    .set_cookies(gong_cookies.session_cookies.clone())
-                    .await?;
-            }
-        }
-
-        // Get initial CSRF token (retry based on config)
-        match self.csrf_manager.get_csrf_token(&cell, false).await? {
-            Some(_) => {
-                info!(
-                    cell = %cell,
-                    base_url = %self.base_url.as_ref().unwrap(),
-                    retry_attempts = self.config.retry_attempts,
-                    "CSRF token obtained successfully"
-                );
-            }
-            #[allow(non_snake_case)]
-            None => {
-                warn!(
-                    retry_attempts = self.config.retry_attempts,
-                    "Failed to obtain initial CSRF token, will retry on first authenticated request"
-                );
-            }
-        }
+        // CSRF token was already validated above, no need to get it again
 
         // Extract workspace ID from home page
         if let Ok(Some(workspace_id)) = self.extract_workspace_id().await {
@@ -192,9 +218,9 @@ impl GongAuthenticator {
         Ok(true)
     }
 
-    /// Extract Gong cell identifier from cookies using multiple strategies
+    /// Extract Gong cell identifier from cookies by decrypting the JWT "cell" cookie
     fn extract_cell_from_cookies(&self, cookies: &[Cookie]) -> Result<String> {
-        // Strategy 1: Decode from JWT "cell" cookie
+        // Only strategy: Decode from JWT "cell" cookie
         for cookie in cookies {
             if cookie.name == "cell" {
                 if let Ok(cell) = self.decode_cell_cookie(&cookie.value) {
@@ -204,15 +230,8 @@ impl GongAuthenticator {
             }
         }
 
-        // Strategy 2: Extract from cookie domains
-        let domains: Vec<String> = cookies.iter().map(|c| c.domain.clone()).collect();
-        if let Ok(cell) = self.extract_cell_from_domains(&domains) {
-            debug!(cell = %cell, strategy = "domain_parsing", "Extracted cell from domain names");
-            return Ok(cell);
-        }
-
         Err(CsCliError::Authentication(
-            "Could not determine Gong cell identifier from cookies".to_string(),
+            "Could not find or decode 'cell' cookie - make sure you're logged into Gong".to_string(),
         ))
     }
 
@@ -249,64 +268,6 @@ impl GongAuthenticator {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .ok_or_else(|| CsCliError::Authentication("Cell not found in JWT payload".to_string()))
-    }
-
-    /// Extract cell value from cookie domain names using regex patterns (public for testing)
-    pub fn extract_cell_from_domains(&self, domains: &[String]) -> Result<String> {
-        for domain in domains {
-            if !domain.to_lowercase().contains("gong") {
-                continue;
-            }
-
-            debug!(domain = %domain, "Analyzing domain for cell identifier");
-
-            // Pattern 1: Direct cell domains like us-14496.app.gong.io
-            if domain.contains(".app.gong") && !domain.starts_with("resource.") {
-                let cell_part = domain
-                    .split(".app.gong")
-                    .next()
-                    .unwrap_or("")
-                    .replace('.', "");
-
-                if !cell_part.is_empty()
-                    && !cell_part.starts_with("resource")
-                    && !cell_part.starts_with("gcell")
-                    && !["app", "www", "api"].contains(&cell_part.as_str())
-                {
-                    debug!(cell = %cell_part, domain = %domain, "Found cell from domain pattern");
-                    return Ok(cell_part);
-                }
-            }
-
-            // Pattern 2: gcell patterns like resource.gcell-nam-01.app.gong.io
-            if domain.contains("gcell-") {
-                for part in domain.split('.') {
-                    if part.starts_with("gcell-") {
-                        let cell_value = part.strip_prefix("gcell-").unwrap_or("");
-                        if !cell_value.is_empty() {
-                            debug!(cell = %cell_value, domain = %domain, "Found gcell from domain");
-                            return Ok(cell_value.to_string());
-                        }
-                    }
-                }
-            }
-
-            // Pattern 3: Cell-like patterns in domain parts
-            for part in domain.split('.') {
-                if part.len() > 3
-                    && part.chars().any(|c| c.is_ascii_digit())
-                    && part.chars().any(|c| c.is_alphabetic())
-                    && !["gong", "app", "www", "api", "resource"].contains(&part)
-                {
-                    debug!(cell = %part, domain = %domain, "Found potential cell from domain part");
-                    return Ok(part.to_string());
-                }
-            }
-        }
-
-        Err(CsCliError::Authentication(
-            "Could not extract cell identifier from any domain".to_string(),
-        ))
     }
 
     /// Get headers for read-only requests (GET) - no CSRF token needed

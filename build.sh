@@ -13,8 +13,20 @@
 
 set -euo pipefail
 
+# Always source .env file for configuration
 if [ -f ".env" ]; then
+    echo "Loading environment from .env file..."
     source .env
+
+    # Verify critical environment variables are loaded
+    if [ -n "${SIGNING_IDENTITY:-}" ]; then
+        echo "✓ Signing identity loaded: ${SIGNING_IDENTITY}"
+    else
+        echo "⚠ No signing identity found in .env (binaries will not be signed)"
+    fi
+else
+    echo "⚠ No .env file found. Using default configuration."
+    echo "  Create .env from .env.example for custom settings."
 fi
 
 # --- Configuration ---
@@ -30,6 +42,7 @@ TARGETS_ALL="$TARGETS_MACOS"
 # --- Script State ---
 SELECTED_TARGETS=""
 DO_PKG_BUILD=false
+DO_SIGN_DEBUG=false
 
 # --- Helper Functions ---
 log() {
@@ -58,6 +71,7 @@ usage() {
     echo "  --targets TARGET[,TARGET...]  Build specific targets (default: all)"
     echo "  --all                         Build all macOS targets (default)"
     echo "  --pkg                         Build PKG installer for macOS"
+    echo "  --sign-debug                  Sign debug binary for 'cargo run' (development)"
     echo "  --help                        Show this help"
     echo ""
     echo "Available targets: $TARGETS_ALL"
@@ -86,6 +100,10 @@ parse_args() {
                 ;;
             --pkg)
                 DO_PKG_BUILD=true
+                shift
+                ;;
+            --sign-debug)
+                DO_SIGN_DEBUG=true
                 shift
                 ;;
             --help)
@@ -165,9 +183,62 @@ sign_file() {
     local file_path="$1"
     log INFO "Signing $file_path..."
 
-    # This pulls from the environment. Not hardcoded.
+    # This pulls from the environment (loaded from .env)
     if [ -z "${SIGNING_IDENTITY:-}" ]; then
-        log WARN "SIGNING_IDENTITY environment variable not set. Skipping code signing."
+        log WARN "SIGNING_IDENTITY not configured in .env file. Skipping code signing."
+        log INFO "To enable signing, add SIGNING_IDENTITY=\"Developer ID Application: Your Name (TEAMID)\" to .env"
+        return
+    fi
+
+    if ! security find-identity -v -p codesigning | grep -q "$SIGNING_IDENTITY"; then
+        log WARN "Signing identity '$SIGNING_IDENTITY' not found in keychain. Skipping."
+        log INFO "Run 'security find-identity -v -p codesigning' to see available identities."
+        return
+    fi
+
+    codesign --force --options runtime --timestamp \
+        --identifier "$BUNDLE_ID" \
+        --sign "$SIGNING_IDENTITY" "$file_path"
+
+    codesign --verify --verbose "$file_path"
+    log SUCCESS "Successfully signed $file_path"
+}
+
+sign_debug_binary() {
+    log STEP "Signing debug binary for development use..."
+
+    # Determine host architecture
+    local host_arch="$(uname -m)"
+    local target_dir=""
+
+    if [ "$host_arch" = "arm64" ]; then
+        target_dir="target/aarch64-apple-darwin/debug"
+    else
+        target_dir="target/x86_64-apple-darwin/debug"
+    fi
+
+    # Check for default debug directory first
+    if [ -f "target/debug/$BINARY_NAME" ]; then
+        target_dir="target/debug"
+    fi
+
+    local debug_binary="$target_dir/$BINARY_NAME"
+
+    if [ ! -f "$debug_binary" ]; then
+        log WARN "Debug binary not found at $debug_binary"
+        log INFO "Building debug binary first..."
+        RUSTFLAGS='--cfg reqwest_unstable' cargo build
+
+        # Re-check after build
+        if [ ! -f "$debug_binary" ]; then
+            log ERROR "Failed to find or build debug binary"
+        fi
+    fi
+
+    # Sign the debug binary with bundle ID
+    if [ -z "${SIGNING_IDENTITY:-}" ]; then
+        log WARN "SIGNING_IDENTITY not configured in .env file. Skipping code signing."
+        log INFO "To enable signing, add SIGNING_IDENTITY=\"Developer ID Application: Your Name (TEAMID)\" to .env"
         return
     fi
 
@@ -177,10 +248,31 @@ sign_file() {
     fi
 
     codesign --force --options runtime --timestamp \
-        --sign "$SIGNING_IDENTITY" "$file_path"
-    
-    codesign --verify --verbose "$file_path"
-    log SUCCESS "Successfully signed $file_path"
+        --identifier "$BUNDLE_ID" \
+        --sign "$SIGNING_IDENTITY" "$debug_binary"
+
+    codesign --verify --verbose "$debug_binary"
+    log SUCCESS "Successfully signed $debug_binary with bundle ID: $BUNDLE_ID"
+
+    # Also sign the keychain helper if it exists
+    local helper_path=""
+    for dir in "target/debug/build" "$target_dir/build"; do
+        if [ -d "$dir" ]; then
+            found_helper=$(find "$dir" -name "keychain_helper" -type f 2>/dev/null | head -1)
+            if [ -n "$found_helper" ]; then
+                helper_path="$found_helper"
+                break
+            fi
+        fi
+    done
+
+    if [ -n "$helper_path" ]; then
+        log INFO "Signing keychain helper..."
+        sign_file "$helper_path"
+    fi
+
+    log SUCCESS "Debug binary signed and ready for 'cargo run'"
+    log INFO "You can now use: cargo run -- [args]"
 }
 
 create_app_bundle() {
@@ -347,7 +439,7 @@ build_macos_pkg() {
                      "$pkg_build_dir/root/usr/local/bin/keychain_helper"
         fi
     else
-        log WARN "Swift keychain helper not found, TouchID support will be unavailable"
+        log INFO "Swift keychain helper not found (TouchID support has been removed)"
     fi
 
     # 4. Create welcome.html file
@@ -461,6 +553,12 @@ EOF
 # --- Main Execution ---
 main() {
     parse_args "$@"
+
+    # Handle special case for signing debug binary
+    if $DO_SIGN_DEBUG; then
+        sign_debug_binary
+        exit 0
+    fi
 
     log STEP "Starting build for CS-CLI v${VERSION}"
     log INFO "Targets: $SELECTED_TARGETS"

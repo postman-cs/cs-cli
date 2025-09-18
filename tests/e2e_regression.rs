@@ -4,7 +4,7 @@
 //! data extraction to output generation, ensuring the tool works correctly
 //! as a whole system.
 
-use cs_cli::gong::cli::args::CliArgs;
+use cs_cli::common::cli::args::CliArgs;
 use std::fs;
 use tempfile::TempDir;
 

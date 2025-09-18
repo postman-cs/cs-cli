@@ -4,7 +4,7 @@
 //! and in error conditions to ensure robust operation.
 
 use cs_cli::common::models::time::ExtractionRange;
-use cs_cli::gong::cli::args::CliArgs;
+use cs_cli::common::cli::args::CliArgs;
 use cs_cli::gong::output::html::html_to_markdown;
 use std::collections::HashMap;
 use std::fs;

@@ -34,4 +34,10 @@ impl fmt::Display for CsCliError {
 
 impl std::error::Error for CsCliError {}
 
+impl From<std::io::Error> for CsCliError {
+    fn from(err: std::io::Error) -> Self {
+        CsCliError::FileIo(err.to_string())
+    }
+}
+
 pub type Result<T> = std::result::Result<T, CsCliError>;

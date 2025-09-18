@@ -6,7 +6,8 @@
 //! - Extraction progress with loading bars
 //! - Results summary
 
-use crossterm::event::KeyCode;
+use crate::common::cli::args::{ContentType, ParsedCommand};
+use crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -17,7 +18,6 @@ use ratatui::{
 use std::collections::HashSet;
 use std::time::Instant;
 use tokio::sync::mpsc;
-use crate::common::cli::args::{ContentType, ParsedCommand};
 
 /// Result type for TUI operations
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -25,8 +25,14 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + S
 /// Messages from extraction thread to TUI
 #[derive(Debug, Clone)]
 pub enum ExtractionMessage {
+    // Authentication messages
+    AuthProgress(f64, String), // Progress and status message
+    AuthSuccess,
+    AuthFailed(String),
+
+    // Extraction messages
     Phase(String),
-    Progress(f64),  // 0.0 to 1.0
+    Progress(f64), // 0.0 to 1.0
     SubTask(String),
     CallsFound(usize),
     EmailsFound(usize),
@@ -47,6 +53,10 @@ pub struct ExtractionResults {
 /// State machine for the complete workflow
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppState {
+    // Authentication phase
+    Authenticating,
+    AuthenticationFailed(String),
+
     // Selection phases
     CustomerSelection,
     TimeSelection,
@@ -64,6 +74,11 @@ pub enum AppState {
 pub struct TuiApp {
     /// Current state in the workflow
     pub state: AppState,
+
+    // Authentication
+    pub auth_progress: f64,
+    pub auth_status: String,
+    pub auth_error: Option<String>,
 
     // Customer selection
     pub input: String,
@@ -95,6 +110,11 @@ pub struct TuiApp {
 
     // UI feedback
     pub error_message: Option<String>,
+
+    // Layout coordinates (for better mouse handling)
+    pub last_suggestion_area: Option<ratatui::layout::Rect>,
+    pub last_time_input_area: Option<ratatui::layout::Rect>,
+    pub last_content_area: Option<ratatui::layout::Rect>,
 }
 
 impl Default for TuiApp {
@@ -106,7 +126,10 @@ impl Default for TuiApp {
 impl TuiApp {
     pub fn new() -> Self {
         Self {
-            state: AppState::CustomerSelection,
+            state: AppState::Authenticating,
+            auth_progress: 0.0,
+            auth_status: "Starting authentication...".to_string(),
+            auth_error: None,
             input: String::new(),
             cursor: 0,
             suggestions: Vec::new(),
@@ -124,6 +147,9 @@ impl TuiApp {
             results: None,
             extraction_rx: None,
             error_message: None,
+            last_suggestion_area: None,
+            last_time_input_area: None,
+            last_content_area: None,
         }
     }
 
@@ -133,6 +159,20 @@ impl TuiApp {
 
     pub fn handle_extraction_message(&mut self, msg: ExtractionMessage) {
         match msg {
+            // Authentication messages
+            ExtractionMessage::AuthProgress(progress, status) => {
+                self.auth_progress = progress;
+                self.auth_status = status;
+            }
+            ExtractionMessage::AuthSuccess => {
+                self.state = AppState::CustomerSelection;
+            }
+            ExtractionMessage::AuthFailed(error) => {
+                self.state = AppState::AuthenticationFailed(error.clone());
+                self.auth_error = Some(error);
+            }
+
+            // Extraction messages
             ExtractionMessage::Phase(phase) => {
                 self.current_phase = phase.clone();
                 self.current_progress = 0.0;
@@ -172,12 +212,42 @@ impl TuiApp {
 
     pub fn handle_input(&mut self, key: KeyCode) -> bool {
         match self.state {
+            AppState::Authenticating => false, // No input during auth
+            AppState::AuthenticationFailed(_) => {
+                match key {
+                    KeyCode::Char('r') | KeyCode::Enter => {
+                        // Retry authentication
+                        self.state = AppState::Authenticating;
+                        self.auth_progress = 0.0;
+                        self.auth_status = "Retrying authentication...".to_string();
+                        self.auth_error = None;
+                        false
+                    }
+                    KeyCode::Esc => true, // Exit
+                    _ => false,
+                }
+            }
             AppState::CustomerSelection => self.handle_customer_input(key),
             AppState::TimeSelection => self.handle_time_input(key),
             AppState::ContentSelection => self.handle_content_input(key),
             AppState::Confirmation => self.handle_confirmation_input(key),
             AppState::Complete | AppState::Error(_) => {
                 matches!(key, KeyCode::Enter | KeyCode::Esc)
+            }
+            _ => false,
+        }
+    }
+
+    /// Handle mouse events
+    pub fn handle_mouse(&mut self, mouse: MouseEvent) -> bool {
+        match self.state {
+            AppState::CustomerSelection => self.handle_customer_mouse(mouse),
+            AppState::TimeSelection => self.handle_time_mouse(mouse),
+            AppState::ContentSelection => self.handle_content_mouse(mouse),
+            AppState::Confirmation => self.handle_confirmation_mouse(mouse),
+            AppState::Complete | AppState::Error(_) => {
+                // Click to exit on complete/error screens
+                matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
             }
             _ => false,
         }
@@ -190,7 +260,8 @@ impl TuiApp {
                     self.state = AppState::TimeSelection;
                     self.error_message = None;
                 } else {
-                    self.error_message = Some("Please select at least one customer (use TAB to select)".to_string());
+                    self.error_message =
+                        Some("Please select at least one customer (use TAB to select)".to_string());
                 }
                 false
             }
@@ -380,6 +451,97 @@ impl TuiApp {
         }
     }
 
+    fn handle_customer_mouse(&mut self, mouse: MouseEvent) -> bool {
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let x = mouse.column as usize;
+                let y = mouse.row as usize;
+
+                // Check if clicking in suggestions area (with proper bounds checking)
+                if y >= 8 && !self.suggestions.is_empty() && x < 80 {
+                    // Reasonable horizontal boundary for suggestions area
+                    let suggestion_index = (y - 8).min(self.suggestions.len() - 1);
+                    if suggestion_index < self.suggestions.len() {
+                        self.in_dropdown = true;
+                        self.highlight_index = suggestion_index;
+                        self.toggle_selection(); // Select the clicked item
+                        self.error_message = None;
+                    }
+                }
+                false
+            }
+            MouseEventKind::ScrollUp => {
+                self.move_up();
+                false
+            }
+            MouseEventKind::ScrollDown => {
+                self.move_down();
+                false
+            }
+            _ => false,
+        }
+    }
+
+    fn handle_time_mouse(&mut self, mouse: MouseEvent) -> bool {
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let x = mouse.column as usize;
+                let y = mouse.row as usize;
+
+                // Check if clicking in the input field (approximate area)
+                if (5..=7).contains(&y) && x >= 2 {
+                    // Approximate time input field area
+                    // Set cursor position in the time input
+                    let field_x = x.saturating_sub(2); // Account for border
+                    self.days_cursor = field_x.min(self.days_input.len());
+                }
+                false
+            }
+            _ => false,
+        }
+    }
+
+    fn handle_content_mouse(&mut self, mouse: MouseEvent) -> bool {
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let y = mouse.row as usize;
+
+                // Check if clicking on content options (approximate area)
+                if (6..=8).contains(&y) {
+                    // Approximate content selection area
+                    let option_index = (y - 6).min(2);
+                    self.content_selection = option_index;
+                }
+                false
+            }
+            MouseEventKind::ScrollUp => {
+                if self.content_selection > 0 {
+                    self.content_selection -= 1;
+                }
+                false
+            }
+            MouseEventKind::ScrollDown => {
+                if self.content_selection < 2 {
+                    self.content_selection += 1;
+                }
+                false
+            }
+            _ => false,
+        }
+    }
+
+    fn handle_confirmation_mouse(&mut self, mouse: MouseEvent) -> bool {
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                // Any click starts the extraction
+                self.state = AppState::Initializing;
+                self.start_time = Some(std::time::Instant::now());
+                false
+            }
+            _ => false,
+        }
+    }
+
     pub fn get_parsed_command(&self) -> ParsedCommand {
         let days = self.days_input.parse::<u32>().unwrap_or(180);
         let content_type = match self.content_selection {
@@ -419,8 +581,16 @@ impl TuiApp {
 /// Draw the complete TUI
 pub fn draw_tui(f: &mut Frame, app: &TuiApp) {
     match app.state {
-        AppState::CustomerSelection | AppState::TimeSelection |
-        AppState::ContentSelection | AppState::Confirmation => {
+        AppState::Authenticating => {
+            draw_authentication_ui(f, app);
+        }
+        AppState::AuthenticationFailed(ref error) => {
+            draw_auth_failed_ui(f, error);
+        }
+        AppState::CustomerSelection
+        | AppState::TimeSelection
+        | AppState::ContentSelection
+        | AppState::Confirmation => {
             draw_selection_ui(f, app);
         }
         AppState::Initializing | AppState::Extracting => {
@@ -439,9 +609,9 @@ fn draw_selection_ui(f: &mut Frame, app: &TuiApp) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),   // Header
-            Constraint::Min(10),     // Main content
-            Constraint::Length(2),   // Footer
+            Constraint::Length(3), // Header
+            Constraint::Min(10),   // Main content
+            Constraint::Length(2), // Footer
         ])
         .split(f.area());
 
@@ -455,13 +625,16 @@ fn draw_selection_ui(f: &mut Frame, app: &TuiApp) {
     };
 
     let header = Paragraph::new(vec![
-        Line::from(vec![
-            Span::styled("CS-CLI: Customer Success Deep Research Tool",
-                        Style::default().fg(Color::Rgb(255, 108, 55)).add_modifier(Modifier::BOLD))
-        ]),
-        Line::from(vec![
-            Span::styled(progress, Style::default().fg(Color::Rgb(230, 230, 230)))
-        ]),
+        Line::from(vec![Span::styled(
+            "CS-CLI: Customer Success Deep Research Tool",
+            Style::default()
+                .fg(Color::Rgb(255, 108, 55))
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![Span::styled(
+            progress,
+            Style::default().fg(Color::Rgb(230, 230, 230)),
+        )]),
     ])
     .alignment(Alignment::Center)
     .block(Block::default().borders(Borders::BOTTOM));
@@ -486,37 +659,39 @@ fn draw_customer_selection(f: &mut Frame, area: Rect, app: &TuiApp) {
         Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(3),     // Selected customers
-                Constraint::Length(3),  // Input field
-                Constraint::Length(2),  // Error message
-                Constraint::Min(5),     // Suggestions
+                Constraint::Min(3),    // Selected customers
+                Constraint::Length(3), // Input field
+                Constraint::Length(2), // Error message
+                Constraint::Min(5),    // Suggestions
             ])
             .split(area)
     } else {
         Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(3),     // Selected customers
-                Constraint::Length(3),  // Input field
-                Constraint::Min(5),     // Suggestions
+                Constraint::Min(3),    // Selected customers
+                Constraint::Length(3), // Input field
+                Constraint::Min(5),    // Suggestions
             ])
             .split(area)
     };
 
     // Selected customers
     let selected_text = if app.selected_customers.is_empty() {
-        vec![Line::from(vec![
-            Span::styled("No customers selected - use TAB to select from dropdown", Style::default().fg(Color::DarkGray))
-        ])]
+        vec![Line::from(vec![Span::styled(
+            "No customers selected - use TAB to select from dropdown",
+            Style::default().fg(Color::DarkGray),
+        )])]
     } else {
-        let mut lines = vec![Line::from(vec![
-            Span::styled("Selected customers:", Style::default().fg(Color::Rgb(255, 108, 55)))
-        ])];
+        let mut lines = vec![Line::from(vec![Span::styled(
+            "Selected customers:",
+            Style::default().fg(Color::Rgb(255, 108, 55)),
+        )])];
         for customer in &app.selected_customers {
-            lines.push(Line::from(vec![
-                Span::styled(format!("  • {customer}"),
-                            Style::default().fg(Color::Rgb(255, 142, 100)))
-            ]));
+            lines.push(Line::from(vec![Span::styled(
+                format!("  • {customer}"),
+                Style::default().fg(Color::Rgb(255, 142, 100)),
+            )]));
         }
         lines
     };
@@ -527,56 +702,73 @@ fn draw_customer_selection(f: &mut Frame, area: Rect, app: &TuiApp) {
     // Input field
     let input_widget = Paragraph::new(app.input.as_str())
         .style(Style::default().fg(Color::White))
-        .block(Block::default()
-            .borders(Borders::ALL)
-            .title("What customers are you looking for?")
-            .title_style(Style::default().fg(Color::Rgb(111, 44, 186))));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("What customers are you looking for?")
+                .title_style(Style::default().fg(Color::Rgb(111, 44, 186))),
+        );
     f.render_widget(input_widget, chunks[1]);
     f.set_cursor_position((chunks[1].x + app.cursor as u16 + 1, chunks[1].y + 1));
 
     // Error message if present
     if let Some(ref error_msg) = app.error_message {
-        let error_widget = Paragraph::new(vec![
-            Line::from(vec![
-                Span::styled("⚠ ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-                Span::styled(error_msg, Style::default().fg(Color::Red))
-            ])
-        ])
+        let error_widget = Paragraph::new(vec![Line::from(vec![
+            Span::styled(
+                "⚠ ",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(error_msg, Style::default().fg(Color::Red)),
+        ])])
         .alignment(Alignment::Center);
         f.render_widget(error_widget, chunks[2]);
 
         // Suggestions in chunks[3] when error is present
         if !app.suggestions.is_empty() {
-            let items: Vec<ListItem> = app.suggestions.iter().enumerate().map(|(i, s)| {
-                let mut style = Style::default();
-                if app.in_dropdown && i == app.highlight_index {
-                    style = style.bg(Color::DarkGray);
-                }
-                if app.selected_customers.contains(s) {
-                    style = style.fg(Color::Rgb(255, 142, 100)).add_modifier(Modifier::BOLD);
-                } else {
-                    style = style.fg(Color::White);
-                }
-                ListItem::new(s.as_str()).style(style)
-            }).collect();
+            let items: Vec<ListItem> = app
+                .suggestions
+                .iter()
+                .enumerate()
+                .map(|(i, s)| {
+                    let mut style = Style::default();
+                    if app.in_dropdown && i == app.highlight_index {
+                        style = style.bg(Color::DarkGray);
+                    }
+                    if app.selected_customers.contains(s) {
+                        style = style
+                            .fg(Color::Rgb(255, 142, 100))
+                            .add_modifier(Modifier::BOLD);
+                    } else {
+                        style = style.fg(Color::White);
+                    }
+                    ListItem::new(s.as_str()).style(style)
+                })
+                .collect();
             let list = List::new(items);
             f.render_widget(list, chunks[3]);
         }
     } else {
         // No error message, suggestions in chunks[2]
         if !app.suggestions.is_empty() {
-            let items: Vec<ListItem> = app.suggestions.iter().enumerate().map(|(i, s)| {
-                let mut style = Style::default();
-                if app.in_dropdown && i == app.highlight_index {
-                    style = style.bg(Color::DarkGray);
-                }
-                if app.selected_customers.contains(s) {
-                    style = style.fg(Color::Rgb(255, 142, 100)).add_modifier(Modifier::BOLD);
-                } else {
-                    style = style.fg(Color::White);
-                }
-                ListItem::new(s.as_str()).style(style)
-            }).collect();
+            let items: Vec<ListItem> = app
+                .suggestions
+                .iter()
+                .enumerate()
+                .map(|(i, s)| {
+                    let mut style = Style::default();
+                    if app.in_dropdown && i == app.highlight_index {
+                        style = style.bg(Color::DarkGray);
+                    }
+                    if app.selected_customers.contains(s) {
+                        style = style
+                            .fg(Color::Rgb(255, 142, 100))
+                            .add_modifier(Modifier::BOLD);
+                    } else {
+                        style = style.fg(Color::White);
+                    }
+                    ListItem::new(s.as_str()).style(style)
+                })
+                .collect();
             let list = List::new(items);
             f.render_widget(list, chunks[2]);
         }
@@ -587,37 +779,39 @@ fn draw_time_selection(f: &mut Frame, area: Rect, app: &TuiApp) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Summary
-            Constraint::Length(3),  // Input
-            Constraint::Min(3),     // Help
+            Constraint::Length(3), // Summary
+            Constraint::Length(3), // Input
+            Constraint::Min(3),    // Help
         ])
         .split(area);
 
     // Summary
-    let summary = Paragraph::new(vec![
-        Line::from(vec![
-            Span::styled(format!("Selected: {} customer(s)", app.selected_customers.len()),
-                        Style::default().fg(Color::Green))
-        ]),
-    ])
+    let summary = Paragraph::new(vec![Line::from(vec![Span::styled(
+        format!("Selected: {} customer(s)", app.selected_customers.len()),
+        Style::default().fg(Color::Green),
+    )])])
     .alignment(Alignment::Center);
     f.render_widget(summary, chunks[0]);
 
     // Days input
     let days_widget = Paragraph::new(app.days_input.as_str())
         .style(Style::default().fg(Color::White))
-        .block(Block::default()
-            .borders(Borders::ALL)
-            .title("Number of days back")
-            .title_style(Style::default().fg(Color::Rgb(111, 44, 186))));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Number of days back")
+                .title_style(Style::default().fg(Color::Rgb(111, 44, 186))),
+        );
     f.render_widget(days_widget, chunks[1]);
     f.set_cursor_position((chunks[1].x + app.days_cursor as u16 + 1, chunks[1].y + 1));
 
     // Help
     let help = Paragraph::new(vec![
         Line::from(""),
-        Line::from(vec![Span::styled("Common: 30 (1 month), 90 (3 months), 180 (6 months)",
-                                     Style::default().fg(Color::DarkGray))]),
+        Line::from(vec![Span::styled(
+            "Common: 30 (1 month), 90 (3 months), 180 (6 months)",
+            Style::default().fg(Color::DarkGray),
+        )]),
     ])
     .alignment(Alignment::Center);
     f.render_widget(help, chunks[2]);
@@ -627,42 +821,55 @@ fn draw_content_selection(f: &mut Frame, area: Rect, app: &TuiApp) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Summary
-            Constraint::Min(10),    // Options
+            Constraint::Length(3), // Summary
+            Constraint::Min(10),   // Options
         ])
         .split(area);
 
     // Summary
-    let summary = Paragraph::new(vec![
-        Line::from(vec![
-            Span::styled(format!("Selected: {} customer(s), {} days",
-                                app.selected_customers.len(), app.days_input),
-                        Style::default().fg(Color::Green))
-        ]),
-    ])
+    let summary = Paragraph::new(vec![Line::from(vec![Span::styled(
+        format!(
+            "Selected: {} customer(s), {} days",
+            app.selected_customers.len(),
+            app.days_input
+        ),
+        Style::default().fg(Color::Green),
+    )])])
     .alignment(Alignment::Center);
     f.render_widget(summary, chunks[0]);
 
     // Options
-    let options = [("1. Calls only", 0),
+    let options = [
+        ("1. Calls only", 0),
         ("2. Emails only", 1),
-        ("3. Both calls and emails (recommended)", 2)];
+        ("3. Both calls and emails (recommended)", 2),
+    ];
 
-    let items: Vec<ListItem> = options.iter().map(|(label, idx)| {
-        let style = if *idx == app.content_selection {
-            Style::default().fg(Color::Rgb(255, 142, 100)).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::White)
-        };
-        let prefix = if *idx == app.content_selection { "▶ " } else { "  " };
-        ListItem::new(format!("{prefix}{label}")).style(style)
-    }).collect();
+    let items: Vec<ListItem> = options
+        .iter()
+        .map(|(label, idx)| {
+            let style = if *idx == app.content_selection {
+                Style::default()
+                    .fg(Color::Rgb(255, 142, 100))
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let prefix = if *idx == app.content_selection {
+                "▶ "
+            } else {
+                "  "
+            };
+            ListItem::new(format!("{prefix}{label}")).style(style)
+        })
+        .collect();
 
-    let list = List::new(items)
-        .block(Block::default()
+    let list = List::new(items).block(
+        Block::default()
             .borders(Borders::ALL)
             .title("What would you like to analyze?")
-            .title_style(Style::default().fg(Color::Rgb(111, 44, 186))));
+            .title_style(Style::default().fg(Color::Rgb(111, 44, 186))),
+    );
     f.render_widget(list, chunks[1]);
 }
 
@@ -682,19 +889,28 @@ fn draw_confirmation(f: &mut Frame, area: Rect, app: &TuiApp) {
 
     let confirmation = vec![
         Line::from(""),
-        Line::from(vec![Span::styled("Ready to extract:",
-                                     Style::default().fg(Color::White).add_modifier(Modifier::BOLD))]),
+        Line::from(vec![Span::styled(
+            "Ready to extract:",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from(""),
         Line::from(vec![
             Span::styled("  ✓ ", Style::default().fg(Color::Green)),
             Span::styled("Customers: ", Style::default().fg(Color::White)),
-            Span::styled(&customer_display, Style::default().fg(Color::Rgb(255, 142, 100))),
+            Span::styled(
+                &customer_display,
+                Style::default().fg(Color::Rgb(255, 142, 100)),
+            ),
         ]),
         Line::from(vec![
             Span::styled("  ✓ ", Style::default().fg(Color::Green)),
             Span::styled("Period: ", Style::default().fg(Color::White)),
-            Span::styled(format!("{} days", app.days_input),
-                        Style::default().fg(Color::Rgb(255, 142, 100))),
+            Span::styled(
+                format!("{} days", app.days_input),
+                Style::default().fg(Color::Rgb(255, 142, 100)),
+            ),
         ]),
         Line::from(vec![
             Span::styled("  ✓ ", Style::default().fg(Color::Green)),
@@ -702,16 +918,22 @@ fn draw_confirmation(f: &mut Frame, area: Rect, app: &TuiApp) {
             Span::styled(content_type, Style::default().fg(Color::Rgb(255, 142, 100))),
         ]),
         Line::from(""),
-        Line::from(vec![Span::styled("Press ENTER to begin",
-                                     Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))]),
+        Line::from(vec![Span::styled(
+            "Press ENTER to begin",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        )]),
     ];
 
     let widget = Paragraph::new(confirmation)
         .alignment(Alignment::Center)
-        .block(Block::default()
-            .borders(Borders::ALL)
-            .title("Confirmation")
-            .title_style(Style::default().fg(Color::Rgb(111, 44, 186))));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Confirmation")
+                .title_style(Style::default().fg(Color::Rgb(111, 44, 186))),
+        );
     f.render_widget(widget, area);
 }
 
@@ -719,23 +941,25 @@ fn draw_extraction_ui(f: &mut Frame, app: &TuiApp) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),   // Header
-            Constraint::Length(5),   // Progress
-            Constraint::Min(10),     // Log
-            Constraint::Length(2),   // Footer
+            Constraint::Length(3), // Header
+            Constraint::Length(5), // Progress
+            Constraint::Min(10),   // Log
+            Constraint::Length(2), // Footer
         ])
         .split(f.area());
 
     // Header
     let header = Paragraph::new(vec![
-        Line::from(vec![
-            Span::styled("CS-CLI: Extraction in Progress",
-                        Style::default().fg(Color::Rgb(255, 108, 55)).add_modifier(Modifier::BOLD))
-        ]),
-        Line::from(vec![
-            Span::styled(app.current_phase.as_str(),
-                        Style::default().fg(Color::Yellow))
-        ]),
+        Line::from(vec![Span::styled(
+            "CS-CLI: Extraction in Progress",
+            Style::default()
+                .fg(Color::Rgb(255, 108, 55))
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![Span::styled(
+            app.current_phase.as_str(),
+            Style::default().fg(Color::Yellow),
+        )]),
     ])
     .alignment(Alignment::Center)
     .block(Block::default().borders(Borders::BOTTOM));
@@ -751,9 +975,7 @@ fn draw_extraction_ui(f: &mut Frame, app: &TuiApp) {
         ])
         .split(chunks[1]);
 
-    let elapsed = app.start_time
-        .map(|t| t.elapsed().as_secs())
-        .unwrap_or(0);
+    let elapsed = app.start_time.map(|t| t.elapsed().as_secs()).unwrap_or(0);
     let elapsed_str = format!("Elapsed: {}m {}s", elapsed / 60, elapsed % 60);
 
     let progress_label = Paragraph::new(elapsed_str)
@@ -796,11 +1018,12 @@ fn draw_extraction_ui(f: &mut Frame, app: &TuiApp) {
         })
         .collect();
 
-    let log = List::new(log_items)
-        .block(Block::default()
+    let log = List::new(log_items).block(
+        Block::default()
             .borders(Borders::ALL)
             .title("Activity Log")
-            .title_style(Style::default().fg(Color::Rgb(111, 44, 186))));
+            .title_style(Style::default().fg(Color::Rgb(111, 44, 186))),
+    );
     f.render_widget(log, chunks[2]);
 
     // Footer
@@ -815,77 +1038,87 @@ fn draw_results_ui(f: &mut Frame, app: &TuiApp) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),   // Header
-            Constraint::Min(10),     // Results
-            Constraint::Length(2),   // Footer
+            Constraint::Length(3), // Header
+            Constraint::Min(10),   // Results
+            Constraint::Length(2), // Footer
         ])
         .split(f.area());
 
     // Header
-    let header = Paragraph::new(vec![
-        Line::from(vec![
-            Span::styled("CS-CLI: Extraction Complete!",
-                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
-        ]),
-    ])
+    let header = Paragraph::new(vec![Line::from(vec![Span::styled(
+        "CS-CLI: Extraction Complete!",
+        Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD),
+    )])])
     .alignment(Alignment::Center)
     .block(Block::default().borders(Borders::BOTTOM));
     f.render_widget(header, chunks[0]);
 
     // Results
     if let Some(ref results) = app.results {
-        let elapsed = app.start_time
-            .map(|t| t.elapsed().as_secs())
-            .unwrap_or(0);
+        let elapsed = app.start_time.map(|t| t.elapsed().as_secs()).unwrap_or(0);
 
         let content = vec![
             Line::from(""),
-            Line::from(vec![
-                Span::styled("✓ Extraction Complete",
-                            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
-            ]),
+            Line::from(vec![Span::styled(
+                "✓ Extraction Complete",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            )]),
             Line::from(""),
-            Line::from(vec![
-                Span::styled(format!("Total time: {}m {}s", elapsed / 60, elapsed % 60),
-                            Style::default().fg(Color::DarkGray))
-            ]),
+            Line::from(vec![Span::styled(
+                format!("Total time: {}m {}s", elapsed / 60, elapsed % 60),
+                Style::default().fg(Color::DarkGray),
+            )]),
             Line::from(""),
+            Line::from(vec![Span::styled(
+                "Results Summary:",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )]),
             Line::from(vec![
-                Span::styled("Results Summary:",
-                            Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
+                Span::raw("  "),
+                Span::styled(
+                    format!("• Calls extracted: {}", results.total_calls),
+                    Style::default().fg(Color::Cyan),
+                ),
             ]),
             Line::from(vec![
                 Span::raw("  "),
-                Span::styled(format!("• Calls extracted: {}", results.total_calls),
-                            Style::default().fg(Color::Cyan))
+                Span::styled(
+                    format!("• Emails extracted: {}", results.total_emails),
+                    Style::default().fg(Color::Cyan),
+                ),
             ]),
             Line::from(vec![
                 Span::raw("  "),
-                Span::styled(format!("• Emails extracted: {}", results.total_emails),
-                            Style::default().fg(Color::Cyan))
-            ]),
-            Line::from(vec![
-                Span::raw("  "),
-                Span::styled(format!("• Files saved: {}", results.files_saved),
-                            Style::default().fg(Color::Cyan))
+                Span::styled(
+                    format!("• Files saved: {}", results.files_saved),
+                    Style::default().fg(Color::Cyan),
+                ),
             ]),
             Line::from(""),
-            Line::from(vec![
-                Span::styled("Output directory:",
-                            Style::default().fg(Color::White))
-            ]),
-            Line::from(vec![
-                Span::styled(&results.output_directory,
-                            Style::default().fg(Color::Rgb(255, 142, 100)).add_modifier(Modifier::BOLD))
-            ]),
+            Line::from(vec![Span::styled(
+                "Output directory:",
+                Style::default().fg(Color::White),
+            )]),
+            Line::from(vec![Span::styled(
+                &results.output_directory,
+                Style::default()
+                    .fg(Color::Rgb(255, 142, 100))
+                    .add_modifier(Modifier::BOLD),
+            )]),
         ];
 
-        let results_widget = Paragraph::new(content)
-            .alignment(Alignment::Center)
-            .block(Block::default()
+        let results_widget = Paragraph::new(content).alignment(Alignment::Center).block(
+            Block::default()
                 .borders(Borders::ALL)
                 .title("Extraction Results")
-                .title_style(Style::default().fg(Color::Rgb(111, 44, 186))));
+                .title_style(Style::default().fg(Color::Rgb(111, 44, 186))),
+        );
         f.render_widget(results_widget, chunks[1]);
     }
 
@@ -907,32 +1140,30 @@ fn draw_error_ui(f: &mut Frame, error: &str) {
         ])
         .split(f.area());
 
-    let header = Paragraph::new(vec![
-        Line::from(vec![
-            Span::styled("CS-CLI: Error",
-                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
-        ]),
-    ])
+    let header = Paragraph::new(vec![Line::from(vec![Span::styled(
+        "CS-CLI: Error",
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+    )])])
     .alignment(Alignment::Center)
     .block(Block::default().borders(Borders::BOTTOM));
     f.render_widget(header, chunks[0]);
 
     let error_widget = Paragraph::new(vec![
         Line::from(""),
-        Line::from(vec![
-            Span::styled("❌ An error occurred:",
-                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
-        ]),
+        Line::from(vec![Span::styled(
+            "❌ An error occurred:",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        )]),
         Line::from(""),
-        Line::from(vec![
-            Span::styled(error, Style::default().fg(Color::White))
-        ]),
+        Line::from(vec![Span::styled(error, Style::default().fg(Color::White))]),
     ])
     .alignment(Alignment::Center)
     .wrap(ratatui::widgets::Wrap { trim: true })
-    .block(Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Red)));
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Red)),
+    );
     f.render_widget(error_widget, chunks[1]);
 
     let footer = Paragraph::new("Press ESC to exit")
@@ -944,10 +1175,12 @@ fn draw_error_ui(f: &mut Frame, error: &str) {
 
 fn draw_footer(f: &mut Frame, area: Rect, state: &AppState) {
     let help = match state {
-        AppState::CustomerSelection => "TAB: Select/Deselect (required) | ENTER: Next | ESC: Cancel",
-        AppState::TimeSelection => "ENTER: Next | ESC: Back",
-        AppState::ContentSelection => "↑/↓ or 1-3: Select | ENTER: Next | ESC: Back",
-        AppState::Confirmation => "ENTER: Start | ESC: Back",
+        AppState::CustomerSelection => {
+            "TAB/Click: Select | ENTER: Next | ESC: Cancel | Mouse: Navigate"
+        }
+        AppState::TimeSelection => "ENTER: Next | ESC: Back | Mouse: Set cursor",
+        AppState::ContentSelection => "↑/↓/Click or 1-3: Select | ENTER: Next | ESC: Back",
+        AppState::Confirmation => "ENTER/Click: Start | ESC: Back",
         _ => "",
     };
 
@@ -956,4 +1189,152 @@ fn draw_footer(f: &mut Frame, area: Rect, state: &AppState) {
         .alignment(Alignment::Center)
         .block(Block::default().borders(Borders::TOP));
     f.render_widget(footer, area);
+}
+
+/// Draw authentication UI with progress
+fn draw_authentication_ui(f: &mut Frame, app: &TuiApp) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // Header
+            Constraint::Min(10),   // Auth content
+            Constraint::Length(2), // Footer
+        ])
+        .split(f.area());
+
+    // Header
+    let header = Paragraph::new(vec![
+        Line::from(vec![Span::styled(
+            "CS-CLI: Authenticating",
+            Style::default()
+                .fg(Color::Rgb(255, 108, 55))
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![Span::styled(
+            "Connecting to Gong...",
+            Style::default().fg(Color::Rgb(230, 230, 230)),
+        )]),
+    ])
+    .alignment(Alignment::Center)
+    .block(Block::default().borders(Borders::BOTTOM));
+    f.render_widget(header, chunks[0]);
+
+    // Content area
+    let content_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(8), // Auth status
+            Constraint::Length(3), // Progress bar
+        ])
+        .split(chunks[1]);
+
+    // Authentication status
+    let auth_content = Paragraph::new(vec![
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "🔐 Authentication Progress",
+            Style::default()
+                .fg(Color::Rgb(111, 44, 186))
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            &app.auth_status,
+            Style::default().fg(Color::White),
+        )]),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "Please ensure you're logged into Gong in your browser",
+            Style::default().fg(Color::DarkGray),
+        )]),
+    ])
+    .alignment(Alignment::Center)
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Rgb(111, 44, 186))),
+    );
+    f.render_widget(auth_content, content_chunks[0]);
+
+    // Progress bar
+    let progress_percent = (app.auth_progress * 100.0) as u16;
+    let progress_bar = Gauge::default()
+        .block(Block::default().borders(Borders::ALL).title("Progress"))
+        .gauge_style(Style::default().fg(Color::Rgb(111, 44, 186)))
+        .percent(progress_percent)
+        .label(format!("{progress_percent}%"));
+    f.render_widget(progress_bar, content_chunks[1]);
+
+    // Footer
+    let footer = Paragraph::new("Please wait... Authentication in progress")
+        .style(Style::default().fg(Color::DarkGray))
+        .alignment(Alignment::Center)
+        .block(Block::default().borders(Borders::TOP));
+    f.render_widget(footer, chunks[2]);
+}
+
+/// Draw authentication failed UI with retry option
+fn draw_auth_failed_ui(f: &mut Frame, error: &str) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // Header
+            Constraint::Min(10),   // Error content
+            Constraint::Length(2), // Footer
+        ])
+        .split(f.area());
+
+    // Header
+    let header = Paragraph::new(vec![Line::from(vec![Span::styled(
+        "CS-CLI: Authentication Failed",
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+    )])])
+    .alignment(Alignment::Center)
+    .block(Block::default().borders(Borders::BOTTOM));
+    f.render_widget(header, chunks[0]);
+
+    // Error content
+    let error_content = Paragraph::new(vec![
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "❌ Authentication Error",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(""),
+        Line::from(vec![Span::styled(error, Style::default().fg(Color::White))]),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "💡 Troubleshooting:",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![Span::styled(
+            "• Make sure you're logged into Gong in your browser",
+            Style::default().fg(Color::Rgb(230, 230, 230)),
+        )]),
+        Line::from(vec![Span::styled(
+            "• Try logging out and back in to Gong",
+            Style::default().fg(Color::Rgb(230, 230, 230)),
+        )]),
+        Line::from(vec![Span::styled(
+            "• Check your network connection",
+            Style::default().fg(Color::Rgb(230, 230, 230)),
+        )]),
+    ])
+    .alignment(Alignment::Center)
+    .wrap(ratatui::widgets::Wrap { trim: true })
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Red)),
+    );
+    f.render_widget(error_content, chunks[1]);
+
+    // Footer
+    let footer = Paragraph::new("Press R or ENTER to retry | ESC to exit")
+        .style(Style::default().fg(Color::DarkGray))
+        .alignment(Alignment::Center)
+        .block(Block::default().borders(Borders::TOP));
+    f.render_widget(footer, chunks[2]);
 }

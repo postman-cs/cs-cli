@@ -68,13 +68,15 @@ pub fn unlock_keychain_with_password(password: &str) -> Result<()> {
 /// Try to retrieve password from stored keychain item
 pub fn get_stored_password() -> Result<String> {
     debug!("Attempting to retrieve stored password from keychain");
-    
+
     let output = Command::new("security")
         .args([
             "find-generic-password",
-            "-a", KEYCHAIN_ACCOUNT_NAME,
-            "-s", KEYCHAIN_SERVICE_NAME,
-            "-w"  // Return password only
+            "-a",
+            KEYCHAIN_ACCOUNT_NAME,
+            "-s",
+            KEYCHAIN_SERVICE_NAME,
+            "-w", // Return password only
         ])
         .output()
         .map_err(|e| CsCliError::Authentication(format!("Failed to access keychain: {e}")))?;
@@ -85,33 +87,42 @@ pub fn get_stored_password() -> Result<String> {
             debug!("Successfully retrieved stored password from keychain");
             Ok(password)
         } else {
-            Err(CsCliError::Authentication("Retrieved empty password from keychain".to_string()))
+            Err(CsCliError::Authentication(
+                "Retrieved empty password from keychain".to_string(),
+            ))
         }
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         debug!("Keychain password retrieval failed: {}", stderr);
-        Err(CsCliError::Authentication("Could not retrieve stored password from keychain".to_string()))
+        Err(CsCliError::Authentication(
+            "Could not retrieve stored password from keychain".to_string(),
+        ))
     }
 }
 
 /// Store password in keychain for future use
 pub fn store_password(password: &str) -> Result<()> {
     if password.is_empty() {
-        return Err(CsCliError::Authentication("Cannot store empty password".to_string()));
+        return Err(CsCliError::Authentication(
+            "Cannot store empty password".to_string(),
+        ));
     }
 
     info!("Storing password in keychain for future use...");
 
     // Get current executable path for ACL
-    let current_exe = std::env::current_exe()
-        .map_err(|e| CsCliError::Authentication(format!("Could not determine executable path: {e}")))?;
+    let current_exe = std::env::current_exe().map_err(|e| {
+        CsCliError::Authentication(format!("Could not determine executable path: {e}"))
+    })?;
 
     // First, try to delete existing item (ignore errors)
     let _ = Command::new("security")
         .args([
             "delete-generic-password",
-            "-a", KEYCHAIN_ACCOUNT_NAME,
-            "-s", KEYCHAIN_SERVICE_NAME,
+            "-a",
+            KEYCHAIN_ACCOUNT_NAME,
+            "-s",
+            KEYCHAIN_SERVICE_NAME,
         ])
         .output();
 
@@ -119,11 +130,16 @@ pub fn store_password(password: &str) -> Result<()> {
     let output = Command::new("security")
         .args([
             "add-generic-password",
-            "-a", KEYCHAIN_ACCOUNT_NAME,
-            "-s", KEYCHAIN_SERVICE_NAME,
-            "-w", password,
-            "-T", current_exe.to_str().unwrap_or(""),
-            "-T", "/usr/bin/security", // Allow security command access
+            "-a",
+            KEYCHAIN_ACCOUNT_NAME,
+            "-s",
+            KEYCHAIN_SERVICE_NAME,
+            "-w",
+            password,
+            "-T",
+            current_exe.to_str().unwrap_or(""),
+            "-T",
+            "/usr/bin/security", // Allow security command access
         ])
         .output()
         .map_err(|e| CsCliError::Authentication(format!("Failed to store password: {e}")))?;
@@ -145,8 +161,10 @@ pub fn has_stored_password() -> bool {
     Command::new("security")
         .args([
             "find-generic-password",
-            "-a", KEYCHAIN_ACCOUNT_NAME,
-            "-s", KEYCHAIN_SERVICE_NAME,
+            "-a",
+            KEYCHAIN_ACCOUNT_NAME,
+            "-s",
+            KEYCHAIN_SERVICE_NAME,
         ])
         .output()
         .map(|output| output.status.success())

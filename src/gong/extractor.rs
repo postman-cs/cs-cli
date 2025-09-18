@@ -112,7 +112,7 @@ pub struct TeamCallsExtractor {
     email_enhancer: Option<EmailEnhancer>,
     formatter: CallMarkdownFormatter,
     summary_reporter: CallSummaryReporter,
-    quiet: bool,  // Suppress console output when true
+    quiet: bool, // Suppress console output when true
 }
 
 impl TeamCallsExtractor {
@@ -138,6 +138,56 @@ impl TeamCallsExtractor {
         self.quiet = quiet;
     }
 
+    /// Initialize extractor with pre-authenticated components
+    /// This allows reusing authentication from other parts of the system
+    pub async fn setup_with_auth(
+        &mut self,
+        http: Arc<HttpClientPool>,
+        auth: Arc<GongAuthenticator>,
+    ) -> Result<()> {
+        self.print("Setting up extraction components...".to_string());
+
+        // Store Arc references
+        self.http = Some(Arc::clone(&http));
+        self.auth = Some(Arc::clone(&auth));
+
+        // Initialize API clients
+        self.library_client = Some(GongLibraryClient::new(
+            Arc::clone(&http),
+            Arc::clone(&auth),
+            Some(self.config.clone()),
+        ));
+
+        self.details_fetcher = Some(CallDetailsFetcher::new(
+            Arc::clone(&http),
+            Arc::clone(&auth),
+            Some(self.config.clone()),
+        ));
+
+        self.customer_search_client = Some(GongCustomerSearchClient::new(
+            Arc::clone(&http),
+            Arc::clone(&auth),
+            Some(self.config.clone()),
+        )?);
+
+        self.timeline_extractor = Some(TimelineExtractor::new(
+            Arc::clone(&http),
+            Arc::clone(&auth),
+            Some(self.config.clone()),
+            Some(30), // Default chunk days
+        )?);
+
+        self.email_enhancer = Some(EmailEnhancer::new(
+            Arc::clone(&http),
+            Arc::clone(&auth),
+            Some(self.config.clone()),
+            None, // Default batch size
+        ));
+
+        self.print("✅ Extraction system ready".green().to_string());
+        Ok(())
+    }
+
     /// Print a message if not in quiet mode
     fn print(&self, message: String) {
         if !self.quiet {
@@ -147,12 +197,10 @@ impl TeamCallsExtractor {
 
     /// Setup all required API clients
     pub async fn setup(&mut self) -> Result<()> {
-        self.print(
-            format!(
-                "Initializing {} extraction system...",
-                "CS-CLI".truecolor(255, 255, 255)
-            )
-        );
+        self.print(format!(
+            "Initializing {} extraction system...",
+            "CS-CLI".truecolor(255, 255, 255)
+        ));
 
         // Initialize Gong HTTP client and auth
         let http = HttpClientPool::new_gong_pool(Some(self.config.http.clone())).await?;
@@ -227,23 +275,31 @@ impl TeamCallsExtractor {
         offset: Option<usize>,
     ) -> Result<Vec<Call>> {
         let library_client = self.library_client.as_ref().ok_or_else(|| {
-            crate::common::error::types::CsCliError::Generic("Library client not initialized".to_string())
+            crate::common::error::types::CsCliError::Generic(
+                "Library client not initialized".to_string(),
+            )
         })?;
 
         let details_fetcher = self.details_fetcher.as_ref().ok_or_else(|| {
-            crate::common::error::types::CsCliError::Generic("Details fetcher not initialized".to_string())
+            crate::common::error::types::CsCliError::Generic(
+                "Details fetcher not initialized".to_string(),
+            )
         })?;
 
-        self.print(
-            format!(
-                "{}",
-                format!("Fetching calls from stream ID: {stream_id}").cyan()
-            )
-        );
+        self.print(format!(
+            "{}",
+            format!("Fetching calls from stream ID: {stream_id}").cyan()
+        ));
 
         // Fetch calls from library
         let library_result = library_client
-            .get_library_calls(Some(stream_id), days.map(|d| d as i32), None, None, offset.unwrap_or(0))
+            .get_library_calls(
+                Some(stream_id),
+                days.map(|d| d as i32),
+                None,
+                None,
+                offset.unwrap_or(0),
+            )
             .await?;
         let library_calls = library_result.calls;
 
@@ -271,10 +327,7 @@ impl TeamCallsExtractor {
         let mut detailed_calls = Vec::new();
         for call_info in library_calls {
             if let Some(pb) = &pb {
-                pb.set_message(format!(
-                    "Processing: {}",
-                    call_info.title.clone()
-                ));
+                pb.set_message(format!("Processing: {}", call_info.title.clone()));
             }
 
             // Convert to Call model first
@@ -287,10 +340,10 @@ impl TeamCallsExtractor {
                         if !details.transcript.is_empty() {
                             call.transcript = Some(details.transcript);
                         }
-                    },
+                    }
                     Ok(None) => {
                         warn!("No details found for call {}", call.id);
-                    },
+                    }
                     Err(e) => {
                         warn!("Failed to fetch transcript for {}: {}", call.id, e);
                     }
@@ -311,7 +364,7 @@ impl TeamCallsExtractor {
         self.print(
             format!("Found {} team calls", detailed_calls.len())
                 .green()
-                .to_string()
+                .to_string(),
         );
 
         Ok(detailed_calls)
@@ -328,15 +381,19 @@ impl TeamCallsExtractor {
         self.print(
             format!("Searching for calls with '{name}'...")
                 .cyan()
-                .to_string()
+                .to_string(),
         );
 
         let customer_search_client = self.customer_search_client.as_ref().ok_or_else(|| {
-            crate::common::error::types::CsCliError::Generic("Customer search client not initialized".to_string())
+            crate::common::error::types::CsCliError::Generic(
+                "Customer search client not initialized".to_string(),
+            )
         })?;
 
         let details_fetcher = self.details_fetcher.as_ref().ok_or_else(|| {
-            crate::common::error::types::CsCliError::Generic("Details fetcher not initialized".to_string())
+            crate::common::error::types::CsCliError::Generic(
+                "Details fetcher not initialized".to_string(),
+            )
         })?;
 
         // Search for the customer
@@ -345,7 +402,7 @@ impl TeamCallsExtractor {
             self.print(
                 format!("No customers found matching '{name}'")
                     .yellow()
-                    .to_string()
+                    .to_string(),
             );
             return Ok((Vec::new(), name.to_string()));
         }
@@ -354,29 +411,42 @@ impl TeamCallsExtractor {
         let resolved_name = customer.name.clone();
 
         self.print(
-            format!("Found customer: {} (ID: {})", customer.name, customer.id.as_deref().unwrap_or("unknown"))
-                .green()
-                .to_string()
+            format!(
+                "Found customer: {} (ID: {})",
+                customer.name,
+                customer.id.as_deref().unwrap_or("unknown")
+            )
+            .green()
+            .to_string(),
         );
 
         // Fetch customer calls
         let call_infos = customer_search_client
-            .get_customer_calls(&customer.name, limit.unwrap_or(10), offset.unwrap_or(0), false)
+            .get_customer_calls(
+                &customer.name,
+                limit.unwrap_or(10),
+                offset.unwrap_or(0),
+                false,
+            )
             .await?;
 
         if call_infos.calls.is_empty() {
             self.print(
                 format!("No calls found for '{}'", customer.name)
                     .yellow()
-                    .to_string()
+                    .to_string(),
             );
             return Ok((Vec::new(), resolved_name));
         }
 
         self.print(
-            format!("Found {} calls for {}", call_infos.calls.len(), customer.name)
-                .green()
-                .to_string()
+            format!(
+                "Found {} calls for {}",
+                call_infos.calls.len(),
+                customer.name
+            )
+            .green()
+            .to_string(),
         );
 
         // Convert to Call models and fetch transcripts
@@ -411,10 +481,10 @@ impl TeamCallsExtractor {
                     if !details.transcript.is_empty() {
                         call.transcript = Some(details.transcript);
                     }
-                },
+                }
                 Ok(None) => {
                     warn!("No details found for call {}", call_id);
-                },
+                }
                 Err(e) => {
                     warn!("Failed to fetch transcript for {}: {}", call_id, e);
                 }
@@ -438,7 +508,7 @@ impl TeamCallsExtractor {
                 customer.name
             )
             .green()
-            .to_string()
+            .to_string(),
         );
 
         Ok((all_calls, resolved_name))
@@ -456,14 +526,14 @@ impl TeamCallsExtractor {
         self.print(
             format!("Extracting communications for '{name}' from last {days} days...")
                 .cyan()
-                .to_string()
+                .to_string(),
         );
 
         if emails_only {
             self.print(
                 "Email-only mode: Skipping call extraction"
-                .yellow()
-                .to_string()
+                    .yellow()
+                    .to_string(),
             );
         }
 
@@ -474,7 +544,9 @@ impl TeamCallsExtractor {
         } else {
             // Still need to resolve customer name
             let customer_search_client = self.customer_search_client.as_ref().ok_or_else(|| {
-                crate::common::error::types::CsCliError::Generic("Customer search client not initialized".to_string())
+                crate::common::error::types::CsCliError::Generic(
+                    "Customer search client not initialized".to_string(),
+                )
             })?;
 
             let customers = customer_search_client.search_customers(name).await?;
@@ -488,7 +560,11 @@ impl TeamCallsExtractor {
 
         // Extract emails if requested
         let emails = if include_emails || emails_only {
-            self.print("Filtering emails to remove blasts and spam".yellow().to_string());
+            self.print(
+                "Filtering emails to remove blasts and spam"
+                    .yellow()
+                    .to_string(),
+            );
             self.extract_customer_emails(&resolved_name, days, fetch_email_bodies)
                 .await?
         } else {
@@ -505,7 +581,7 @@ impl TeamCallsExtractor {
                 emails.len()
             )
             .green()
-            .to_string()
+            .to_string(),
         );
 
         Ok((calls, emails, resolved_name))
@@ -521,44 +597,62 @@ impl TeamCallsExtractor {
         self.print(
             format!("Searching for emails with '{name}'...")
                 .cyan()
-                .to_string()
+                .to_string(),
         );
 
+        let customer_search_client = self.customer_search_client.as_ref().ok_or_else(|| {
+            crate::common::error::types::CsCliError::Generic(
+                "Customer search client not initialized".to_string(),
+            )
+        })?;
+
         let timeline_extractor = self.timeline_extractor.as_mut().ok_or_else(|| {
-            crate::common::error::types::CsCliError::Generic("Timeline extractor not initialized".to_string())
+            crate::common::error::types::CsCliError::Generic(
+                "Timeline extractor not initialized".to_string(),
+            )
         })?;
 
         let email_enhancer = self.email_enhancer.as_ref().ok_or_else(|| {
-            crate::common::error::types::CsCliError::Generic("Email enhancer not initialized".to_string())
+            crate::common::error::types::CsCliError::Generic(
+                "Email enhancer not initialized".to_string(),
+            )
         })?;
+
+        // Search for the customer by name to get their ID
+        let customers = customer_search_client.search_customers(name).await?;
+        let customer_id = if let Some(customer) = customers.first() {
+            customer
+                .id
+                .as_ref()
+                .expect("Customer should always have an ID")
+                .clone()
+        } else {
+            return Ok(Vec::new()); // No customer found, skip email extraction
+        };
 
         // Search for emails using timeline extraction
         let timeline_result = timeline_extractor
-            .extract_account_timeline(name, 
-                                    jiff::Zoned::now().saturating_sub(jiff::Span::new().days(days as i64)), 
-                                    None)
+            .extract_account_timeline(
+                &customer_id,
+                jiff::Zoned::now().saturating_sub(jiff::Span::new().days(days as i64)),
+                None,
+            )
             .await?;
         let mut emails = timeline_result.emails;
 
         if emails.is_empty() {
-            self.print(
-                format!("No emails found for '{name}'")
-                    .yellow()
-                    .to_string()
-            );
+            self.print(format!("No emails found for '{name}'").yellow().to_string());
             return Ok(Vec::new());
         }
 
-        self.print(
-            format!("Found {} emails", emails.len())
-                .green()
-                .to_string()
-        );
+        self.print(format!("Found {} emails", emails.len()).green().to_string());
 
         // Fetch email bodies if requested
         if fetch_bodies {
             self.print("Fetching email bodies...".cyan().to_string());
-            emails = email_enhancer.enhance_emails_with_progress(emails, true).await?;
+            emails = email_enhancer
+                .enhance_emails_with_progress(emails, true)
+                .await?;
         }
 
         // Sort by date (newest first)
@@ -653,10 +747,12 @@ impl TeamCallsExtractor {
         self.print(
             format!("Saving {} call transcripts...", calls.len())
                 .cyan()
-                .to_string()
+                .to_string(),
         );
 
-        let saved = self.formatter.save_multiple_calls(calls, Some(name))
+        let saved = self
+            .formatter
+            .save_multiple_calls(calls, Some(name))
             .map_err(|e| crate::common::error::types::CsCliError::Generic(e.to_string()))?;
 
         for file in &saved {
@@ -664,7 +760,7 @@ impl TeamCallsExtractor {
                 self.print(
                     format!("  📄 {}", name.to_string_lossy())
                         .green()
-                        .to_string()
+                        .to_string(),
                 );
             }
         }
@@ -675,20 +771,25 @@ impl TeamCallsExtractor {
         } else {
             None
         };
-        self.summary_reporter.generate_summary_report(calls, output_dir, Some(name))
+        self.summary_reporter
+            .generate_summary_report(calls, output_dir, Some(name))
             .map_err(|e| crate::common::error::types::CsCliError::Generic(e.to_string()))?;
 
         self.print(
             format!("Saved {} markdown files", saved.len())
                 .green()
-                .to_string()
+                .to_string(),
         );
 
         Ok(saved)
     }
 
     /// Save emails as markdown files
-    pub fn save_emails_as_markdown(&self, emails: &[Email], customer_name: &str) -> Result<Vec<PathBuf>> {
+    pub fn save_emails_as_markdown(
+        &self,
+        emails: &[Email],
+        customer_name: &str,
+    ) -> Result<Vec<PathBuf>> {
         if emails.is_empty() {
             return Ok(Vec::new());
         }
@@ -696,10 +797,12 @@ impl TeamCallsExtractor {
         self.print(
             format!("Saving {} emails...", emails.len())
                 .cyan()
-                .to_string()
+                .to_string(),
         );
 
-        let saved = self.formatter.save_emails_as_markdown(emails, customer_name, None)
+        let saved = self
+            .formatter
+            .save_emails_as_markdown(emails, customer_name, None)
             .map_err(|e| crate::common::error::types::CsCliError::Generic(e.to_string()))?;
 
         for file in &saved {
@@ -707,7 +810,7 @@ impl TeamCallsExtractor {
                 self.print(
                     format!("  📄 {}", name.to_string_lossy())
                         .green()
-                        .to_string()
+                        .to_string(),
                 );
             }
         }

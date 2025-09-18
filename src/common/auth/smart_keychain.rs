@@ -29,7 +29,7 @@ impl SmartKeychainManager {
         // FLOW 1: Try to use stored password
         if has_stored_password() {
             debug!("Found com.postman.cs-cli keychain item, attempting to use stored password");
-            
+
             match get_stored_password() {
                 Ok(stored_password) => {
                     match unlock_keychain_with_password(&stored_password) {
@@ -57,7 +57,10 @@ impl SmartKeychainManager {
         info!("Prompting for keychain password...");
         println!();
         println!("{}", "Keychain Access Required".truecolor(255, 142, 100));
-        println!("{}", "CS-CLI needs your Mac login password to authenticate".truecolor(230, 230, 230));
+        println!(
+            "{}",
+            "CS-CLI needs your Mac login password to authenticate".truecolor(230, 230, 230)
+        );
         println!();
 
         loop {
@@ -86,10 +89,7 @@ impl SmartKeychainManager {
                     return Ok(());
                 }
                 Err(_) => {
-                    println!(
-                        "{}",
-                        "Invalid password. Please try again.".red()
-                    );
+                    println!("{}", "Invalid password. Please try again.".red());
                     continue;
                 }
             }

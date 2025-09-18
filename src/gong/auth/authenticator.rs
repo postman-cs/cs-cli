@@ -146,15 +146,14 @@ impl GongAuthenticator {
                     self.base_url = Some(format!("https://{cell}.app.gong.io"));
 
                     // Set cookies on HTTP client
-                    self.http_client.set_cookies(session_cookies.clone()).await?;
+                    self.http_client
+                        .set_cookies(session_cookies.clone())
+                        .await?;
 
                     // Try to get CSRF token to validate the cookies
                     match self.csrf_manager.get_csrf_token(&cell, false).await {
                         Ok(Some(_token)) => {
-                            info!(
-                                "Successfully authenticated with {} cookies",
-                                browser_name
-                            );
+                            info!("Successfully authenticated with {} cookies", browser_name);
                             working_cookies = Some((cookies, browser_name));
                             break;
                         }
@@ -171,7 +170,10 @@ impl GongAuthenticator {
                     }
                 }
                 Err(e) => {
-                    debug!("Could not extract cell from {} cookies: {}", browser_name, e);
+                    debug!(
+                        "Could not extract cell from {} cookies: {}",
+                        browser_name, e
+                    );
                     continue;
                 }
             }
@@ -231,7 +233,8 @@ impl GongAuthenticator {
         }
 
         Err(CsCliError::Authentication(
-            "Could not find or decode 'cell' cookie - make sure you're logged into Gong".to_string(),
+            "Could not find or decode 'cell' cookie - make sure you're logged into Gong"
+                .to_string(),
         ))
     }
 

@@ -73,7 +73,9 @@ pub async fn run_cli() -> Result<()> {
                 }
             }
         }
-        ParsedCommand::Customer { .. } | ParsedCommand::MultipleCustomers { .. } | ParsedCommand::Team { .. } => {
+        ParsedCommand::Customer { .. }
+        | ParsedCommand::MultipleCustomers { .. }
+        | ParsedCommand::Team { .. } => {
             // Execute command directly without TUI
             execute_command_direct(command, app_config).await
         }
@@ -92,10 +94,7 @@ fn generate_completion(shell: Shell) {
 }
 
 /// Execute command directly without TUI
-async fn execute_command_direct(
-    command: ParsedCommand,
-    app_config: AppConfig,
-) -> Result<()> {
+async fn execute_command_direct(command: ParsedCommand, app_config: AppConfig) -> Result<()> {
     // Initialize extractor (with console output enabled)
     let mut extractor = TeamCallsExtractor::new(app_config);
 
@@ -103,13 +102,19 @@ async fn execute_command_direct(
     extractor.setup().await?;
 
     match command {
-        ParsedCommand::Team { stream_id, days, .. } => {
+        ParsedCommand::Team {
+            stream_id, days, ..
+        } => {
             let stream_id = stream_id.ok_or_else(|| {
-                crate::common::error::types::CsCliError::Generic("No stream ID provided".to_string())
+                crate::common::error::types::CsCliError::Generic(
+                    "No stream ID provided".to_string(),
+                )
             })?;
 
             let days = days.unwrap_or(7);
-            let calls = extractor.extract_team_calls(&stream_id, Some(days), None, None).await?;
+            let calls = extractor
+                .extract_team_calls(&stream_id, Some(days), None, None)
+                .await?;
 
             if !calls.is_empty() {
                 let saved = extractor.save_calls_as_markdown_with_resolved_name(

@@ -225,10 +225,7 @@ pub fn run_multiselect(
 
     // Restore terminal
     disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen
-    )?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
     // Return selected items as vector
@@ -240,9 +237,9 @@ fn draw_ui(f: &mut Frame, state: &MultiSelectState, prompt: &str) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(3),     // Selected items
-            Constraint::Length(3),  // Input field
-            Constraint::Min(1),     // Suggestions
+            Constraint::Min(3),    // Selected items
+            Constraint::Length(3), // Input field
+            Constraint::Min(1),    // Suggestions
         ])
         .split(f.area());
 
@@ -261,32 +258,33 @@ fn draw_ui(f: &mut Frame, state: &MultiSelectState, prompt: &str) {
 /// Draw the selected items section
 fn draw_selected_items(f: &mut Frame, area: Rect, selected: &HashSet<String>) {
     let items: Vec<Line> = if selected.is_empty() {
-        vec![Line::from(vec![
-            Span::styled("No customers selected", Style::default().fg(Color::DarkGray))
-        ])]
+        vec![Line::from(vec![Span::styled(
+            "No customers selected",
+            Style::default().fg(Color::DarkGray),
+        )])]
     } else {
         vec![
-            Line::from(vec![
-                Span::styled("Selected customers:", Style::default().fg(Color::Rgb(255, 108, 55)))
-            ]),
+            Line::from(vec![Span::styled(
+                "Selected customers:",
+                Style::default().fg(Color::Rgb(255, 108, 55)),
+            )]),
             Line::from(
-                selected.iter()
+                selected
+                    .iter()
                     .map(|item| {
                         Span::styled(
                             format!("  • {item} "),
-                            Style::default().fg(Color::Rgb(255, 142, 100))
+                            Style::default().fg(Color::Rgb(255, 142, 100)),
                         )
                     })
-                    .collect::<Vec<_>>()
-            )
+                    .collect::<Vec<_>>(),
+            ),
         ]
     };
 
-    let block = Block::default()
-        .borders(Borders::NONE);
+    let block = Block::default().borders(Borders::NONE);
 
-    let paragraph = Paragraph::new(items)
-        .block(block);
+    let paragraph = Paragraph::new(items).block(block);
 
     f.render_widget(paragraph, area);
 }
@@ -299,21 +297,19 @@ fn draw_input_field(f: &mut Frame, area: Rect, state: &MultiSelectState, prompt:
             Block::default()
                 .borders(Borders::ALL)
                 .title(prompt)
-                .title_style(Style::default().fg(Color::Rgb(111, 44, 186)))
+                .title_style(Style::default().fg(Color::Rgb(111, 44, 186))),
         );
 
     f.render_widget(input, area);
 
     // Show cursor
-    f.set_cursor_position((
-        area.x + state.cursor as u16 + 1,
-        area.y + 1,
-    ));
+    f.set_cursor_position((area.x + state.cursor as u16 + 1, area.y + 1));
 }
 
 /// Draw the suggestions dropdown
 fn draw_suggestions(f: &mut Frame, area: Rect, state: &MultiSelectState) {
-    let items: Vec<ListItem> = state.suggestions
+    let items: Vec<ListItem> = state
+        .suggestions
         .iter()
         .enumerate()
         .map(|(i, suggestion)| {
@@ -326,7 +322,9 @@ fn draw_suggestions(f: &mut Frame, area: Rect, state: &MultiSelectState) {
 
             // Orange if selected via TAB
             if state.selected.contains(suggestion) {
-                style = style.fg(Color::Rgb(255, 142, 100)).add_modifier(Modifier::BOLD);
+                style = style
+                    .fg(Color::Rgb(255, 142, 100))
+                    .add_modifier(Modifier::BOLD);
             } else {
                 style = style.fg(Color::White);
             }
@@ -335,11 +333,7 @@ fn draw_suggestions(f: &mut Frame, area: Rect, state: &MultiSelectState) {
         })
         .collect();
 
-    let suggestions_list = List::new(items)
-        .block(
-            Block::default()
-                .borders(Borders::NONE)
-        );
+    let suggestions_list = List::new(items).block(Block::default().borders(Borders::NONE));
 
     f.render_widget(suggestions_list, area);
 

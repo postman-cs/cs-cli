@@ -15,11 +15,11 @@ use cs_cli::gong::auth::GongAuthenticator;
 #[tokio::test]
 async fn test_browser_cookie_extraction_multi_browser() {
     // Test generic cookie extraction from all available browsers
-    
+
     // NOTE: This test may prompt for browser Safe Storage access on first run
     // Click "Allow Always" when prompted, then subsequent runs will be prompt-free
     println!("Testing cookie extraction (may prompt for browser Safe Storage access - click 'Allow Always')");
-    
+
     let domains = vec!["gong.io".to_string(), ".gong.io".to_string()];
     let extractor = CookieExtractor::new(domains);
 
@@ -197,7 +197,7 @@ async fn test_browser_fallback_priority() {
 
     for (cookies, browser_name) in all_browser_cookies {
         println!("Checking browser: {browser_name}");
-        
+
         if !cookies.is_empty() {
             found_browsers.push(browser_name.clone());
             println!("Found {} cookies in: {browser_name}", cookies.len());

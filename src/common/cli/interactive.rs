@@ -229,7 +229,9 @@ pub fn clear_line() {
 /// Interactive team mode for stream ID configuration
 ///
 /// This handles team extraction mode when no stream ID is provided
-pub fn interactive_team_mode(saved_stream_id: Option<String>) -> Result<crate::common::cli::args::ParsedCommand> {
+pub fn interactive_team_mode(
+    saved_stream_id: Option<String>,
+) -> Result<crate::common::cli::args::ParsedCommand> {
     let _term = Term::stdout();
 
     println!();

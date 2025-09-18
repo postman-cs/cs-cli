@@ -3,6 +3,8 @@
 //! This module keeps the entire interactive experience within ratatui,
 //! providing a cohesive UI for customer selection, time period, and content type.
 
+use crate::common::cli::args::{ContentType, ParsedCommand};
+use crate::common::cli::multiselect::SuggestionProvider;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
@@ -19,8 +21,6 @@ use ratatui::{
 use std::collections::HashSet;
 use std::io;
 use std::time::Duration;
-use crate::common::cli::args::{ContentType, ParsedCommand};
-use crate::common::cli::multiselect::SuggestionProvider;
 
 /// Result type for TUI operations
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -84,13 +84,13 @@ impl InteractiveState {
                 self.cursor += 1;
                 self.in_dropdown = false;
                 self.highlight_index = 0;
-            },
+            }
             InteractiveStep::TimeSelection => {
                 if c.is_ascii_digit() {
                     self.days_input.insert(self.days_cursor, c);
                     self.days_cursor += 1;
                 }
-            },
+            }
             _ => {}
         }
     }
@@ -104,13 +104,13 @@ impl InteractiveState {
                     self.in_dropdown = false;
                     self.highlight_index = 0;
                 }
-            },
+            }
             InteractiveStep::TimeSelection => {
                 if self.days_cursor > 0 && !self.days_input.is_empty() {
                     self.days_input.remove(self.days_cursor - 1);
                     self.days_cursor -= 1;
                 }
-            },
+            }
             _ => {}
         }
     }
@@ -121,12 +121,12 @@ impl InteractiveState {
                 if self.cursor > 0 {
                     self.cursor -= 1;
                 }
-            },
+            }
             InteractiveStep::TimeSelection => {
                 if self.days_cursor > 0 {
                     self.days_cursor -= 1;
                 }
-            },
+            }
             _ => {}
         }
     }
@@ -137,12 +137,12 @@ impl InteractiveState {
                 if self.cursor < self.input.len() {
                     self.cursor += 1;
                 }
-            },
+            }
             InteractiveStep::TimeSelection => {
                 if self.days_cursor < self.days_input.len() {
                     self.days_cursor += 1;
                 }
-            },
+            }
             _ => {}
         }
     }
@@ -158,12 +158,12 @@ impl InteractiveState {
                         self.highlight_index -= 1;
                     }
                 }
-            },
+            }
             InteractiveStep::ContentSelection => {
                 if self.content_selection > 0 {
                     self.content_selection -= 1;
                 }
-            },
+            }
             _ => {}
         }
     }
@@ -179,20 +179,21 @@ impl InteractiveState {
                         self.highlight_index += 1;
                     }
                 }
-            },
+            }
             InteractiveStep::ContentSelection => {
                 if self.content_selection < 2 {
                     self.content_selection += 1;
                 }
-            },
+            }
             _ => {}
         }
     }
 
     fn toggle_selection(&mut self) {
         if self.step == InteractiveStep::CustomerSelection
-           && self.in_dropdown
-           && self.highlight_index < self.suggestions.len() {
+            && self.in_dropdown
+            && self.highlight_index < self.suggestions.len()
+        {
             let item = self.suggestions[self.highlight_index].clone();
             if self.selected_customers.contains(&item) {
                 self.selected_customers.remove(&item);
@@ -218,7 +219,7 @@ impl InteractiveState {
                 } else {
                     false
                 }
-            },
+            }
             InteractiveStep::TimeSelection => {
                 if !self.days_input.is_empty() {
                     self.step = InteractiveStep::ContentSelection;
@@ -226,20 +227,18 @@ impl InteractiveState {
                 } else {
                     false
                 }
-            },
+            }
             InteractiveStep::ContentSelection => {
                 self.step = InteractiveStep::Confirmation;
                 true
-            },
+            }
             InteractiveStep::Confirmation => false,
         }
     }
 }
 
 /// Run the complete interactive TUI flow
-pub fn run_full_interactive(
-    suggestion_provider: SuggestionProvider,
-) -> Result<ParsedCommand> {
+pub fn run_full_interactive(suggestion_provider: SuggestionProvider) -> Result<ParsedCommand> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -366,9 +365,9 @@ fn draw_full_ui(f: &mut Frame, state: &InteractiveState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),   // Header
-            Constraint::Min(10),     // Main content
-            Constraint::Length(2),   // Footer
+            Constraint::Length(3), // Header
+            Constraint::Min(10),   // Main content
+            Constraint::Length(2), // Footer
         ])
         .split(f.area());
 
@@ -404,13 +403,16 @@ fn draw_header(f: &mut Frame, area: Rect, step: &InteractiveStep) {
     };
 
     let header = Paragraph::new(vec![
-        Line::from(vec![
-            Span::styled("CS-CLI: Customer Success Deep Research Tool",
-                        Style::default().fg(Color::Rgb(255, 108, 55)).add_modifier(Modifier::BOLD))
-        ]),
-        Line::from(vec![
-            Span::styled(progress, Style::default().fg(Color::Rgb(230, 230, 230)))
-        ]),
+        Line::from(vec![Span::styled(
+            "CS-CLI: Customer Success Deep Research Tool",
+            Style::default()
+                .fg(Color::Rgb(255, 108, 55))
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![Span::styled(
+            progress,
+            Style::default().fg(Color::Rgb(230, 230, 230)),
+        )]),
     ])
     .alignment(Alignment::Center)
     .block(Block::default().borders(Borders::BOTTOM));
@@ -422,53 +424,55 @@ fn draw_customer_selection(f: &mut Frame, area: Rect, state: &InteractiveState) 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(3),     // Selected customers
-            Constraint::Length(3),  // Input field
-            Constraint::Min(5),     // Suggestions
+            Constraint::Min(3),    // Selected customers
+            Constraint::Length(3), // Input field
+            Constraint::Min(5),    // Suggestions
         ])
         .split(area);
 
     // Selected customers
     let selected_text = if state.selected_customers.is_empty() {
-        vec![Line::from(vec![
-            Span::styled("No customers selected", Style::default().fg(Color::DarkGray))
-        ])]
+        vec![Line::from(vec![Span::styled(
+            "No customers selected",
+            Style::default().fg(Color::DarkGray),
+        )])]
     } else {
-        let mut lines = vec![Line::from(vec![
-            Span::styled("Selected customers:", Style::default().fg(Color::Green))
-        ])];
+        let mut lines = vec![Line::from(vec![Span::styled(
+            "Selected customers:",
+            Style::default().fg(Color::Green),
+        )])];
 
         for customer in &state.selected_customers {
-            lines.push(Line::from(vec![
-                Span::styled(format!("  • {customer}"),
-                            Style::default().fg(Color::Rgb(255, 142, 100)))
-            ]));
+            lines.push(Line::from(vec![Span::styled(
+                format!("  • {customer}"),
+                Style::default().fg(Color::Rgb(255, 142, 100)),
+            )]));
         }
         lines
     };
 
-    let selected_widget = Paragraph::new(selected_text)
-        .block(Block::default().borders(Borders::NONE));
+    let selected_widget =
+        Paragraph::new(selected_text).block(Block::default().borders(Borders::NONE));
     f.render_widget(selected_widget, chunks[0]);
 
     // Input field
     let input_widget = Paragraph::new(state.input.as_str())
         .style(Style::default().fg(Color::White))
-        .block(Block::default()
-            .borders(Borders::ALL)
-            .title("What customers are you looking for?")
-            .title_style(Style::default().fg(Color::Rgb(111, 44, 186))));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("What customers are you looking for?")
+                .title_style(Style::default().fg(Color::Rgb(111, 44, 186))),
+        );
     f.render_widget(input_widget, chunks[1]);
 
     // Set cursor
-    f.set_cursor_position((
-        chunks[1].x + state.cursor as u16 + 1,
-        chunks[1].y + 1,
-    ));
+    f.set_cursor_position((chunks[1].x + state.cursor as u16 + 1, chunks[1].y + 1));
 
     // Suggestions
     if !state.suggestions.is_empty() {
-        let items: Vec<ListItem> = state.suggestions
+        let items: Vec<ListItem> = state
+            .suggestions
             .iter()
             .enumerate()
             .map(|(i, suggestion)| {
@@ -479,7 +483,9 @@ fn draw_customer_selection(f: &mut Frame, area: Rect, state: &InteractiveState) 
                 }
 
                 if state.selected_customers.contains(suggestion) {
-                    style = style.fg(Color::Rgb(255, 142, 100)).add_modifier(Modifier::BOLD);
+                    style = style
+                        .fg(Color::Rgb(255, 142, 100))
+                        .add_modifier(Modifier::BOLD);
                 } else {
                     style = style.fg(Color::White);
                 }
@@ -488,8 +494,7 @@ fn draw_customer_selection(f: &mut Frame, area: Rect, state: &InteractiveState) 
             })
             .collect();
 
-        let list = List::new(items)
-            .block(Block::default().borders(Borders::NONE));
+        let list = List::new(items).block(Block::default().borders(Borders::NONE));
         f.render_widget(list, chunks[2]);
     }
 }
@@ -498,19 +503,18 @@ fn draw_time_selection(f: &mut Frame, area: Rect, state: &InteractiveState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5),  // Selected customers summary
-            Constraint::Length(3),  // Days input
-            Constraint::Min(3),     // Help text
+            Constraint::Length(5), // Selected customers summary
+            Constraint::Length(3), // Days input
+            Constraint::Min(3),    // Help text
         ])
         .split(area);
 
     // Show selected customers summary
     let summary = format!("Selected: {} customer(s)", state.selected_customers.len());
-    let summary_widget = Paragraph::new(vec![
-        Line::from(vec![
-            Span::styled(summary, Style::default().fg(Color::Green))
-        ]),
-    ])
+    let summary_widget = Paragraph::new(vec![Line::from(vec![Span::styled(
+        summary,
+        Style::default().fg(Color::Green),
+    )])])
     .alignment(Alignment::Center)
     .block(Block::default().borders(Borders::NONE));
     f.render_widget(summary_widget, chunks[0]);
@@ -518,31 +522,30 @@ fn draw_time_selection(f: &mut Frame, area: Rect, state: &InteractiveState) {
     // Days input
     let days_widget = Paragraph::new(state.days_input.as_str())
         .style(Style::default().fg(Color::White))
-        .block(Block::default()
-            .borders(Borders::ALL)
-            .title("Number of days back to search")
-            .title_style(Style::default().fg(Color::Rgb(111, 44, 186))));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Number of days back to search")
+                .title_style(Style::default().fg(Color::Rgb(111, 44, 186))),
+        );
     f.render_widget(days_widget, chunks[1]);
 
     // Set cursor
-    f.set_cursor_position((
-        chunks[1].x + state.days_cursor as u16 + 1,
-        chunks[1].y + 1,
-    ));
+    f.set_cursor_position((chunks[1].x + state.days_cursor as u16 + 1, chunks[1].y + 1));
 
     // Help text
     let help = vec![
         Line::from(""),
-        Line::from(vec![
-            Span::styled("Common choices:", Style::default().fg(Color::DarkGray))
-        ]),
-        Line::from(vec![
-            Span::styled("  30 days (1 month), 90 days (3 months), 180 days (6 months)",
-                        Style::default().fg(Color::Rgb(230, 230, 230)))
-        ]),
+        Line::from(vec![Span::styled(
+            "Common choices:",
+            Style::default().fg(Color::DarkGray),
+        )]),
+        Line::from(vec![Span::styled(
+            "  30 days (1 month), 90 days (3 months), 180 days (6 months)",
+            Style::default().fg(Color::Rgb(230, 230, 230)),
+        )]),
     ];
-    let help_widget = Paragraph::new(help)
-        .alignment(Alignment::Center);
+    let help_widget = Paragraph::new(help).alignment(Alignment::Center);
     f.render_widget(help_widget, chunks[2]);
 }
 
@@ -550,21 +553,21 @@ fn draw_content_selection(f: &mut Frame, area: Rect, state: &InteractiveState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5),  // Summary
-            Constraint::Min(10),    // Options
+            Constraint::Length(5), // Summary
+            Constraint::Min(10),   // Options
         ])
         .split(area);
 
     // Show summary
     let summary = vec![
-        Line::from(vec![
-            Span::styled(format!("Selected: {} customer(s)", state.selected_customers.len()),
-                        Style::default().fg(Color::Green))
-        ]),
-        Line::from(vec![
-            Span::styled(format!("Time period: {} days", state.days_input),
-                        Style::default().fg(Color::Green))
-        ]),
+        Line::from(vec![Span::styled(
+            format!("Selected: {} customer(s)", state.selected_customers.len()),
+            Style::default().fg(Color::Green),
+        )]),
+        Line::from(vec![Span::styled(
+            format!("Time period: {} days", state.days_input),
+            Style::default().fg(Color::Green),
+        )]),
     ];
     let summary_widget = Paragraph::new(summary)
         .alignment(Alignment::Center)
@@ -572,9 +575,11 @@ fn draw_content_selection(f: &mut Frame, area: Rect, state: &InteractiveState) {
     f.render_widget(summary_widget, chunks[0]);
 
     // Content options
-    let options = [("Calls only", 0),
+    let options = [
+        ("Calls only", 0),
         ("Emails only", 1),
-        ("Both calls and emails (recommended)", 2)];
+        ("Both calls and emails (recommended)", 2),
+    ];
 
     let items: Vec<ListItem> = options
         .iter()
@@ -597,11 +602,12 @@ fn draw_content_selection(f: &mut Frame, area: Rect, state: &InteractiveState) {
         })
         .collect();
 
-    let list = List::new(items)
-        .block(Block::default()
+    let list = List::new(items).block(
+        Block::default()
             .borders(Borders::ALL)
             .title("What would you like to analyze?")
-            .title_style(Style::default().fg(Color::Rgb(111, 44, 186))));
+            .title_style(Style::default().fg(Color::Rgb(111, 44, 186))),
+    );
     f.render_widget(list, chunks[1]);
 }
 
@@ -621,23 +627,30 @@ fn draw_confirmation(f: &mut Frame, area: Rect, state: &InteractiveState) {
 
     let confirmation = vec![
         Line::from(""),
-        Line::from(vec![
-            Span::styled("Ready to extract data with these settings:",
-                        Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
-        ]),
+        Line::from(vec![Span::styled(
+            "Ready to extract data with these settings:",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )]),
         Line::from(""),
         Line::from(vec![
             Span::raw("  "),
             Span::styled("✓ ", Style::default().fg(Color::Green)),
             Span::styled("Customers: ", Style::default().fg(Color::White)),
-            Span::styled(&customer_display, Style::default().fg(Color::Rgb(255, 142, 100))),
+            Span::styled(
+                &customer_display,
+                Style::default().fg(Color::Rgb(255, 142, 100)),
+            ),
         ]),
         Line::from(vec![
             Span::raw("  "),
             Span::styled("✓ ", Style::default().fg(Color::Green)),
             Span::styled("Time period: ", Style::default().fg(Color::White)),
-            Span::styled(format!("Last {} days", state.days_input),
-                        Style::default().fg(Color::Rgb(255, 142, 100))),
+            Span::styled(
+                format!("Last {} days", state.days_input),
+                Style::default().fg(Color::Rgb(255, 142, 100)),
+            ),
         ]),
         Line::from(vec![
             Span::raw("  "),
@@ -646,18 +659,22 @@ fn draw_confirmation(f: &mut Frame, area: Rect, state: &InteractiveState) {
             Span::styled(content_type, Style::default().fg(Color::Rgb(255, 142, 100))),
         ]),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("Press ENTER to begin extraction",
-                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
-        ]),
+        Line::from(vec![Span::styled(
+            "Press ENTER to begin extraction",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        )]),
     ];
 
     let widget = Paragraph::new(confirmation)
         .alignment(Alignment::Center)
-        .block(Block::default()
-            .borders(Borders::ALL)
-            .title("Confirmation")
-            .title_style(Style::default().fg(Color::Rgb(111, 44, 186))));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Confirmation")
+                .title_style(Style::default().fg(Color::Rgb(111, 44, 186))),
+        );
     f.render_widget(widget, area);
 }
 
@@ -669,9 +686,7 @@ fn draw_footer(f: &mut Frame, area: Rect, step: &InteractiveStep) {
         InteractiveStep::TimeSelection | InteractiveStep::ContentSelection => {
             "↑/↓: Navigate | ENTER: Next | ESC: Back"
         }
-        InteractiveStep::Confirmation => {
-            "ENTER: Start Extraction | ESC: Back"
-        }
+        InteractiveStep::Confirmation => "ENTER: Start Extraction | ESC: Back",
     };
 
     let footer = Paragraph::new(help_text)

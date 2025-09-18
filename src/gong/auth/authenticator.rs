@@ -184,7 +184,7 @@ impl GongAuthenticator {
             Some(result) => result,
             None => {
                 error!("All browser cookies are expired or invalid");
-                
+
                 // Try guided authentication as fallback
                 info!("Attempting guided authentication via Okta SSO...");
                 match self.try_guided_authentication().await {
@@ -192,7 +192,7 @@ impl GongAuthenticator {
                         info!("Guided authentication successful, retrying cookie extraction...");
                         // Give the browser session a moment to establish
                         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                        
+
                         // Retry cookie extraction after guided auth
                         let retry_cookies = self.cookie_extractor.extract_all_browsers_cookies();
                         if let Some((cookies, browser)) = retry_cookies.into_iter().next() {
@@ -556,7 +556,7 @@ impl GongAuthenticator {
     }
 
     /// Attempt guided authentication via Okta SSO
-    /// 
+    ///
     /// Returns Ok(true) if guided auth was attempted and completed successfully,
     /// Ok(false) if guided auth was not attempted (user declined),
     /// Err if guided auth failed with errors.
@@ -575,10 +575,13 @@ impl GongAuthenticator {
             use inquire::Confirm;
 
             // Ask user if they want to try guided authentication
-            let should_attempt = match Confirm::new("No valid browser cookies found. Would you like to try guided Okta authentication?")
-                .with_default(true)
-                .with_help_message("This will open a headless browser to authenticate via Okta SSO")
-                .prompt() {
+            let should_attempt = match Confirm::new(
+                "No valid browser cookies found. Would you like to try guided Okta authentication?",
+            )
+            .with_default(true)
+            .with_help_message("This will open a headless browser to authenticate via Okta SSO")
+            .prompt()
+            {
                 Ok(choice) => choice,
                 Err(_) => {
                     debug!("User declined guided authentication prompt");
@@ -595,15 +598,22 @@ impl GongAuthenticator {
 
             // Create guided auth instance and attempt authentication
             let mut guided_auth = GuidedAuth::new();
-            
+
             match guided_auth.authenticate().await {
                 Ok(collected_cookies) => {
                     info!("Guided authentication completed successfully");
-                    info!("Collected cookies for {} platforms", collected_cookies.len());
-                    
+                    info!(
+                        "Collected cookies for {} platforms",
+                        collected_cookies.len()
+                    );
+
                     // Log which platforms got cookies (without showing actual cookie values)
                     for (platform, cookie_str) in &collected_cookies {
-                        info!("Platform {}: {} characters of cookie data", platform, cookie_str.len());
+                        info!(
+                            "Platform {}: {} characters of cookie data",
+                            platform,
+                            cookie_str.len()
+                        );
                     }
 
                     // The cookies should now be available in the browser for extraction
@@ -613,7 +623,7 @@ impl GongAuthenticator {
                 Err(e) => {
                     error!("Guided authentication failed: {}", e);
                     Err(CsCliError::Authentication(format!(
-                        "Guided authentication failed: {}", e
+                        "Guided authentication failed: {e}"
                     )))
                 }
             }

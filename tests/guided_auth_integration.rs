@@ -5,7 +5,6 @@
 //!
 //! Run with: cargo test --test guided_auth_integration -- --nocapture --test-threads=1
 
-use tokio;
 
 // Import the actual guided auth implementation
 use cs_cli::common::auth::GuidedAuth;
@@ -24,7 +23,9 @@ use cs_cli::common::auth::GuidedAuth;
 #[tokio::test]
 async fn test_full_guided_authentication_flow() {
     println!("Starting guided authentication flow test...");
-    println!("Make sure Okta Verify app is installed and you're ready to authenticate with TouchID");
+    println!(
+        "Make sure Okta Verify app is installed and you're ready to authenticate with TouchID"
+    );
 
     let mut guided_auth = GuidedAuth::new();
 
@@ -37,19 +38,31 @@ async fn test_full_guided_authentication_flow() {
             let expected_platforms = ["gong", "slack", "gainsight", "salesforce"];
             for platform in expected_platforms {
                 if let Some(cookie_data) = cookies.get(platform) {
-                    println!("{}: {} characters of cookie data", platform, cookie_data.len());
-                    assert!(!cookie_data.is_empty(), "Cookie data should not be empty for {}", platform);
+                    println!(
+                        "{}: {} characters of cookie data",
+                        platform,
+                        cookie_data.len()
+                    );
+                    assert!(
+                        !cookie_data.is_empty(),
+                        "Cookie data should not be empty for {platform}"
+                    );
                 } else {
-                    println!("{}: No cookie data collected", platform);
+                    println!("{platform}: No cookie data collected");
                 }
             }
 
-            assert!(!cookies.is_empty(), "Should have collected at least some cookies");
+            assert!(
+                !cookies.is_empty(),
+                "Should have collected at least some cookies"
+            );
             println!("Test completed successfully - guided authentication works!");
         }
         Err(e) => {
-            println!("Guided authentication failed: {}", e);
-            panic!("Guided authentication should succeed with user interaction: {}", e);
+            println!("Guided authentication failed: {e}");
+            panic!(
+                "Guided authentication should succeed with user interaction: {e}"
+            );
         }
     }
 }
@@ -64,22 +77,34 @@ async fn test_chrome_browser_launch() {
     let mut guided_auth = GuidedAuth::new();
 
     // Test browser initialization
-    assert!(!guided_auth.has_browser(), "Browser should not be initialized initially");
+    assert!(
+        !guided_auth.has_browser(),
+        "Browser should not be initialized initially"
+    );
 
     // Navigate to a test URL
-    match guided_auth.navigate_to_okta("https://postman.okta.com").await {
+    match guided_auth
+        .navigate_to_okta("https://postman.okta.com")
+        .await
+    {
         Ok(()) => {
             println!("Chrome browser launched and navigated successfully");
-            assert!(guided_auth.has_browser(), "Browser should be initialized after navigation");
+            assert!(
+                guided_auth.has_browser(),
+                "Browser should be initialized after navigation"
+            );
 
             // Test getting current URL
             match guided_auth.get_current_url().await {
                 Ok(url) => {
-                    println!("Current URL: {}", url);
-                    assert!(url.contains("postman.okta.com"), "Should have navigated to Okta");
+                    println!("Current URL: {url}");
+                    assert!(
+                        url.contains("postman.okta.com"),
+                        "Should have navigated to Okta"
+                    );
                 }
                 Err(e) => {
-                    println!("Failed to get current URL: {}", e);
+                    println!("Failed to get current URL: {e}");
                 }
             }
 
@@ -89,13 +114,13 @@ async fn test_chrome_browser_launch() {
                     println!("Chrome browser closed successfully");
                 }
                 Err(e) => {
-                    println!("Failed to close browser: {}", e);
+                    println!("Failed to close browser: {e}");
                 }
             }
         }
         Err(e) => {
-            println!("Failed to launch Chrome browser: {}", e);
-            panic!("Should be able to launch Chrome browser: {}", e);
+            println!("Failed to launch Chrome browser: {e}");
+            panic!("Should be able to launch Chrome browser: {e}");
         }
     }
 }
@@ -124,7 +149,7 @@ async fn test_chrome_detection() {
     let mut chrome_found = false;
     for path in chrome_paths {
         if std::path::Path::new(path).exists() {
-            println!("Found Chrome at: {}", path);
+            println!("Found Chrome at: {path}");
             chrome_found = true;
             break;
         }
@@ -147,7 +172,7 @@ async fn test_okta_oauth_navigation() {
 
     let okta_url = "https://postman.okta.com/oauth2/v1/authorize?client_id=okta.2b1959c8-bcc0-56eb-a589-cfcfb7422f26&code_challenge=QqOla_j2ieDvzX7ebLtkAvwddcCQrhgFmqW0OgXEkTE&code_challenge_method=S256&nonce=oCAMKaZsIi9TTTkla80f4MnJfMn8kOlx0uWRhtL2AG1IcN5XVZF9UF83vjxgX8dg&redirect_uri=https%3A%2F%2Fpostman.okta.com%2Fenduser%2Fcallback&response_type=code&state=X9clhfyFhEE90WBMcHIaBtS2EtXzbYZEe4eN4XTF1PTqawEr3A4TGvD6UFTO6gV0&scope=openid%20profile%20email%20okta.users.read.self%20okta.users.manage.self%20okta.internal.enduser.read%20okta.internal.enduser.manage%20okta.enduser.dashboard.read%20okta.enduser.dashboard.manage%20okta.myAccount.sessions.manage";
 
-    match guided_auth.navigate_to_okta(&okta_url).await {
+    match guided_auth.navigate_to_okta(okta_url).await {
         Ok(()) => {
             println!("Successfully navigated to Okta OAuth endpoint");
 
@@ -182,11 +207,11 @@ async fn test_okta_oauth_navigation() {
             match guided_auth.execute_js(check_container_js).await {
                 Ok(result) => {
                     println!("\n=== Page Content Debug ===");
-                    println!("{}", result);
+                    println!("{result}");
                     println!("=========================\n");
                 }
                 Err(e) => {
-                    println!("Failed to check page content: {}", e);
+                    println!("Failed to check page content: {e}");
                 }
             }
 
@@ -206,11 +231,11 @@ async fn test_okta_oauth_navigation() {
                 Ok(result) => {
                     println!("\nLinks found on the OAuth authorization page:");
                     println!("{}", "=".repeat(60));
-                    println!("{}", result);
+                    println!("{result}");
                     println!("{}", "=".repeat(60));
                 }
                 Err(e) => {
-                    println!("Failed to extract links: {}", e);
+                    println!("Failed to extract links: {e}");
                 }
             }
 
@@ -229,21 +254,24 @@ async fn test_okta_oauth_navigation() {
                 Ok(result) => {
                     println!("\nButtons found on the page:");
                     println!("{}", "=".repeat(60));
-                    println!("{}", result);
+                    println!("{result}");
                     println!("{}", "=".repeat(60));
                 }
                 Err(e) => {
-                    println!("Failed to extract buttons: {}", e);
+                    println!("Failed to extract buttons: {e}");
                 }
             }
 
             // Get page title
-            match guided_auth.execute_js("JSON.stringify(document.title || 'No Title')").await {
+            match guided_auth
+                .execute_js("JSON.stringify(document.title || 'No Title')")
+                .await
+            {
                 Ok(title) => {
-                    println!("\nPage title: {}", title);
+                    println!("\nPage title: {title}");
                 }
                 Err(e) => {
-                    println!("Failed to get page title: {}", e);
+                    println!("Failed to get page title: {e}");
                 }
             }
 
@@ -252,8 +280,8 @@ async fn test_okta_oauth_navigation() {
             println!("Navigation test completed successfully!");
         }
         Err(e) => {
-            println!("Navigation failed: {}", e);
-            panic!("Should be able to navigate to Okta: {}", e);
+            println!("Navigation failed: {e}");
+            panic!("Should be able to navigate to Okta: {e}");
         }
     }
 }
@@ -279,8 +307,8 @@ async fn test_okta_verify_detection() {
             println!("Okta Verify detection completed successfully");
         }
         Err(e) => {
-            println!("Okta Verify detection failed: {}", e);
-            panic!("Should be able to check Okta Verify status: {}", e);
+            println!("Okta Verify detection failed: {e}");
+            panic!("Should be able to check Okta Verify status: {e}");
         }
     }
 }

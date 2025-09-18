@@ -8,6 +8,7 @@
 
 use crate::common::cli::args::{ContentType, ParsedCommand};
 use crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::terminal;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -20,7 +21,6 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::time::Instant;
 use tokio::sync::mpsc;
-use crossterm::terminal;
 
 /// Result type for TUI operations
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -32,7 +32,7 @@ fn debug_log(message: &str) {
         .append(true)
         .open("mouse_debug.log")
     {
-        let _ = writeln!(file, "{}", message);
+        let _ = writeln!(file, "{message}");
     }
 }
 
@@ -145,7 +145,7 @@ impl TuiApp {
     pub fn new() -> Self {
         // Clear debug log file and start new session
         let _ = std::fs::write("mouse_debug.log", "=== NEW TUI SESSION ===\n");
-        
+
         Self {
             state: AppState::Authenticating,
             auth_progress: 0.0,
@@ -435,7 +435,7 @@ impl TuiApp {
     }
 
     fn move_up(&mut self) {
-        if !self.suggestions.is_empty() && self.suggestions.len() > 0 {
+        if !self.suggestions.is_empty() && !self.suggestions.is_empty() {
             if !self.in_dropdown {
                 self.in_dropdown = true;
                 self.highlight_index = self.suggestions.len().saturating_sub(1);
@@ -450,12 +450,13 @@ impl TuiApp {
     }
 
     fn move_down(&mut self) {
-        if !self.suggestions.is_empty() && self.suggestions.len() > 0 {
+        if !self.suggestions.is_empty() && !self.suggestions.is_empty() {
             if !self.in_dropdown {
                 self.in_dropdown = true;
                 self.highlight_index = 0;
             } else if self.highlight_index < self.suggestions.len().saturating_sub(1) {
-                self.highlight_index = (self.highlight_index + 1).min(self.suggestions.len().saturating_sub(1));
+                self.highlight_index =
+                    (self.highlight_index + 1).min(self.suggestions.len().saturating_sub(1));
             }
             // Safety check to prevent out of bounds
             if self.highlight_index >= self.suggestions.len() {
@@ -466,11 +467,11 @@ impl TuiApp {
 
     fn toggle_selection(&mut self) {
         // Clean implementation - no debug logging for normal operation
-        if self.in_dropdown && 
-           !self.suggestions.is_empty() && 
-           self.highlight_index < self.suggestions.len() &&
-           self.suggestions.len() > 0 {
-            
+        if self.in_dropdown
+            && !self.suggestions.is_empty()
+            && self.highlight_index < self.suggestions.len()
+            && !self.suggestions.is_empty()
+        {
             // Double-check bounds before array access
             if let Some(item) = self.suggestions.get(self.highlight_index) {
                 let item = item.clone();
@@ -492,7 +493,7 @@ impl TuiApp {
 
     fn handle_dropdown_click(&mut self, y: usize, is_click: bool) -> bool {
         // Multiple safety checks to prevent crashes
-        if self.suggestions.is_empty() || self.suggestions.len() == 0 {
+        if self.suggestions.is_empty() || self.suggestions.is_empty() {
             return false;
         }
 
@@ -519,11 +520,15 @@ impl TuiApp {
                 // Debug logging for clicks
                 if is_click {
                     let terminal_size = terminal::size().unwrap_or((80, 24));
-                    debug_log(&format!("CLICK: Terminal {}x{}, y={}, area.y={}, relative_y={}, index={}",
-                                      terminal_size.0, terminal_size.1, y, area.y, relative_y, suggestion_index));
+                    debug_log(&format!(
+                        "CLICK: Terminal {}x{}, y={}, area.y={}, relative_y={}, index={}",
+                        terminal_size.0, terminal_size.1, y, area.y, relative_y, suggestion_index
+                    ));
                     if suggestion_index < self.suggestions.len() {
-                        debug_log(&format!("  -> Mapped to item {} ('{}')\n",
-                                          suggestion_index, self.suggestions[suggestion_index]));
+                        debug_log(&format!(
+                            "  -> Mapped to item {} ('{}')\n",
+                            suggestion_index, self.suggestions[suggestion_index]
+                        ));
                     }
                 }
 
@@ -552,7 +557,7 @@ impl TuiApp {
     fn handle_customer_mouse(&mut self, mouse: MouseEvent) -> bool {
         let row = mouse.row as usize;
         let col = mouse.column as usize;
-        
+
         // Comprehensive coordinate validation
         if row > 200 || col > 500 || row == 0 {
             return false;
@@ -567,14 +572,17 @@ impl TuiApp {
             MouseEventKind::Down(MouseButton::Left) => {
                 // Simple click logging
                 let terminal_size = terminal::size().unwrap_or((80, 24));
-                debug_log(&format!("Click: {}x{} at row {} -> ", terminal_size.0, terminal_size.1, row));
-                
+                debug_log(&format!(
+                    "Click: {}x{} at row {} -> ",
+                    terminal_size.0, terminal_size.1, row
+                ));
+
                 // Always handle clicks
                 self.handle_dropdown_click(row, true)
             }
             MouseEventKind::Moved => {
                 // Process hover if we have suggestions (no logging for moves)
-                if !self.suggestions.is_empty() && self.suggestions.len() > 0 {
+                if !self.suggestions.is_empty() && !self.suggestions.is_empty() {
                     if !self.in_dropdown {
                         self.in_dropdown = true;
                     }
@@ -844,7 +852,10 @@ fn draw_customer_selection(f: &mut Frame, area: Rect, app: &mut TuiApp) {
                 .enumerate()
                 .map(|(i, s)| {
                     let mut style = Style::default();
-                    if app.in_dropdown && i == app.highlight_index && app.highlight_index < app.suggestions.len() {
+                    if app.in_dropdown
+                        && i == app.highlight_index
+                        && app.highlight_index < app.suggestions.len()
+                    {
                         style = style.bg(Color::DarkGray);
                     }
                     if app.selected_customers.contains(s) {
@@ -871,7 +882,10 @@ fn draw_customer_selection(f: &mut Frame, area: Rect, app: &mut TuiApp) {
                 .enumerate()
                 .map(|(i, s)| {
                     let mut style = Style::default();
-                    if app.in_dropdown && i == app.highlight_index && app.highlight_index < app.suggestions.len() {
+                    if app.in_dropdown
+                        && i == app.highlight_index
+                        && app.highlight_index < app.suggestions.len()
+                    {
                         style = style.bg(Color::DarkGray);
                     }
                     if app.selected_customers.contains(s) {

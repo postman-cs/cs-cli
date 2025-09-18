@@ -3,11 +3,11 @@
 //! This module provides browser automation for guided authentication through Okta SSO.
 //! It uses headless Chrome to automate the login process and extract session cookies.
 
+use anyhow::{anyhow, Context, Result};
+use headless_chrome::{Browser, LaunchOptions, Tab};
 use std::collections::HashMap;
 use std::sync::Arc;
-use anyhow::{Result, Context, anyhow};
-use headless_chrome::{Browser, LaunchOptions, Tab};
-use tracing::{info, debug, warn};
+use tracing::{debug, info, warn};
 
 /// Main guided authentication struct
 pub struct GuidedAuth {
@@ -78,7 +78,10 @@ impl GuidedAuth {
         match self.click_okta_verify_option().await {
             Ok(()) => info!("Successfully selected Okta Verify"),
             Err(e) => {
-                warn!("Failed to click Okta Verify, trying alternative selector: {}", e);
+                warn!(
+                    "Failed to click Okta Verify, trying alternative selector: {}",
+                    e
+                );
                 // Try alternative selector
                 self.click_element("a.select-factor:first-of-type").await?;
             }
@@ -101,7 +104,8 @@ impl GuidedAuth {
     /// Click on Okta Verify authentication option
     async fn click_okta_verify_option(&self) -> Result<()> {
         // Try to click using aria-label
-        self.click_element(r#"a[aria-label="Select Okta Verify."]"#).await
+        self.click_element(r#"a[aria-label="Select Okta Verify."]"#)
+            .await
     }
 
     /// Launch Chrome browser with appropriate options
@@ -133,8 +137,8 @@ impl GuidedAuth {
             ]);
 
         // Launch browser
-        let browser = Browser::new(launch_options.build()?)
-            .context("Failed to launch Chrome browser")?;
+        let browser =
+            Browser::new(launch_options.build()?).context("Failed to launch Chrome browser")?;
 
         info!("Chrome browser launched successfully");
         Ok(browser)
@@ -147,7 +151,8 @@ impl GuidedAuth {
             vec![
                 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".to_string(),
                 "/Applications/Chromium.app/Contents/MacOS/Chromium".to_string(),
-                "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary".to_string(),
+                "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary"
+                    .to_string(),
                 "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser".to_string(),
                 "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge".to_string(),
             ]
@@ -189,7 +194,9 @@ impl GuidedAuth {
             self.browser = Some(browser);
         }
 
-        let browser = self.browser.as_ref()
+        let browser = self
+            .browser
+            .as_ref()
             .ok_or_else(|| anyhow!("Browser not initialized"))?;
 
         // Use existing tab or create new one
@@ -202,7 +209,8 @@ impl GuidedAuth {
                 first_tab.clone()
             } else {
                 drop(tabs); // Release lock before creating new tab
-                browser.new_tab()
+                browser
+                    .new_tab()
                     .context("Failed to create new browser tab")?
             };
             self.active_tab = Some(tab.clone());
@@ -210,8 +218,7 @@ impl GuidedAuth {
         };
 
         info!("Navigating to: {}", url);
-        tab.navigate_to(url)
-            .context("Failed to navigate to URL")?;
+        tab.navigate_to(url).context("Failed to navigate to URL")?;
 
         tab.wait_until_navigated()
             .context("Failed to wait for navigation")?;
@@ -221,12 +228,13 @@ impl GuidedAuth {
 
     /// Extract cookies from authenticated session
     pub async fn extract_cookies(&self) -> Result<HashMap<String, String>> {
-        let tab = self.active_tab.as_ref()
+        let tab = self
+            .active_tab
+            .as_ref()
             .ok_or_else(|| anyhow!("No active tab"))?;
 
         // Get cookies from the page
-        let cookies = tab.get_cookies()
-            .context("Failed to get cookies")?;
+        let cookies = tab.get_cookies().context("Failed to get cookies")?;
 
         let mut cookie_map = HashMap::new();
 
@@ -242,27 +250,34 @@ impl GuidedAuth {
 
     /// Click on element by selector
     pub async fn click_element(&self, selector: &str) -> Result<()> {
-        let tab = self.active_tab.as_ref()
+        let tab = self
+            .active_tab
+            .as_ref()
             .ok_or_else(|| anyhow!("No active tab"))?;
 
         info!("Clicking element: {}", selector);
 
         // Find and click the element
-        let element = tab.find_element(selector)
+        let element = tab
+            .find_element(selector)
             .context("Failed to find element")?;
 
-        element.click()
-            .context("Failed to click element")?;
+        element.click().context("Failed to click element")?;
 
         Ok(())
     }
 
     /// Wait for element to appear
     pub async fn wait_for_element(&self, selector: &str, timeout_secs: u64) -> Result<()> {
-        let tab = self.active_tab.as_ref()
+        let tab = self
+            .active_tab
+            .as_ref()
             .ok_or_else(|| anyhow!("No active tab"))?;
 
-        info!("Waiting for element: {} (timeout: {}s)", selector, timeout_secs);
+        info!(
+            "Waiting for element: {} (timeout: {}s)",
+            selector, timeout_secs
+        );
 
         // Use built-in wait functionality
         tab.wait_for_element(selector)
@@ -284,7 +299,9 @@ impl GuidedAuth {
 
     /// Get current URL
     pub async fn get_current_url(&self) -> Result<String> {
-        let tab = self.active_tab.as_ref()
+        let tab = self
+            .active_tab
+            .as_ref()
             .ok_or_else(|| anyhow!("No active tab"))?;
 
         let url = tab.get_url();
@@ -293,10 +310,13 @@ impl GuidedAuth {
 
     /// Execute JavaScript in the page
     pub async fn execute_js(&self, script: &str) -> Result<String> {
-        let tab = self.active_tab.as_ref()
+        let tab = self
+            .active_tab
+            .as_ref()
             .ok_or_else(|| anyhow!("No active tab"))?;
 
-        let result = tab.evaluate(script, false)
+        let result = tab
+            .evaluate(script, false)
             .context("Failed to execute JavaScript")?;
 
         Ok(format!("{:?}", result.value))

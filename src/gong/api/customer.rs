@@ -242,7 +242,8 @@ impl GongCustomerSearchClient {
             );
 
             if suggestions.is_empty() {
-                debug!("No suggestions found, full response structure: {:?}",
+                debug!(
+                    "No suggestions found, full response structure: {:?}",
                     data.as_object().map(|o| o.keys().collect::<Vec<_>>())
                 );
             } else {

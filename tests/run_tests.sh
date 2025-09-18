@@ -19,10 +19,10 @@ TESTS_DIR="$(dirname "$0")"
 # Change to project root directory (parent of tests/)
 cd "$TESTS_DIR/.."
 
-# Test configuration - Load from .env if available (in tests directory)
-if [ -f "$TESTS_DIR/.env" ]; then
+# Test configuration - Load from .env if available (in project root)
+if [ -f ".env" ]; then
     set -a  # Automatically export all variables
-    source "$TESTS_DIR/.env"
+    source ".env"
     set +a  # Turn off auto-export
 fi
 

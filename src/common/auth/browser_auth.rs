@@ -42,8 +42,7 @@ impl BrowserSessionExtractor {
     pub fn extract_domain_cookies(&self, domain: &str) -> Result<Vec<Cookie>> {
         if !self.supported_domains.contains(&domain.to_string()) {
             return Err(CsCliError::Authentication(format!(
-                "Domain '{}' not supported for cookie extraction",
-                domain
+                "Domain '{domain}' not supported for cookie extraction"
             )));
         }
 
@@ -70,8 +69,7 @@ impl BrowserSessionExtractor {
         }
 
         Err(CsCliError::CookieExtraction(format!(
-            "No cookies found for domain: {}",
-            domain
+            "No cookies found for domain: {domain}"
         )))
     }
 
@@ -84,8 +82,7 @@ impl BrowserSessionExtractor {
             .find(|cookie| cookie.name == cookie_name)
             .ok_or_else(|| {
                 CsCliError::CookieExtraction(format!(
-                    "Cookie '{}' not found for domain '{}'",
-                    cookie_name, domain
+                    "Cookie '{cookie_name}' not found for domain '{domain}'"
                 ))
             })
     }

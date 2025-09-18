@@ -40,10 +40,7 @@ async fn test_semaphore_rate_limiting() {
 
     let total_duration = start.elapsed();
 
-    println!(
-        "Total time for 10 tasks with max_concurrent={}: {:?}",
-        max_concurrent, total_duration
-    );
+    println!("Total time for 10 tasks with max_concurrent={max_concurrent}: {total_duration:?}");
 
     // With max 3 concurrent and 100ms per task:
     // Should take at least 400ms (4 waves: 3+3+3+1)
@@ -91,7 +88,7 @@ async fn test_connection_pool_reuse() {
             panic!("❌ Authentication returned false - check browser login to Gong");
         }
         Ok(Err(e)) => {
-            panic!("❌ Authentication error: {}", e);
+            panic!("❌ Authentication error: {e}");
         }
         Err(_) => {
             panic!("❌ Authentication timed out after 10 seconds - this indicates a network or API issue");
@@ -142,7 +139,7 @@ async fn test_connection_pool_reuse() {
             if success {
                 success_count += 1;
             }
-            println!("Request {} success: {}", idx, success);
+            println!("Request {idx} success: {success}");
         }
         success_count
     })
@@ -156,7 +153,7 @@ async fn test_connection_pool_reuse() {
     }
 
     // Pool should handle concurrent requests (allow some failures due to auth)
-    println!("Successfully completed {}/5 requests", success_count);
+    println!("Successfully completed {success_count}/5 requests");
 
     // At least one request should succeed if authentication is working
     assert!(
@@ -174,7 +171,7 @@ async fn test_memory_usage_large_dataset() {
 
     // Simulate 10,000 communications
     for i in 0..10_000 {
-        let data = format!("Communication {} with some content that takes up space", i);
+        let data = format!("Communication {i} with some content that takes up space");
         large_dataset.push(data);
     }
 
@@ -194,10 +191,7 @@ async fn test_memory_usage_large_dataset() {
 
     assert_eq!(processed_count, initial_len, "Should process all items");
 
-    println!(
-        "Processed {} items in chunks of {}",
-        processed_count, chunk_size
-    );
+    println!("Processed {processed_count} items in chunks of {chunk_size}");
 }
 
 #[tokio::test]
@@ -216,10 +210,7 @@ async fn test_exponential_backoff_timing() {
         let actual_delay = start.elapsed();
         total_delay += actual_delay;
 
-        println!(
-            "Attempt {}: Expected {}ms, Actual {:?}",
-            attempt, delay_ms, actual_delay
-        );
+        println!("Attempt {attempt}: Expected {delay_ms}ms, Actual {actual_delay:?}");
 
         // Allow 10ms tolerance for timing
         assert!(
@@ -228,7 +219,7 @@ async fn test_exponential_backoff_timing() {
         );
     }
 
-    println!("Total backoff time: {:?}", total_delay);
+    println!("Total backoff time: {total_delay:?}");
 
     // Total should be around 3.2 seconds
     assert!(
@@ -253,7 +244,7 @@ async fn test_concurrent_task_cancellation() {
                     tokio::task::yield_now().await;
                 }
             }
-            format!("Task {} completed", i)
+            format!("Task {i} completed")
         }));
     }
 
@@ -273,22 +264,19 @@ async fn test_concurrent_task_cancellation() {
         match task.await {
             Ok(msg) => {
                 completed_count += 1;
-                println!("Task completed: {}", msg);
+                println!("Task completed: {msg}");
             }
             Err(e) if e.is_cancelled() => {
                 cancelled_count += 1;
                 println!("Task cancelled");
             }
             Err(e) => {
-                panic!("Unexpected error: {:?}", e);
+                panic!("Unexpected error: {e:?}");
             }
         }
     }
 
-    println!(
-        "Completed: {}, Cancelled: {}",
-        completed_count, cancelled_count
-    );
+    println!("Completed: {completed_count}, Cancelled: {cancelled_count}");
 
     // Most tasks should be cancelled
     assert!(cancelled_count > 0, "Some tasks should be cancelled");
@@ -306,13 +294,11 @@ async fn test_rate_limiting_with_jitter() {
     // Should be between 50ms and 150ms
     assert!(
         duration >= Duration::from_millis(40),
-        "Jitter delay too short: {:?}",
-        duration
+        "Jitter delay too short: {duration:?}"
     );
     assert!(
         duration <= Duration::from_millis(200),
-        "Jitter delay too long: {:?}",
-        duration
+        "Jitter delay too long: {duration:?}"
     );
 
     println!("Jitter test: {}ms base -> {:?} actual", 100, duration);
@@ -325,16 +311,14 @@ async fn test_rate_limiting_with_jitter() {
     // Should be between 750ms and 1250ms
     assert!(
         duration >= Duration::from_millis(700),
-        "API delay too short: {:?}",
-        duration
+        "API delay too short: {duration:?}"
     );
     assert!(
         duration <= Duration::from_millis(1300),
-        "API delay too long: {:?}",
-        duration
+        "API delay too long: {duration:?}"
     );
 
-    println!("API delay test: {:?} (expected 750ms-1250ms)", duration);
+    println!("API delay test: {duration:?} (expected 750ms-1250ms)");
 
     // Test that multiple delays have variation (jitter working)
     let mut delays = Vec::new();
@@ -351,16 +335,10 @@ async fn test_rate_limiting_with_jitter() {
 
     assert!(
         variation >= Duration::from_millis(20),
-        "Insufficient jitter variation: min={:?}, max={:?}, variation={:?}",
-        min_delay,
-        max_delay,
-        variation
+        "Insufficient jitter variation: min={min_delay:?}, max={max_delay:?}, variation={variation:?}"
     );
 
-    println!(
-        "Jitter variation test: {:?} range across 5 delays",
-        variation
-    );
+    println!("Jitter variation test: {variation:?} range across 5 delays");
 }
 
 #[tokio::test]
@@ -393,7 +371,7 @@ async fn test_parallel_data_processing() {
     let expected: i32 = (0..1000).sum();
     assert_eq!(total, expected, "Parallel processing should be correct");
 
-    println!("Parallel processing of 1000 items took {:?}", duration);
+    println!("Parallel processing of 1000 items took {duration:?}");
 
     // Should be faster than sequential (100ms)
     assert!(
@@ -426,7 +404,7 @@ async fn test_async_stream_processing() {
     let duration = start.elapsed();
 
     assert_eq!(count, 100, "Should process all items");
-    println!("Stream processing took {:?}", duration);
+    println!("Stream processing took {duration:?}");
 }
 
 #[tokio::test]
@@ -456,5 +434,5 @@ async fn test_thread_safety_shared_state() {
     let final_count = counter.load(Ordering::SeqCst);
     assert_eq!(final_count, 10000, "Counter should be thread-safe");
 
-    println!("Thread-safe counter reached {}", final_count);
+    println!("Thread-safe counter reached {final_count}");
 }

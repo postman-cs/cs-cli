@@ -24,12 +24,12 @@ async fn test_browser_cookie_extraction_multi_browser() {
 
     match result {
         Ok((cookies, browser)) => {
-            println!("Successfully extracted cookies from browser: {}", browser);
+            println!("Successfully extracted cookies from browser: {browser}");
             assert!(!cookies.is_empty(), "Should extract at least one cookie");
 
             // Verify we have essential cookies
             let cookie_names: Vec<String> = cookies.iter().map(|c| c.name.clone()).collect();
-            println!("Found cookies: {:?}", cookie_names);
+            println!("Found cookies: {cookie_names:?}");
 
             // Should have session-related cookies
             let has_session_cookie = cookies.iter().any(|c| {
@@ -40,10 +40,7 @@ async fn test_browser_cookie_extraction_multi_browser() {
             assert!(has_session_cookie, "Should have session cookies");
         }
         Err(e) => {
-            println!(
-                "Warning: Cookie extraction failed (expected if not logged in): {}",
-                e
-            );
+            println!("Warning: Cookie extraction failed (expected if not logged in): {e}");
             // This is acceptable if no browsers are logged in
         }
     }
@@ -83,7 +80,7 @@ async fn test_gong_authentication_full_flow() {
                 workspace_id.is_some(),
                 "Should have workspace ID after auth"
             );
-            println!("Workspace ID: {:?}", workspace_id);
+            println!("Workspace ID: {workspace_id:?}");
 
             // Verify we have base URL
             let base_url = authenticator.get_base_url();
@@ -97,7 +94,7 @@ async fn test_gong_authentication_full_flow() {
             println!("Authentication failed - likely no valid cookies");
         }
         Err(e) => {
-            println!("Authentication error (expected if not logged in): {}", e);
+            println!("Authentication error (expected if not logged in): {e}");
         }
     }
 }
@@ -197,18 +194,18 @@ async fn test_browser_fallback_priority() {
 
     for browser_name in &browsers {
         // Note: Real implementation would need browser-specific extraction
-        println!("Checking browser: {}", browser_name);
+        println!("Checking browser: {browser_name}");
 
         // Try extraction
         if let Ok((cookies, source)) = extractor.extract_gong_cookies_with_source() {
             if !cookies.is_empty() {
                 found_browsers.push(source.clone());
-                println!("Found cookies in: {}", source);
+                println!("Found cookies in: {source}");
             }
         }
     }
 
-    println!("Browsers with Gong cookies: {:?}", found_browsers);
+    println!("Browsers with Gong cookies: {found_browsers:?}");
     // At least one browser should work if user is logged in
 }
 
@@ -228,7 +225,7 @@ async fn test_rate_limit_handling_during_auth() {
                 .await
                 .expect("Failed to create authenticator");
 
-            println!("Auth attempt {}", i);
+            println!("Auth attempt {i}");
             let result = auth.authenticate().await;
             (i, result)
         }));
@@ -243,25 +240,22 @@ async fn test_rate_limit_handling_during_auth() {
         match result {
             Ok(true) => {
                 success_count += 1;
-                println!("Auth {} succeeded", idx);
+                println!("Auth {idx} succeeded");
             }
             Ok(false) => {
-                println!("Auth {} failed (no cookies)", idx);
+                println!("Auth {idx} failed (no cookies)");
             }
             Err(e) => {
                 if e.to_string().contains("429") || e.to_string().contains("rate") {
                     rate_limit_count += 1;
-                    println!("Auth {} rate limited", idx);
+                    println!("Auth {idx} rate limited");
                 } else {
-                    println!("Auth {} error: {}", idx, e);
+                    println!("Auth {idx} error: {e}");
                 }
             }
         }
     }
 
-    println!(
-        "Results - Success: {}, Rate limited: {}",
-        success_count, rate_limit_count
-    );
+    println!("Results - Success: {success_count}, Rate limited: {rate_limit_count}");
     // Should handle rate limits gracefully
 }

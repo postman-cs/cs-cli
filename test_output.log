@@ -1,0 +1,9 @@
+   Compiling cs-cli v1.0.0 (/Users/jaredboynton/Desktop/_dev/postman/cs-cli)
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.86s
+     Running tests/auth_integration.rs (/Users/jaredboynton/build_deps/rust/shared-target/debug/deps/auth_integration-81a315c853fa4c26)
+
+running 1 test
+test test_authentication_without_cookies ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 3.42s
+

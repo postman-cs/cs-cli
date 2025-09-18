@@ -55,6 +55,7 @@ RUST_LOG=cs_cli=debug cargo test -- --nocapture
 ### Environment Setup
 Copy the example environment file and configure for your testing needs:
 ```bash
+# From the project root directory
 cp .env.example .env
 # Edit .env with your test configuration
 ```
@@ -65,7 +66,7 @@ cp .env.example .env
 - `TEST_DAYS_BACK` - Number of days to look back (default: 30)
 - `RUST_LOG` - Logging level (e.g., `cs_cli=debug`)
 
-These variables can be set in your `.env` file or overridden on the command line.
+These variables can be set in your `.env` file (in the project root) or overridden on the command line.
 
 ### Prerequisites for Real API Tests
 1. **Browser Session**: Must be logged into Gong in Safari, Chrome, or Firefox

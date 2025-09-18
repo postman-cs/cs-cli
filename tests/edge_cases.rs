@@ -128,7 +128,7 @@ async fn test_extraction_range_edge_cases() {
     let valid_ranges = vec![1, 7, 30, 90, 365, 1000];
     for days in valid_ranges {
         let result = ExtractionRange::last_days(days);
-        assert!(result.is_ok(), "Should accept valid day range: {}", days);
+        assert!(result.is_ok(), "Should accept valid day range: {days}");
     }
 }
 
@@ -149,8 +149,8 @@ async fn test_file_system_edge_cases() {
     for dir_name in &special_dirs {
         let dir_path = base_path.join(dir_name);
         let result = fs::create_dir_all(&dir_path);
-        assert!(result.is_ok(), "Should create directory: {}", dir_name);
-        assert!(dir_path.exists(), "Directory should exist: {}", dir_name);
+        assert!(result.is_ok(), "Should create directory: {dir_name}");
+        assert!(dir_path.exists(), "Directory should exist: {dir_name}");
     }
 
     // Test very long file names (up to filesystem limits)
@@ -165,17 +165,14 @@ async fn test_file_system_edge_cases() {
             println!("Successfully created long directory name");
         }
         Err(e) => {
-            println!(
-                "Long directory name failed (expected on some filesystems): {}",
-                e
-            );
+            println!("Long directory name failed (expected on some filesystems): {e}");
         }
     }
 
     // Test concurrent directory creation
     let mut tasks = vec![];
     for i in 0..10 {
-        let dir_path = base_path.join(format!("ct_concurrent_{}", i));
+        let dir_path = base_path.join(format!("ct_concurrent_{i}"));
         tasks.push(tokio::spawn(async move { fs::create_dir_all(&dir_path) }));
     }
 
@@ -220,8 +217,7 @@ async fn test_markdown_generation_edge_cases() {
         let processed = content.to_string();
         assert!(
             !processed.is_empty() || content.is_empty(),
-            "Processing should not make content empty: {}",
-            description
+            "Processing should not make content empty: {description}"
         );
 
         println!(
@@ -272,7 +268,7 @@ async fn test_memory_pressure_scenarios() {
         let mut data = HashMap::new();
         for j in 0..1000 {
             data.insert(
-                format!("key_{}_{}", i, j),
+                format!("key_{i}_{j}"),
                 format!("value_{}", j.to_string().repeat(100)),
             );
         }
@@ -342,14 +338,13 @@ fn test_string_sanitization_edge_cases() {
             .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
             .collect::<String>();
 
-        println!("Original: {:?} -> Sanitized: {:?}", test_string, sanitized);
+        println!("Original: {test_string:?} -> Sanitized: {sanitized:?}");
 
         // Basic validation that sanitization doesn't break
         if !test_string.is_empty() && test_string.chars().any(|c| c.is_alphanumeric()) {
             assert!(
                 !sanitized.is_empty(),
-                "Sanitized string should not be empty for: {:?}",
-                test_string
+                "Sanitized string should not be empty for: {test_string:?}"
             );
         }
     }
@@ -410,5 +405,5 @@ async fn test_concurrent_stress_scenarios() {
         task_count as usize,
         "All tasks should complete"
     );
-    println!("✓ Successfully handled {} concurrent tasks", task_count);
+    println!("✓ Successfully handled {task_count} concurrent tasks");
 }

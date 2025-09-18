@@ -35,8 +35,7 @@ pub fn unlock_keychain_with_cli_password(password: &str) -> Result<()> {
     let mut unlock_success = false;
     for keychain in &user_keychains {
         let unlock_cmd = format!(
-            "echo '{}' | sudo -S security unlock-keychain -p '{}' '{}' 2>/dev/null",
-            password, password, keychain
+            "echo '{password}' | sudo -S security unlock-keychain -p '{password}' '{keychain}' 2>/dev/null"
         );
 
         if let Ok(output) = Command::new("sh").args(["-c", &unlock_cmd]).output() {
@@ -48,18 +47,15 @@ pub fn unlock_keychain_with_cli_password(password: &str) -> Result<()> {
     }
 
     // Step 2: Set keychain settings to prevent auto-lock for main keychain
-    let main_keychain = format!("{}/Library/Keychains/login.keychain-db", home);
+    let main_keychain = format!("{home}/Library/Keychains/login.keychain-db");
     let settings_cmd = format!(
-        "echo '{}' | sudo -S security set-keychain-settings -l '{}' 2>/dev/null",
-        password, main_keychain
+        "echo '{password}' | sudo -S security set-keychain-settings -l '{main_keychain}' 2>/dev/null"
     );
 
     let settings_output = Command::new("sh")
         .args(["-c", &settings_cmd])
         .output()
-        .map_err(|e| {
-            CsCliError::Authentication(format!("Failed to run settings command: {}", e))
-        })?;
+        .map_err(|e| CsCliError::Authentication(format!("Failed to run settings command: {e}")))?;
 
     if unlock_success && settings_output.status.success() {
         info!("Keychain access configured successfully");
@@ -89,7 +85,7 @@ pub fn is_keychain_unlocked() -> Result<bool> {
     let output = Command::new("security")
         .args(["list-keychains"])
         .output()
-        .map_err(|e| CsCliError::Authentication(format!("Failed to list keychains: {}", e)))?;
+        .map_err(|e| CsCliError::Authentication(format!("Failed to list keychains: {e}")))?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);

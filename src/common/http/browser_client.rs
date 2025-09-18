@@ -211,7 +211,7 @@ impl BrowserHttpClient {
         if !cookies.is_empty() {
             let cookie_string: String = cookies
                 .iter()
-                .map(|(name, value)| format!("{}={}", name, value))
+                .map(|(name, value)| format!("{name}={value}"))
                 .collect::<Vec<_>>()
                 .join("; ");
 
@@ -264,8 +264,7 @@ impl BrowserHttpClient {
                 .map_err(|e| CsCliError::ApiRequest(format!("DELETE request failed: {e}"))),
             _ => {
                 return Err(CsCliError::ApiRequest(format!(
-                    "Unsupported HTTP method: {}",
-                    method
+                    "Unsupported HTTP method: {method}"
                 )))
             }
         };

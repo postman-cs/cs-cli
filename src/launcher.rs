@@ -18,7 +18,7 @@ pub fn ensure_terminal() {
     let exe_path = match env::current_exe() {
         Ok(path) => path,
         Err(e) => {
-            eprintln!("Failed to get executable path: {}", e);
+            eprintln!("Failed to get executable path: {e}");
             exit(1);
         }
     };
@@ -60,10 +60,9 @@ fn launch_in_terminal_macos(exe_path: &std::path::Path, args: &[String]) {
         r#"
         tell application "Terminal"
             activate
-            do script "{}"
+            do script "{cmd}"
         end tell
-        "#,
-        cmd
+        "#
     );
 
     // Execute the AppleScript
@@ -77,7 +76,7 @@ fn launch_in_terminal_macos(exe_path: &std::path::Path, args: &[String]) {
             println!("Launching in Terminal...");
         }
         Err(e) => {
-            eprintln!("Failed to launch Terminal: {}", e);
+            eprintln!("Failed to launch Terminal: {e}");
             eprintln!("Please run this application from Terminal manually.");
             exit(1);
         }

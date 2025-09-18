@@ -17,11 +17,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, warn};
 
-use crate::common::auth::unlock_keychain_with_cli_password;
+// use crate::common::auth::unlock_keychain_with_cli_password;
 use crate::gong::api::client::HttpClientPool;
 use crate::gong::api::customer::CustomerCallInfo;
 use crate::gong::api::customer::GongCustomerSearchClient;
 use crate::gong::api::email::EmailEnhancer;
+use tracing::debug;
 use crate::gong::api::library::{CallDetailsFetcher, GongLibraryClient, LibraryCallInfo};
 use crate::gong::api::timeline::TimelineExtractor;
 use crate::gong::auth::GongAuthenticator;
@@ -1024,27 +1025,30 @@ pub async fn run_cli() -> Result<()> {
             .try_init();
     }
 
-    // Unlock macOS keychain once at startup (prompt if needed)
-    if cfg!(target_os = "macos") {
-        let password = match &args.keychain_password {
-            Some(p) => p.clone(),
-            None => {
-                println!(
-                    "{}",
-                    "Make sure you're logged into Gong in your browser!".truecolor(255, 142, 100)
-                );
-                rpassword::prompt_password(format!(
-                    "{}",
-                    "Enter your Macbook password: ".truecolor(111, 44, 186)
-                ))
-                .map_err(|e| {
-                    crate::CsCliError::Authentication(format!("Failed to read password: {}", e))
-                })?
-            }
-        };
+    // Smart keychain management with TouchID support
+    #[cfg(target_os = "macos")]
+    {
+        use crate::common::auth::smart_keychain::{SmartKeychainManager, should_manage_keychain};
 
-        unlock_keychain_with_cli_password(&password)?;
-        info!("Keychain unlocked for session");
+        if should_manage_keychain() {
+            match SmartKeychainManager::new() {
+                Ok(manager) => {
+                    // Create cookie extractor for checking Firefox cookies
+                    let domains = vec!["gong.io".to_string(), ".gong.io".to_string()];
+                    let extractor = crate::common::auth::cookie_extractor::CookieExtractor::new(domains);
+
+                    // Use smart keychain management with fallbacks
+                    if let Err(e) = manager.ensure_cookie_access(&extractor) {
+                        warn!("Keychain access setup failed: {}", e);
+                        // Continue anyway - cookies might still work
+                    }
+                }
+                Err(e) => {
+                    debug!("Smart keychain manager not available: {}", e);
+                    // Continue without keychain management
+                }
+            }
+        }
     }
 
     // Load application configuration

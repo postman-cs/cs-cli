@@ -320,6 +320,36 @@ build_macos_pkg() {
     cp "$universal_bin" "$pkg_build_dir/root/usr/local/bin/${BINARY_NAME}"
     chmod +x "$pkg_build_dir/root/usr/local/bin/${BINARY_NAME}"
 
+    # 3.5. Copy the Swift keychain helper if it exists
+    # Find the helper in the target directory
+    helper_path=""
+    for target in $TARGETS_MACOS; do
+        potential_path="target/$target/release/build"
+        if [ -d "$potential_path" ]; then
+            found_helper=$(find "$potential_path" -name "keychain_helper" -type f 2>/dev/null | head -1)
+            if [ -n "$found_helper" ]; then
+                helper_path="$found_helper"
+                break
+            fi
+        fi
+    done
+
+    if [ -n "$helper_path" ]; then
+        log INFO "Copying Swift keychain helper..."
+        cp "$helper_path" "$pkg_build_dir/root/usr/local/bin/keychain_helper"
+        chmod +x "$pkg_build_dir/root/usr/local/bin/keychain_helper"
+
+        # Sign the helper if we have signing identity
+        if [ -n "$SIGNING_IDENTITY" ]; then
+            codesign --force --sign "$SIGNING_IDENTITY" \
+                     --options runtime \
+                     --timestamp \
+                     "$pkg_build_dir/root/usr/local/bin/keychain_helper"
+        fi
+    else
+        log WARN "Swift keychain helper not found, TouchID support will be unavailable"
+    fi
+
     # 4. Create welcome.html file
     cat > "dist/welcome.html" << 'WELCOME_HTML'
 <!DOCTYPE html>

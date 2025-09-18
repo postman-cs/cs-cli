@@ -173,7 +173,7 @@ async fn test_output_directory_structure() {
     let customer_names = vec!["test_customer_1", "test_customer_2"];
 
     for customer in &customer_names {
-        let customer_dir = base_path.join(format!("ct_{}", customer));
+        let customer_dir = base_path.join(format!("ct_{customer}"));
         fs::create_dir_all(&customer_dir).expect("Failed to create customer dir");
 
         // Verify directory was created
@@ -182,8 +182,8 @@ async fn test_output_directory_structure() {
 
         // Create some test files
         for i in 1..=3 {
-            let file_path = customer_dir.join(format!("2024-01-{:02}_call_test_{}.md", i, i));
-            fs::write(&file_path, format!("# Test Call {}", i)).expect("Failed to write test file");
+            let file_path = customer_dir.join(format!("2024-01-{i:02}_call_test_{i}.md"));
+            fs::write(&file_path, format!("# Test Call {i}")).expect("Failed to write test file");
         }
 
         // Verify files were created
@@ -195,7 +195,7 @@ async fn test_output_directory_structure() {
 
     // Verify all customer directories exist
     for customer in &customer_names {
-        let customer_dir = base_path.join(format!("ct_{}", customer));
+        let customer_dir = base_path.join(format!("ct_{customer}"));
         assert!(
             customer_dir.exists(),
             "Customer directory should still exist"
@@ -428,13 +428,13 @@ async fn test_interrupted_download_recovery() {
 
     match result {
         Ok(Ok(Ok(msg))) => {
-            println!("Download succeeded: {}", msg);
+            println!("Download succeeded: {msg}");
         }
         Ok(Ok(Err(e))) => {
-            println!("Download failed: {}", e);
+            println!("Download failed: {e}");
         }
         Ok(Err(e)) => {
-            println!("Task panicked: {:?}", e);
+            println!("Task panicked: {e:?}");
         }
         Err(_) => {
             println!("Download timed out (expected) - would retry in real implementation");
@@ -460,12 +460,14 @@ async fn test_known_regression_authentication_flow() {
     // The actual test would verify each step of the auth flow
     // For now, we document the expected behavior
 
-    let expected_flow = ["Extract cookies from Safari/Chrome/Firefox",
+    let expected_flow = [
+        "Extract cookies from Safari/Chrome/Firefox",
         "Find Gong cell identifier in cookies",
         "Construct base URL with cell",
         "Fetch CSRF token from /v2/widget-accounts-data",
         "Parse workspace ID from home page",
-        "Include CSRF token in all API requests"];
+        "Include CSRF token in all API requests",
+    ];
 
     for (i, step) in expected_flow.iter().enumerate() {
         println!("Step {}: {}", i + 1, step);

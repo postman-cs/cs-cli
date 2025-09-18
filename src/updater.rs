@@ -15,10 +15,7 @@ pub async fn check_and_update() -> crate::Result<()> {
 
     // Compare versions
     if version_is_newer(&latest_version, current_version) {
-        println!(
-            "🔄 Update available: v{} → v{}",
-            current_version, latest_version
-        );
+        println!("🔄 Update available: v{current_version} → v{latest_version}");
         println!("📦 Installing update...");
 
         // Run the install script
@@ -52,18 +49,18 @@ async fn get_latest_version() -> crate::Result<String> {
         .user_agent("cs-cli")
         .timeout(Duration::from_secs(3))
         .build()
-        .map_err(|e| crate::CsCliError::Generic(format!("HTTP client error: {}", e)))?;
+        .map_err(|e| crate::CsCliError::Generic(format!("HTTP client error: {e}")))?;
 
     let response = client
         .get("https://api.github.com/repos/postman-cs/cs-cli/releases/latest")
         .send()
         .await
-        .map_err(|e| crate::CsCliError::Generic(format!("Network error: {}", e)))?;
+        .map_err(|e| crate::CsCliError::Generic(format!("Network error: {e}")))?;
 
     let json: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| crate::CsCliError::Generic(format!("JSON error: {}", e)))?;
+        .map_err(|e| crate::CsCliError::Generic(format!("JSON error: {e}")))?;
 
     let tag_name = json["tag_name"]
         .as_str()

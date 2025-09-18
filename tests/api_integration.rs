@@ -83,7 +83,7 @@ async fn test_customer_search_real_api() {
             }
         }
         Err(e) => {
-            panic!("Customer search failed: {}", e);
+            panic!("Customer search failed: {e}");
         }
     }
 }
@@ -175,7 +175,7 @@ async fn test_timeline_extraction_real_api() {
             }
         }
         Err(e) => {
-            panic!("Timeline extraction failed: {}", e);
+            panic!("Timeline extraction failed: {e}");
         }
     }
 }
@@ -261,7 +261,7 @@ async fn test_library_client_call_search() {
             }
         }
         Err(e) => {
-            println!("Library search error (may be permission issue): {}", e);
+            println!("Library search error (may be permission issue): {e}");
         }
     }
 }
@@ -323,15 +323,12 @@ async fn test_concurrent_api_calls_with_rate_limiting() {
                 );
             }
             Err(e) => {
-                println!("Request {} failed in {:?}: {}", idx, duration, e);
+                println!("Request {idx} failed in {duration:?}: {e}");
             }
         }
     }
 
-    println!(
-        "Concurrent requests - Success: {}/5, Total time: {:?}",
-        success_count, total_duration
-    );
+    println!("Concurrent requests - Success: {success_count}/5, Total time: {total_duration:?}");
 
     assert!(success_count > 0, "At least some requests should succeed");
 }
@@ -373,7 +370,7 @@ async fn test_retry_logic_on_transient_failures() {
             println!("Request succeeded, found {} customers", customers.len());
         }
         Err(e) => {
-            println!("Request failed after retries: {}", e);
+            println!("Request failed after retries: {e}");
             // Verify it's not a transient error that should have been retried
             let error_str = e.to_string();
             assert!(
@@ -424,7 +421,7 @@ async fn test_empty_results_handling() {
         }
         Err(e) => {
             // Also acceptable if it returns an error
-            println!("Search returned error for non-existent customer: {}", e);
+            println!("Search returned error for non-existent customer: {e}");
         }
     }
 }
@@ -477,10 +474,7 @@ async fn test_large_dataset_pagination() {
             }
         }
         Err(e) => {
-            println!(
-                "Large dataset extraction failed (expected without valid workspace): {}",
-                e
-            );
+            println!("Large dataset extraction failed (expected without valid workspace): {e}");
         }
     }
 }

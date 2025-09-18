@@ -36,7 +36,7 @@ impl<T: HttpClient + 'static> GenericHttpClientPool<T> {
         // Create pool of clients
         for i in 0..pool_size {
             let client = client_factory(config.clone()).await.map_err(|e| {
-                CsCliError::ApiRequest(format!("Failed to create HTTP client {}: {}", i, e))
+                CsCliError::ApiRequest(format!("Failed to create HTTP client {i}: {e}"))
             })?;
             clients.push(Arc::new(client));
         }
@@ -126,7 +126,7 @@ impl<T: HttpClient + 'static> GenericHttpClientPool<T> {
 
         let result = if let Some(global_sem) = &self.global_semaphore {
             let _global_permit = global_sem.acquire().await.map_err(|e| {
-                CsCliError::ApiRequest(format!("Failed to acquire global semaphore: {}", e))
+                CsCliError::ApiRequest(format!("Failed to acquire global semaphore: {e}"))
             })?;
             request_fn(client).await
         } else {
@@ -201,7 +201,7 @@ impl<T: HttpClient + 'static> GenericHttpClientPool<T> {
             let task = async move {
                 let result = if let Some(global_sem) = global_sem {
                     let _global_permit = global_sem.acquire().await.map_err(|e| {
-                        CsCliError::ApiRequest(format!("Failed to acquire global semaphore: {}", e))
+                        CsCliError::ApiRequest(format!("Failed to acquire global semaphore: {e}"))
                     })?;
 
                     match method.to_uppercase().as_str() {
@@ -210,8 +210,7 @@ impl<T: HttpClient + 'static> GenericHttpClientPool<T> {
                         "PUT" => client.put(&url, body.as_deref()).await,
                         "DELETE" => client.delete(&url).await,
                         _ => Err(CsCliError::ApiRequest(format!(
-                            "Unsupported HTTP method: {}",
-                            method
+                            "Unsupported HTTP method: {method}"
                         ))),
                     }
                 } else {
@@ -221,8 +220,7 @@ impl<T: HttpClient + 'static> GenericHttpClientPool<T> {
                         "PUT" => client.put(&url, body.as_deref()).await,
                         "DELETE" => client.delete(&url).await,
                         _ => Err(CsCliError::ApiRequest(format!(
-                            "Unsupported HTTP method: {}",
-                            method
+                            "Unsupported HTTP method: {method}"
                         ))),
                     }
                 };

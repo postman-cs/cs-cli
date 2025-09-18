@@ -1155,6 +1155,7 @@ dependencies = [
  "urlencoding",
  "winapi",
  "wiremock",
+ "zstd",
 ]
 
 [[package]]

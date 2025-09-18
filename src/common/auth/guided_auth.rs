@@ -20,9 +20,9 @@ use tracing::{info, warn, debug};
 
 use super::cdp_client::CdpClient;
 
-/// Embedded lightpanda binary for Apple Silicon macOS
+/// Embedded compressed lightpanda binary for Apple Silicon macOS
 #[cfg(target_arch = "aarch64")]
-const LIGHTPANDA_BINARY: &[u8] = include_bytes!("../../../bundled/lightpanda/lightpanda-aarch64-macos");
+const LIGHTPANDA_COMPRESSED: &[u8] = include_bytes!("../../../bundled/lightpanda/lightpanda-aarch64-macos.zst");
 
 /// Binary name for the extracted executable
 const LIGHTPANDA_EXECUTABLE_NAME: &str = "lightpanda";
@@ -90,11 +90,18 @@ impl LightpandaBrowser {
             return Ok(());
         }
 
-        info!("Extracting embedded lightpanda binary...");
+        info!("Extracting and decompressing embedded lightpanda binary...");
         
-        // Extract embedded binary data
+        // Decompress embedded binary data
         #[cfg(target_arch = "aarch64")]
-        let binary_data = LIGHTPANDA_BINARY;
+        let binary_data = {
+            debug!("Decompressing {} bytes with zstd", LIGHTPANDA_COMPRESSED.len());
+            let decompressed = zstd::decode_all(LIGHTPANDA_COMPRESSED)
+                .context("Failed to decompress embedded lightpanda binary")?;
+            
+            info!("Decompressed lightpanda binary: {} bytes", decompressed.len());
+            decompressed
+        };
         
         #[cfg(not(target_arch = "aarch64"))]
         {
@@ -104,9 +111,9 @@ impl LightpandaBrowser {
             ));
         }
 
-        // Write binary to temporary location
+        // Write decompressed binary to temporary location
         tokio::fs::write(&self.binary_path, binary_data).await
-            .context("Failed to write embedded lightpanda binary")?;
+            .context("Failed to write decompressed lightpanda binary")?;
 
         // Make executable
         Command::new("chmod")
@@ -114,7 +121,7 @@ impl LightpandaBrowser {
             .output()
             .context("Failed to make lightpanda binary executable")?;
 
-        info!("Successfully extracted embedded lightpanda binary to: {}", self.binary_path);
+        info!("Successfully extracted and decompressed lightpanda binary to: {}", self.binary_path);
         Ok(())
     }
 

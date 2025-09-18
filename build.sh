@@ -128,7 +128,36 @@ download_lightpanda() {
     fi
     
     log SUCCESS "Successfully downloaded lightpanda binary ($(numfmt --to=iec $downloaded_size))"
-    log INFO "Binary will be embedded in cs-cli executable for guided authentication"
+    
+    # Compress the binary with zstd for embedding
+    local compressed_path="${lightpanda_path}.zst"
+    log INFO "Compressing binary with zstd for embedding..."
+    
+    if command -v zstd >/dev/null 2>&1; then
+        # Use high compression level (-19) for maximum space savings
+        zstd -19 -f "$lightpanda_path" -o "$compressed_path"
+        
+        local compressed_size=$(stat -f%z "$compressed_path" 2>/dev/null || echo "0")
+        local compression_ratio=$(( (downloaded_size - compressed_size) * 100 / downloaded_size ))
+        
+        log SUCCESS "Compressed binary: $(numfmt --to=iec $compressed_size) (${compression_ratio}% reduction)"
+        log INFO "Compressed binary will be embedded in cs-cli executable"
+    else
+        log WARN "zstd not found - installing via Homebrew..."
+        if command -v brew >/dev/null 2>&1; then
+            brew install zstd
+            if command -v zstd >/dev/null 2>&1; then
+                zstd -19 -f "$lightpanda_path" -o "$compressed_path"
+                local compressed_size=$(stat -f%z "$compressed_path" 2>/dev/null || echo "0")
+                local compression_ratio=$(( (downloaded_size - compressed_size) * 100 / downloaded_size ))
+                log SUCCESS "Compressed binary: $(numfmt --to=iec $compressed_size) (${compression_ratio}% reduction)"
+            else
+                log ERROR "Failed to install zstd. Please install manually: brew install zstd"
+            fi
+        else
+            log ERROR "zstd not found and Homebrew not available. Please install zstd manually"
+        fi
+    fi
 }
 
 parse_args() {

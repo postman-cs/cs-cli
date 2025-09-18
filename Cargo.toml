@@ -74,6 +74,7 @@ crossterm = "0.28"         # Cross-platform terminal control
 # Guided authentication with headless browser
 tokio-tungstenite = "0.21" # WebSocket client for CDP communication
 futures-util = "0.3"       # Future utilities for WebSocket streams
+zstd = "0.13"              # Compression for embedded lightpanda binary
 
 # Configuration - figment for production-grade config management
 figment = { version = "0.10", features = ["env", "json", "toml", "yaml"] }

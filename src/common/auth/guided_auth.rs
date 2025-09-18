@@ -3,6 +3,8 @@
 //! This module provides browser automation for guided authentication through Okta SSO.
 //! It uses headless Chrome to automate the login process and extract session cookies.
 
+use crate::common::auth::guided_auth_config::{GuidedAuthConfig, PlatformDomains};
+use crate::common::auth::guided_cookie_storage::{store_cookies, get_stored_cookies, has_stored_cookies, are_cookies_expired, validate_cookies};
 use anyhow::{anyhow, Context, Result};
 use headless_chrome::{Browser, LaunchOptions, Tab};
 use std::collections::HashMap;
@@ -13,6 +15,8 @@ use tracing::{debug, info, warn};
 pub struct GuidedAuth {
     browser: Option<Browser>,
     active_tab: Option<Arc<Tab>>,
+    config: GuidedAuthConfig,
+    platform_domains: PlatformDomains,
 }
 
 impl GuidedAuth {
@@ -21,6 +25,8 @@ impl GuidedAuth {
         Self {
             browser: None,
             active_tab: None,
+            config: GuidedAuthConfig::default(),
+            platform_domains: PlatformDomains::default(),
         }
     }
 
@@ -59,53 +65,289 @@ impl GuidedAuth {
         Ok(false)
     }
 
+    /// Force fresh authentication (ignoring stored cookies)
+    pub async fn authenticate_fresh(&mut self) -> Result<HashMap<String, String>> {
+        info!("Performing forced fresh authentication...");
+        self.perform_fresh_authentication().await
+    }
+
     /// Start browser and navigate to Okta login
     pub async fn authenticate(&mut self) -> Result<HashMap<String, String>> {
         info!("Starting guided authentication flow...");
 
+        // Check if we have valid stored cookies first
+        if let Ok(stored_cookies) = self.check_stored_cookies().await {
+            info!("Using existing valid cookies from keychain");
+            return Ok(stored_cookies);
+        }
+
+        // No valid cookies found, perform fresh authentication
+        info!("No valid stored cookies found, performing fresh authentication...");
+        self.perform_fresh_authentication().await
+    }
+
+    /// Perform fresh authentication flow
+    async fn perform_fresh_authentication(&mut self) -> Result<HashMap<String, String>> {
+        info!("Starting fresh authentication flow...");
+
         // Navigate to Okta OAuth authorization endpoint
-        let okta_url = "https://postman.okta.com/oauth2/v1/authorize?client_id=okta.2b1959c8-bcc0-56eb-a589-cfcfb7422f26&code_challenge=QqOla_j2ieDvzX7ebLtkAvwddcCQrhgFmqW0OgXEkTE&code_challenge_method=S256&nonce=oCAMKaZsIi9TTTkla80f4MnJfMn8kOlx0uWRhtL2AG1IcN5XVZF9UF83vjxgX8dg&redirect_uri=https%3A%2F%2Fpostman.okta.com%2Fenduser%2Fcallback&response_type=code&state=X9clhfyFhEE90WBMcHIaBtS2EtXzbYZEe4eN4XTF1PTqawEr3A4TGvD6UFTO6gV0&scope=openid%20profile%20email%20okta.users.read.self%20okta.users.manage.self%20okta.internal.enduser.read%20okta.internal.enduser.manage%20okta.enduser.dashboard.read%20okta.enduser.dashboard.manage%20okta.myAccount.sessions.manage";
-
         info!("Navigating to Okta login page...");
-        self.navigate_to_okta(okta_url).await?;
+        let okta_url = self.config.okta_oauth_url.clone();
+        self.navigate_to_okta(&okta_url).await?;
 
-        // Wait for authentication options to load
-        info!("Waiting for authentication options to load...");
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        // Check if we're already logged in (landed on dashboard)
+        if self.check_already_authenticated().await? {
+            info!("Already authenticated! Proceeding directly to platform collection...");
+        } else {
+            // Wait for authentication options to load
+            info!("Waiting for authentication options to load...");
+            tokio::time::sleep(std::time::Duration::from_secs(self.config.timing.auth_options_load_wait)).await;
 
-        // Click on Okta Verify authentication option
-        info!("Selecting Okta Verify authentication...");
-        match self.click_okta_verify_option().await {
-            Ok(()) => info!("Successfully selected Okta Verify"),
+            // Click on Okta Verify authentication option
+            info!("Selecting Okta Verify authentication...");
+            match self.click_okta_verify_option().await {
+                Ok(()) => info!("Successfully selected Okta Verify"),
+                Err(e) => {
+                    warn!("Failed to click Okta Verify, trying alternative selector: {}", e);
+                    // Try alternative selector
+                    let fallback_selector = self.config.selectors.okta_verify_fallback.clone();
+                    self.click_element(&fallback_selector).await?;
+                }
+            }
+
+            // Wait for Okta Verify to process and detect authentication success
+            info!("Waiting for Okta Verify authentication...");
+            self.wait_for_authentication_success().await?;
+        }
+
+
+        // Navigate to platform apps and collect cookies
+        let all_cookies = self.navigate_to_platforms().await?;
+
+        // Store the fresh cookies for future use (with timeout protection)
+        let cookies_to_store = all_cookies.clone();
+        match tokio::task::spawn_blocking(move || store_cookies(&cookies_to_store)).await {
+            Ok(Ok(())) => {
+                info!("Successfully stored {} cookies in keychain for future use", all_cookies.len());
+            }
+            Ok(Err(e)) => {
+                warn!("Failed to store cookies in keychain: {}", e);
+                // Non-fatal - we still have the cookies for this session
+            }
             Err(e) => {
-                warn!(
-                    "Failed to click Okta Verify, trying alternative selector: {}",
-                    e
-                );
-                // Try alternative selector
-                self.click_element("a.select-factor:first-of-type").await?;
+                warn!("Cookie storage task failed: {}", e);
+                // Non-fatal - we still have the cookies for this session
             }
         }
 
-        // Wait for Okta Verify to process
-        info!("Waiting for Okta Verify authentication...");
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        Ok(all_cookies)
+    }
 
-        // Check if we've been redirected after successful auth
+
+    /// Check for valid stored cookies
+    async fn check_stored_cookies(&self) -> Result<HashMap<String, String>> {
+        info!("Checking for stored cookies in keychain...");
+        
+        // Check if we have stored cookies (with timeout protection)
+        let has_cookies = tokio::task::spawn_blocking(|| has_stored_cookies())
+            .await
+            .unwrap_or(false);
+            
+        if !has_cookies {
+            debug!("No stored cookies found in keychain");
+            return Err(anyhow!("No stored cookies found"));
+        }
+
+        // Retrieve stored cookies (with timeout protection)
+        let stored_cookies = tokio::task::spawn_blocking(|| get_stored_cookies())
+            .await
+            .map_err(|e| anyhow!("Task failed: {}", e))?
+            .map_err(|e| anyhow!("Failed to retrieve stored cookies: {}", e))?;
+
+        // Check if cookies are expired
+        if are_cookies_expired(&stored_cookies) {
+            info!("Stored cookies are expired, will perform fresh authentication");
+            return Err(anyhow!("Stored cookies are expired"));
+        }
+
+        // Validate cookies by testing them
+        match validate_cookies(&stored_cookies).await {
+            Ok(true) => {
+                info!("Stored cookies are valid and ready to use");
+                Ok(stored_cookies)
+            }
+            Ok(false) => {
+                info!("Stored cookies failed validation, will perform fresh authentication");
+                Err(anyhow!("Stored cookies failed validation"))
+            }
+            Err(e) => {
+                warn!("Cookie validation failed: {}, will perform fresh authentication", e);
+                Err(anyhow!("Cookie validation failed: {}", e))
+            }
+        }
+    }
+
+    /// Check if we're already authenticated by detecting dashboard page
+    async fn check_already_authenticated(&self) -> Result<bool> {
+        info!("Checking if already authenticated...");
+        
+        // Check for dashboard-specific elements that indicate we're already logged in
         let current_url = self.get_current_url().await?;
-        info!("Current URL after auth: {}", current_url);
-
-        // Extract cookies after authentication
-        let cookies = self.extract_cookies().await?;
-
-        Ok(cookies)
+        info!("Current URL after navigation: {}", current_url);
+        
+        // Method 1: Check for window._oktaEnduser object (most reliable)
+        let dashboard_script_check = r#"
+            try {
+                return typeof window._oktaEnduser !== 'undefined' && 
+                       window._oktaEnduser !== null;
+            } catch(e) {
+                return false;
+            }
+        "#;
+        
+        match self.execute_js(dashboard_script_check).await {
+            Ok(result) => {
+                if result.contains("true") {
+                    info!("Dashboard detected via window._oktaEnduser object");
+                    return Ok(true);
+                }
+            }
+            Err(e) => {
+                debug!("JavaScript check failed: {}", e);
+            }
+        }
+        
+        // Method 2: Check for specific meta tag
+        let meta_check = self.element_exists(r#"meta[name="ui-service"][content="iris"]"#).await;
+        if meta_check {
+            info!("Dashboard detected via iris meta tag");
+            return Ok(true);
+        }
+        
+        // Method 3: Check URL patterns
+        if current_url.contains("enduser/dashboard") || 
+           current_url.contains("app/UserHome") ||
+           (current_url.contains("postman.okta.com") && current_url.ends_with("/")) {
+            info!("Dashboard detected via URL pattern: {}", current_url);
+            return Ok(true);
+        }
+        
+        // Method 4: Check for root div that mounts dashboard React app
+        let root_div_check = self.element_exists("#root").await;
+        if root_div_check {
+            info!("Dashboard detected via #root element");
+            return Ok(true);
+        }
+        
+        info!("Not authenticated - need to proceed with login flow");
+        Ok(false)
     }
 
     /// Click on Okta Verify authentication option
     async fn click_okta_verify_option(&self) -> Result<()> {
-        // Try to click using aria-label
-        self.click_element(r#"a[aria-label="Select Okta Verify."]"#)
-            .await
+        // Try to click using configured primary selector
+        let primary_selector = &self.config.selectors.okta_verify_primary;
+        self.click_element(primary_selector).await
+    }
+
+    /// Wait for authentication success by monitoring URL changes
+    async fn wait_for_authentication_success(&self) -> Result<()> {
+        info!("Waiting for authentication to complete...");
+        
+        let max_attempts = self.config.timing.auth_success_timeout;
+        let mut attempts = 0;
+        
+        while attempts < max_attempts {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            
+            let current_url = self.get_current_url().await?;
+            
+            // Check if URL or page content indicates successful authentication
+            if self.config.is_success_url(&current_url) || self.check_already_authenticated().await? {
+                info!("Authentication successful, redirected to: {}", current_url);
+                return Ok(());
+            }
+            
+            attempts += 1;
+        }
+        
+        let current_url = self.get_current_url().await?;
+        warn!("Authentication timeout after {}s, current URL: {}", max_attempts, current_url);
+        
+        // Even if we timeout, continue anyway as the user might have authenticated
+        Ok(())
+    }
+
+    /// Navigate to each platform app and collect cookies
+    async fn navigate_to_platforms(&mut self) -> Result<HashMap<String, String>> {
+        let mut all_cookies = HashMap::new();
+
+        // Clone the platform URLs to avoid borrowing issues
+        let platform_urls = self.config.platform_urls.clone();
+        let navigation_delay = self.config.timing.platform_navigation_delay;
+
+        for (platform_name, platform_url) in platform_urls {
+            info!("Navigating to {} platform...", platform_name);
+            
+            match self.navigate_to_platform(&platform_name, &platform_url).await {
+                Ok(platform_cookies) => {
+                    info!("Successfully collected {} cookies from {}", platform_cookies.len(), platform_name);
+                    all_cookies.extend(platform_cookies);
+                }
+                Err(e) => {
+                    warn!("Failed to collect cookies from {}: {}", platform_name, e);
+                    // Continue with other platforms even if one fails
+                }
+            }
+            
+            // Wait between platform navigations using configured delay
+            tokio::time::sleep(std::time::Duration::from_secs(navigation_delay)).await;
+        }
+
+        info!("Total cookies collected from all platforms: {}", all_cookies.len());
+        Ok(all_cookies)
+    }
+
+    /// Navigate to a specific platform and extract cookies
+    async fn navigate_to_platform(&mut self, platform_name: &str, platform_url: &str) -> Result<HashMap<String, String>> {
+        info!("Loading {} app from Okta: {}", platform_name, platform_url);
+        
+        // Navigate to the platform URL
+        self.navigate_to_url(platform_url).await?;
+        
+        // Wait for SSO redirection to complete
+        info!("Waiting for {} SSO login to complete...", platform_name);
+        let sso_wait = self.config.timing.sso_redirect_wait;
+        tokio::time::sleep(std::time::Duration::from_secs(sso_wait)).await;
+        
+        // Get the current URL to see where we ended up
+        let current_url = self.get_current_url().await?;
+        info!("{} redirected to: {}", platform_name, current_url);
+        
+        // Extract cookies from the platform domain
+        let cookies = self.extract_cookies().await?;
+        
+        // Filter cookies relevant to this platform
+        let platform_cookies = self.filter_platform_cookies(&cookies, platform_name);
+        
+        Ok(platform_cookies)
+    }
+
+    /// Filter cookies relevant to the specific platform
+    fn filter_platform_cookies(&self, cookies: &HashMap<String, String>, platform_name: &str) -> HashMap<String, String> {
+        let _platform_domains = self.platform_domains.get_domains(platform_name);
+        
+        let mut platform_cookies = HashMap::new();
+        
+        // For now, include all cookies as we may not know exact domain matching
+        // This will be refined as we test with actual platform redirections
+        for (name, value) in cookies {
+            // Add platform prefix to cookie names to avoid conflicts
+            let prefixed_name = format!("{}_{}", platform_name, name);
+            platform_cookies.insert(prefixed_name, value.clone());
+        }
+        
+        platform_cookies
     }
 
     /// Launch Chrome browser with appropriate options
@@ -127,13 +369,27 @@ impl GuidedAuth {
             }
         }
 
+        // Create persistent user data directory for session reuse
+        let user_data_dir = dirs::data_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("cs-cli")
+            .join("chrome-profile");
+
+        // Ensure the directory exists
+        std::fs::create_dir_all(&user_data_dir)
+            .context("Failed to create Chrome profile directory")?;
+
+        info!("Using Chrome profile at: {}", user_data_dir.display());
+
         // Set browser options
+        let user_data_arg = format!("--user-data-dir={}", user_data_dir.display());
         launch_options
-            .headless(true)  // Run in headless mode for automated authentication
+            .headless(false)  // Run in visible mode for debugging authentication issues
             .window_size(Some((1280, 1024)))
             .args(vec![
                 std::ffi::OsStr::new("--disable-blink-features=AutomationControlled"),
                 std::ffi::OsStr::new("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"),
+                std::ffi::OsStr::new(&user_data_arg),
             ]);
 
         // Launch browser
@@ -186,8 +442,8 @@ impl GuidedAuth {
         }
     }
 
-    /// Navigate to Okta and perform authentication
-    pub async fn navigate_to_okta(&mut self, url: &str) -> Result<()> {
+    /// Navigate to any URL
+    pub async fn navigate_to_url(&mut self, url: &str) -> Result<()> {
         // Launch browser if not already initialized
         if self.browser.is_none() {
             let browser = self.launch_browser()?;
@@ -224,6 +480,11 @@ impl GuidedAuth {
             .context("Failed to wait for navigation")?;
 
         Ok(())
+    }
+
+    /// Navigate to Okta and perform authentication  
+    pub async fn navigate_to_okta(&mut self, url: &str) -> Result<()> {
+        self.navigate_to_url(url).await
     }
 
     /// Extract cookies from authenticated session

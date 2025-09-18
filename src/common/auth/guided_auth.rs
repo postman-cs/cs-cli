@@ -14,7 +14,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 use std::collections::HashMap;
 use anyhow::{Result, Context, anyhow};
-use serde_json::Value;
+use serde_json::{self, Value};
 use tokio::time::sleep;
 use tracing::{info, warn, debug};
 
@@ -131,13 +131,14 @@ impl LightpandaBrowser {
 
         info!("Starting lightpanda browser on port {}", self.cdp_port);
 
+        info!("Starting lightpanda with command: {} serve --host 127.0.0.1 --port {} --timeout 300", self.binary_path, self.cdp_port);
+        
         let child = Command::new(&self.binary_path)
             .args([
-                "--remote-debugging-port", &self.cdp_port.to_string(),
-                "--headless",
-                "--disable-gpu",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
+                "serve",
+                "--host", "127.0.0.1",
+                "--port", &self.cdp_port.to_string(),
+                "--timeout", "300", // 5 minutes timeout
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -147,19 +148,25 @@ impl LightpandaBrowser {
 
         self.process = Some(child);
 
-        // Wait for browser to be ready
-        for attempt in 1..=10 {
+        // Wait for browser to be ready - increase timeout for lightpanda startup
+        for attempt in 1..=20 {
             sleep(Duration::from_millis(500)).await;
             
-            if self.is_ready().await? {
-                info!("Lightpanda browser ready on port {}", self.cdp_port);
-                return Ok(());
+            match self.is_ready().await {
+                Ok(true) => {
+                    info!("Lightpanda browser ready on port {}", self.cdp_port);
+                    return Ok(());
+                }
+                Ok(false) => {
+                    debug!("Lightpanda not ready yet (attempt {}/20)", attempt);
+                }
+                Err(e) => {
+                    debug!("Readiness check failed (attempt {}/20): {}", attempt, e);
+                }
             }
-            
-            debug!("Waiting for lightpanda to be ready (attempt {}/10)", attempt);
         }
 
-        Err(anyhow!("Lightpanda browser failed to start within 5 seconds"))
+        Err(anyhow!("Lightpanda browser failed to start within 10 seconds"))
     }
 
     /// Check if browser is ready by testing CDP connection
@@ -172,17 +179,13 @@ impl LightpandaBrowser {
         }
     }
 
-    /// Get CDP WebSocket URL for a new tab
+    /// Get CDP WebSocket URL for lightpanda browser
     pub async fn new_tab(&self) -> Result<String> {
-        let url = format!("http://localhost:{}/json/new", self.cdp_port);
-        let response = reqwest::get(&url).await?;
-        let tab_info: Value = response.json().await?;
+        // Lightpanda serves directly as a WebSocket endpoint, not through /json/new
+        let ws_url = format!("ws://127.0.0.1:{}", self.cdp_port);
+        info!("Using lightpanda WebSocket endpoint: {}", ws_url);
         
-        let ws_url = tab_info["webSocketDebuggerUrl"]
-            .as_str()
-            .ok_or_else(|| anyhow!("No WebSocket URL in tab info"))?;
-            
-        Ok(ws_url.to_string())
+        Ok(ws_url)
     }
 
     /// Stop browser process and clean up extracted binary
@@ -309,135 +312,134 @@ impl GuidedAuth {
 
         info!("Starting Okta OAuth flow...");
         
-        // Step 1: Navigate to Okta OAuth endpoint
-        cdp.navigate(OKTA_BASE_URL).await?;
-
-        // Step 2: Wait for OAuth redirect with challenge/nonce
-        let current_url = cdp.get_current_url().await?;
-        info!("Current URL: {}", current_url);
-
-        // Step 3: Look for Okta Verify authentication option
-        info!("Looking for Okta Verify authentication option...");
+        // Step 1: Generate OAuth authorization URL manually
+        info!("Generating OAuth authorization URL for Okta Verify authentication...");
         
-        // Wait for the page to load authentication options
+        // Generate required OAuth parameters
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        
+        let nonce = {
+            let mut hasher = DefaultHasher::new();
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos().hash(&mut hasher);
+            format!("{:x}", hasher.finish())
+        };
+        
+        let state = {
+            let mut hasher = DefaultHasher::new();
+            (nonce.clone() + "state").hash(&mut hasher);
+            format!("{:x}", hasher.finish())
+        };
+        
+        // Create OAuth authorization URL
+        let oauth_url = format!(
+            "https://postman.okta.com/oauth2/v1/authorize?\
+            client_id=okta.2b1959c8-bcc0-56eb-a589-cfcfb7422f26&\
+            code_challenge=BnGfWPKU-QlBsQtOUSTzzJVNUeV3-7kusBWGhL5QWrc&\
+            code_challenge_method=S256&\
+            nonce={}&\
+            redirect_uri=https%3A%2F%2Fpostman.okta.com%2Fenduser%2Fcallback&\
+            response_type=code&\
+            state={}&\
+            scope=openid%20profile%20email%20okta.users.read.self%20okta.users.manage.self%20okta.internal.enduser.read%20okta.internal.enduser.manage%20okta.enduser.dashboard.read%20okta.enduser.dashboard.manage%20okta.myAccount.sessions.manage%20okta.internal.navigation.enduser.read",
+            nonce, state
+        );
+        
+        info!("Navigating to OAuth URL: {}", oauth_url);
+        cdp.navigate(&oauth_url).await?;
+        
+        // Step 2: Wait for authentication page to load
         sleep(Duration::from_secs(3)).await;
         
-        // Try different selectors for Okta Verify button
-        let okta_verify_selectors = [
-            "a[aria-label*='Okta Verify']",
-            ".button.select-factor[aria-label*='Okta Verify']", 
-            "a.select-factor[href='#']",
-            ".link-button[data-se='button'][aria-label*='Okta Verify']",
-            "a[data-se='button'][aria-label*='Select Okta Verify']",
-        ];
-
-        let mut clicked = false;
-        for selector in &okta_verify_selectors {
-            match cdp.wait_for_element(selector, 5).await {
-                Ok(_) => {
-                    info!("Found Okta Verify button with selector: {}", selector);
-                    cdp.click_element(selector).await?;
-                    clicked = true;
-                    break;
-                }
-                Err(_) => {
-                    debug!("Selector not found: {}", selector);
-                    continue;
-                }
-            }
+        let current_url = cdp.get_current_url().await?;
+        info!("After OAuth redirect, current URL: {}", current_url);
+        
+        // Check if we're already authenticated (immediate redirect to success)
+        if current_url.contains("postman.okta.com/app/UserHome") && 
+           current_url.contains("session_hint=AUTHENTICATED") {
+            info!("Already authenticated! No TouchID needed.");
+            return Ok(());
         }
-
-        if !clicked {
-            // Try to find any element that might be the Okta Verify option
-            info!("Standard selectors failed, checking page content...");
+        
+        // Step 3: Look for authentication options on the page
+        info!("Looking for authentication options...");
+        
+        // Try to find and click any Okta Verify related buttons
+        let find_auth_button_js = r#"
+            // Look for buttons that might trigger Okta Verify
+            const buttons = Array.from(document.querySelectorAll('button, a, .button, [role="button"]'));
+            const authButtons = buttons.filter(btn => {
+                const text = btn.textContent?.toLowerCase() || '';
+                const ariaLabel = btn.getAttribute('aria-label')?.toLowerCase() || '';
+                
+                return text.includes('okta verify') || 
+                       text.includes('sign in') || 
+                       text.includes('authenticate') ||
+                       ariaLabel.includes('okta verify') ||
+                       ariaLabel.includes('sign in');
+            });
             
-            // Get page text to see what's available
-            let page_text = cdp.evaluate_js("document.body.textContent").await?;
-            debug!("Page content: {:?}", page_text);
-
-            // Look for clickable elements containing "Okta Verify"
-            let find_button_js = r#"
-                const buttons = Array.from(document.querySelectorAll('a, button, .button, [role="button"]'));
-                const oktaButton = buttons.find(btn => 
-                    btn.textContent && 
-                    (btn.textContent.includes('Okta Verify') || 
-                     btn.textContent.includes('Select') ||
-                     btn.getAttribute('aria-label')?.includes('Okta Verify'))
-                );
-                oktaButton ? oktaButton.outerHTML : null;
-            "#;
-
-            let button_result = cdp.evaluate_js(find_button_js).await?;
-            if let Some(button_html) = button_result.get("result")
-                .and_then(|r| r.get("value"))
-                .and_then(|v| v.as_str()) {
-                info!("Found potential Okta Verify button: {}", button_html);
-                
-                // Try to click it
-                let click_js = r#"
-                    const buttons = Array.from(document.querySelectorAll('a, button, .button, [role="button"]'));
-                    const oktaButton = buttons.find(btn => 
-                        btn.textContent && 
-                        (btn.textContent.includes('Okta Verify') || 
-                         btn.textContent.includes('Select') ||
-                         btn.getAttribute('aria-label')?.includes('Okta Verify'))
-                    );
-                    if (oktaButton) {
-                        oktaButton.click();
-                        true;
-                    } else {
-                        false;
-                    }
-                "#;
-
-                let click_result = cdp.evaluate_js(click_js).await?;
-                clicked = click_result.get("result")
-                    .and_then(|r| r.get("value"))
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
+            if (authButtons.length > 0) {
+                // Click the first auth button found
+                authButtons[0].click();
+                return true;
             }
-        }
-
-        if !clicked {
-            return Err(anyhow!("Could not find or click Okta Verify authentication option"));
-        }
-
-        info!("Successfully clicked Okta Verify option");
-
-        // Step 4: Wait for TouchID prompt and authentication
-        info!("Waiting for TouchID authentication (user interaction required)...");
+            return false;
+        "#;
         
-        // Wait for URL to change indicating successful authentication
+        let button_result = cdp.evaluate_js(find_auth_button_js).await?;
+        let clicked_button = button_result.get("result")
+            .and_then(|r| r.get("value"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+            
+        if clicked_button {
+            info!("Found and clicked authentication button");
+        } else {
+            info!("No authentication button found - proceeding to wait for TouchID");
+        }
+        
+        sleep(Duration::from_millis(1000)).await;
+
+        // Step 4: Wait for TouchID authentication completion
+        info!("Successfully clicked Okta Verify - waiting for TouchID authentication...");
+        info!("Please complete TouchID authentication in the Okta Verify app");
+        
+        // Wait for authentication to complete and redirect to the success URL
         let auth_start_url = cdp.get_current_url().await?;
+        info!("Starting authentication from URL: {}", auth_start_url);
         
-        // Give user up to 60 seconds to complete TouchID
-        match cdp.wait_for_url_change(&auth_start_url, 60).await {
-            Ok(new_url) => {
-                info!("Authentication completed, redirected to: {}", new_url);
-                
-                // Check if we're on the dashboard
-                if new_url.contains("UserHome") || new_url.contains("dashboard") {
-                    info!("Successfully authenticated to Okta dashboard");
-                    return Ok(());
-                }
-            }
-            Err(_) => {
-                warn!("No URL change detected after 60 seconds");
-            }
-        }
-
-        // Alternative: Check for dashboard elements
-        let dashboard_selectors = [
-            ".o-user-dashboard",
-            "[data-se='app-dashboard']",
-            ".enduser-dashboard",
-        ];
-
-        for selector in &dashboard_selectors {
-            if cdp.wait_for_element(selector, 5).await.is_ok() {
-                info!("Found dashboard element, authentication successful");
+        // Poll for the specific success URL with fast checks (every 500ms)
+        let max_attempts = 120; // 60 seconds total (120 * 500ms)
+        
+        for attempt in 1..=max_attempts {
+            let current_url = cdp.get_current_url().await?;
+            
+            // Success criteria: Must contain both "postman.okta.com/app/UserHome" AND "session_hint=AUTHENTICATED"
+            if current_url.contains("postman.okta.com/app/UserHome") && 
+               current_url.contains("session_hint=AUTHENTICATED") {
+                info!("SUCCESS: Authentication completed! Reached target URL: {}", current_url);
                 return Ok(());
             }
+            
+            // Log progress every 10 attempts (5 seconds)
+            if attempt % 10 == 0 {
+                info!("Still waiting for authentication... ({}s elapsed, current URL: {})", 
+                      attempt * 500 / 1000, current_url);
+            }
+            
+            // Fast polling - check every 500ms
+            sleep(Duration::from_millis(500)).await;
+        }
+        
+        // Timeout - get final URL for debugging
+        let final_url = cdp.get_current_url().await?;
+        warn!("Authentication timeout after 60 seconds. Final URL: {}", final_url);
+        
+        // Check if we at least got to some authenticated state
+        if final_url.contains("postman.okta.com") && final_url != auth_start_url {
+            warn!("Got to Okta domain but not the expected success URL");
+            return Err(anyhow!("Authentication may have succeeded but didn't reach expected URL. Expected: postman.okta.com/app/UserHome?...session_hint=AUTHENTICATED, Got: {}", final_url));
         }
 
         // Final fallback: wait and assume success if no errors

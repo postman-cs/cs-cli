@@ -61,8 +61,51 @@ impl CdpClient {
         Ok(())
     }
 
-    /// Enable required CDP domains
+    /// Enable required CDP domains and create browser context for lightpanda
     async fn enable_domains(&mut self) -> Result<()> {
+        // For lightpanda, we need to create a browser context first
+        info!("Creating browser context for lightpanda...");
+        let context_result = self.send_command("Target.createBrowserContext", json!({})).await?;
+        
+        // Extract context ID if provided
+        let context_id = context_result.get("browserContextId")
+            .and_then(|id| id.as_str())
+            .map(|id| id.to_string());
+        
+        if let Some(ctx_id) = &context_id {
+            info!("Created browser context: {}", ctx_id);
+        }
+        
+        // Create a new target/page within the context
+        info!("Creating new page target...");
+        let target_params = if let Some(ctx_id) = context_id {
+            json!({
+                "url": "about:blank",
+                "browserContextId": ctx_id
+            })
+        } else {
+            json!({
+                "url": "about:blank"
+            })
+        };
+        
+        let target_result = self.send_command("Target.createTarget", target_params).await?;
+        let target_id = target_result.get("targetId")
+            .and_then(|id| id.as_str())
+            .ok_or_else(|| anyhow!("No target ID returned from createTarget"))?;
+        
+        info!("Created page target: {}", target_id);
+        
+        // Attach to the created target
+        let attach_params = json!({
+            "targetId": target_id,
+            "flatten": true
+        });
+        
+        self.send_command("Target.attachToTarget", attach_params).await?;
+        info!("Attached to target successfully");
+        
+        // Now enable required domains
         // Enable Page domain for navigation
         self.send_command("Page.enable", json!({})).await?;
         
@@ -72,6 +115,12 @@ impl CdpClient {
         // Enable Network domain for cookie management
         self.send_command("Network.enable", json!({})).await?;
         
+        // Enable Target domain for target management
+        self.send_command("Target.setDiscoverTargets", json!({
+            "discover": true
+        })).await?;
+        
+        info!("All CDP domains enabled successfully");
         Ok(())
     }
 
@@ -115,8 +164,10 @@ impl CdpClient {
             let message = message.context("WebSocket error")?;
             
             if let Message::Text(text) = message {
+                debug!("Received CDP message: {}", text);
+                
                 let parsed: Value = serde_json::from_str(&text)
-                    .context("Failed to parse CDP message")?;
+                    .with_context(|| format!("Failed to parse CDP message: {}", text))?;
 
                 // Check if this is a response to our command
                 if let Some(id) = parsed.get("id").and_then(|v| v.as_u64()) {

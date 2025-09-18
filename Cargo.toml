@@ -71,6 +71,10 @@ atty = "0.2"               # Check if running in interactive terminal
 ratatui = "0.28"           # Rich terminal UI framework for custom widgets
 crossterm = "0.28"         # Cross-platform terminal control
 
+# Guided authentication with headless browser
+tokio-tungstenite = "0.21" # WebSocket client for CDP communication
+futures-util = "0.3"       # Future utilities for WebSocket streams
+
 # Configuration - figment for production-grade config management
 figment = { version = "0.10", features = ["env", "json", "toml", "yaml"] }
 
@@ -141,6 +145,10 @@ codegen-units = 4          # Balance between compile time and optimization
 # Windows-specific dependencies
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["winuser"] }
+
+# macOS-specific dependencies for process detection
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"               # System calls for process detection
 
 # Patched dependencies required for impit browser impersonation
 [patch.crates-io]

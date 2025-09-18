@@ -16,11 +16,25 @@ use ratatui::{
     Frame,
 };
 use std::collections::HashSet;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::time::Instant;
 use tokio::sync::mpsc;
+use crossterm::terminal;
 
 /// Result type for TUI operations
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+/// Debug logging function that writes to a file without interfering with TUI
+fn debug_log(message: &str) {
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("mouse_debug.log")
+    {
+        let _ = writeln!(file, "{}", message);
+    }
+}
 
 /// Messages from extraction thread to TUI
 #[derive(Debug, Clone)]
@@ -87,6 +101,7 @@ pub struct TuiApp {
     pub selected_customers: HashSet<String>,
     pub highlight_index: usize,
     pub in_dropdown: bool,
+    pub dropdown_render_area: Option<ratatui::layout::Rect>, // Store actual render area for mouse handling
 
     // Time selection
     pub days_input: String,
@@ -115,6 +130,9 @@ pub struct TuiApp {
     pub last_suggestion_area: Option<ratatui::layout::Rect>,
     pub last_time_input_area: Option<ratatui::layout::Rect>,
     pub last_content_area: Option<ratatui::layout::Rect>,
+
+    // Store the actual rendered area of the suggestions list
+    pub suggestions_render_area: Option<ratatui::layout::Rect>,
 }
 
 impl Default for TuiApp {
@@ -125,6 +143,9 @@ impl Default for TuiApp {
 
 impl TuiApp {
     pub fn new() -> Self {
+        // Clear debug log file and start new session
+        let _ = std::fs::write("mouse_debug.log", "=== NEW TUI SESSION ===\n");
+        
         Self {
             state: AppState::Authenticating,
             auth_progress: 0.0,
@@ -136,6 +157,7 @@ impl TuiApp {
             selected_customers: HashSet::new(),
             highlight_index: 0,
             in_dropdown: false,
+            dropdown_render_area: None,
             days_input: "180".to_string(),
             days_cursor: 3,
             content_selection: 2,
@@ -150,6 +172,7 @@ impl TuiApp {
             last_suggestion_area: None,
             last_time_input_area: None,
             last_content_area: None,
+            suggestions_render_area: None,
         }
     }
 
@@ -412,34 +435,50 @@ impl TuiApp {
     }
 
     fn move_up(&mut self) {
-        if !self.suggestions.is_empty() {
+        if !self.suggestions.is_empty() && self.suggestions.len() > 0 {
             if !self.in_dropdown {
                 self.in_dropdown = true;
-                self.highlight_index = self.suggestions.len() - 1;
+                self.highlight_index = self.suggestions.len().saturating_sub(1);
             } else if self.highlight_index > 0 {
-                self.highlight_index -= 1;
+                self.highlight_index = self.highlight_index.saturating_sub(1);
+            }
+            // Safety check to prevent out of bounds
+            if self.highlight_index >= self.suggestions.len() {
+                self.highlight_index = self.suggestions.len().saturating_sub(1);
             }
         }
     }
 
     fn move_down(&mut self) {
-        if !self.suggestions.is_empty() {
+        if !self.suggestions.is_empty() && self.suggestions.len() > 0 {
             if !self.in_dropdown {
                 self.in_dropdown = true;
                 self.highlight_index = 0;
-            } else if self.highlight_index < self.suggestions.len() - 1 {
-                self.highlight_index += 1;
+            } else if self.highlight_index < self.suggestions.len().saturating_sub(1) {
+                self.highlight_index = (self.highlight_index + 1).min(self.suggestions.len().saturating_sub(1));
+            }
+            // Safety check to prevent out of bounds
+            if self.highlight_index >= self.suggestions.len() {
+                self.highlight_index = self.suggestions.len().saturating_sub(1);
             }
         }
     }
 
     fn toggle_selection(&mut self) {
-        if self.in_dropdown && self.highlight_index < self.suggestions.len() {
-            let item = self.suggestions[self.highlight_index].clone();
-            if self.selected_customers.contains(&item) {
-                self.selected_customers.remove(&item);
-            } else {
-                self.selected_customers.insert(item);
+        // Clean implementation - no debug logging for normal operation
+        if self.in_dropdown && 
+           !self.suggestions.is_empty() && 
+           self.highlight_index < self.suggestions.len() &&
+           self.suggestions.len() > 0 {
+            
+            // Double-check bounds before array access
+            if let Some(item) = self.suggestions.get(self.highlight_index) {
+                let item = item.clone();
+                if self.selected_customers.contains(&item) {
+                    self.selected_customers.remove(&item);
+                } else {
+                    self.selected_customers.insert(item);
+                }
             }
         }
     }
@@ -451,24 +490,98 @@ impl TuiApp {
         }
     }
 
-    fn handle_customer_mouse(&mut self, mouse: MouseEvent) -> bool {
-        match mouse.kind {
-            MouseEventKind::Down(MouseButton::Left) => {
-                let x = mouse.column as usize;
-                let y = mouse.row as usize;
+    fn handle_dropdown_click(&mut self, y: usize, is_click: bool) -> bool {
+        // Multiple safety checks to prevent crashes
+        if self.suggestions.is_empty() || self.suggestions.len() == 0 {
+            return false;
+        }
 
-                // Check if clicking in suggestions area (with proper bounds checking)
-                if y >= 8 && !self.suggestions.is_empty() && x < 80 {
-                    // Reasonable horizontal boundary for suggestions area
-                    let suggestion_index = (y - 8).min(self.suggestions.len() - 1);
+        // Ensure highlight_index is always valid
+        if self.highlight_index >= self.suggestions.len() {
+            self.highlight_index = 0;
+        }
+
+        // If dropdown isn't open but we have suggestions, open it first
+        if !self.in_dropdown {
+            self.in_dropdown = true;
+        }
+
+        // Use the stored render area if available (set during draw_customer_selection)
+        if let Some(area) = self.suggestions_render_area {
+            // Check if mouse y coordinate is within the suggestions area
+            if y >= area.y as usize && y < (area.y + area.height) as usize {
+                // Convert to widget-relative coordinates
+                let relative_y = y.saturating_sub(area.y as usize);
+
+                // Direct mapping: each row in the List corresponds to one suggestion
+                let suggestion_index = relative_y;
+
+                // Debug logging for clicks
+                if is_click {
+                    let terminal_size = terminal::size().unwrap_or((80, 24));
+                    debug_log(&format!("CLICK: Terminal {}x{}, y={}, area.y={}, relative_y={}, index={}",
+                                      terminal_size.0, terminal_size.1, y, area.y, relative_y, suggestion_index));
                     if suggestion_index < self.suggestions.len() {
-                        self.in_dropdown = true;
-                        self.highlight_index = suggestion_index;
-                        self.toggle_selection(); // Select the clicked item
-                        self.error_message = None;
+                        debug_log(&format!("  -> Mapped to item {} ('{}')\n",
+                                          suggestion_index, self.suggestions[suggestion_index]));
                     }
                 }
-                false
+
+                // Bounds check
+                if suggestion_index < self.suggestions.len() {
+                    if is_click {
+                        self.highlight_index = suggestion_index;
+                        self.toggle_selection();
+                        self.error_message = None;
+                        self.in_dropdown = true;
+                        return false; // Don't trigger redraw to avoid crash
+                    } else {
+                        // Hover effect
+                        if suggestion_index != self.highlight_index {
+                            self.highlight_index = suggestion_index;
+                            return false; // Don't trigger redraw to avoid crash
+                        }
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    fn handle_customer_mouse(&mut self, mouse: MouseEvent) -> bool {
+        let row = mouse.row as usize;
+        let col = mouse.column as usize;
+        
+        // Comprehensive coordinate validation
+        if row > 200 || col > 500 || row == 0 {
+            return false;
+        }
+
+        // Additional safety for suggestions state
+        if self.highlight_index >= self.suggestions.len() && !self.suggestions.is_empty() {
+            self.highlight_index = 0;
+        }
+
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                // Simple click logging
+                let terminal_size = terminal::size().unwrap_or((80, 24));
+                debug_log(&format!("Click: {}x{} at row {} -> ", terminal_size.0, terminal_size.1, row));
+                
+                // Always handle clicks
+                self.handle_dropdown_click(row, true)
+            }
+            MouseEventKind::Moved => {
+                // Process hover if we have suggestions (no logging for moves)
+                if !self.suggestions.is_empty() && self.suggestions.len() > 0 {
+                    if !self.in_dropdown {
+                        self.in_dropdown = true;
+                    }
+                    self.handle_dropdown_click(row, false)
+                } else {
+                    false
+                }
             }
             MouseEventKind::ScrollUp => {
                 self.move_up();
@@ -579,7 +692,7 @@ impl TuiApp {
 }
 
 /// Draw the complete TUI
-pub fn draw_tui(f: &mut Frame, app: &TuiApp) {
+pub fn draw_tui(f: &mut Frame, app: &mut TuiApp) {
     match app.state {
         AppState::Authenticating => {
             draw_authentication_ui(f, app);
@@ -605,7 +718,7 @@ pub fn draw_tui(f: &mut Frame, app: &TuiApp) {
     }
 }
 
-fn draw_selection_ui(f: &mut Frame, app: &TuiApp) {
+fn draw_selection_ui(f: &mut Frame, app: &mut TuiApp) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -653,7 +766,7 @@ fn draw_selection_ui(f: &mut Frame, app: &TuiApp) {
     draw_footer(f, chunks[2], &app.state);
 }
 
-fn draw_customer_selection(f: &mut Frame, area: Rect, app: &TuiApp) {
+fn draw_customer_selection(f: &mut Frame, area: Rect, app: &mut TuiApp) {
     // Create layout based on whether we have an error message
     let chunks = if app.error_message.is_some() {
         Layout::default()
@@ -731,7 +844,7 @@ fn draw_customer_selection(f: &mut Frame, area: Rect, app: &TuiApp) {
                 .enumerate()
                 .map(|(i, s)| {
                     let mut style = Style::default();
-                    if app.in_dropdown && i == app.highlight_index {
+                    if app.in_dropdown && i == app.highlight_index && app.highlight_index < app.suggestions.len() {
                         style = style.bg(Color::DarkGray);
                     }
                     if app.selected_customers.contains(s) {
@@ -745,6 +858,8 @@ fn draw_customer_selection(f: &mut Frame, area: Rect, app: &TuiApp) {
                 })
                 .collect();
             let list = List::new(items);
+            // Store the actual render area for mouse hit testing
+            app.suggestions_render_area = Some(chunks[3]);
             f.render_widget(list, chunks[3]);
         }
     } else {
@@ -756,7 +871,7 @@ fn draw_customer_selection(f: &mut Frame, area: Rect, app: &TuiApp) {
                 .enumerate()
                 .map(|(i, s)| {
                     let mut style = Style::default();
-                    if app.in_dropdown && i == app.highlight_index {
+                    if app.in_dropdown && i == app.highlight_index && app.highlight_index < app.suggestions.len() {
                         style = style.bg(Color::DarkGray);
                     }
                     if app.selected_customers.contains(s) {
@@ -770,6 +885,8 @@ fn draw_customer_selection(f: &mut Frame, area: Rect, app: &TuiApp) {
                 })
                 .collect();
             let list = List::new(items);
+            // Store the actual render area for mouse hit testing
+            app.suggestions_render_area = Some(chunks[2]);
             f.render_widget(list, chunks[2]);
         }
     }

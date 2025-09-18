@@ -1,5 +1,5 @@
 use super::CSRFManager;
-use crate::common::auth::{Cookie, CookieExtractor};
+use crate::common::auth::{Cookie, CookieExtractor, GuidedAuth};
 use crate::common::config::AuthSettings;
 use crate::common::http::HttpClient; // For trait methods
 use crate::gong::api::client::GongHttpClient;
@@ -184,8 +184,41 @@ impl GongAuthenticator {
             Some(result) => result,
             None => {
                 error!("All browser cookies are expired or invalid");
-                info!("Please log into Gong in any browser and try again");
-                return Ok(false);
+                
+                // Try guided authentication as fallback
+                info!("Attempting guided authentication via Okta SSO...");
+                match self.try_guided_authentication().await {
+                    Ok(true) => {
+                        info!("Guided authentication successful, retrying cookie extraction...");
+                        // Give the browser session a moment to establish
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        
+                        // Retry cookie extraction after guided auth
+                        let retry_cookies = self.cookie_extractor.extract_all_browsers_cookies();
+                        if let Some((cookies, browser)) = retry_cookies.into_iter().next() {
+                            if !cookies.is_empty() {
+                                info!("Found fresh cookies after guided authentication");
+                                (cookies, browser)
+                            } else {
+                                error!("Guided authentication completed but no cookies found");
+                                return Ok(false);
+                            }
+                        } else {
+                            error!("Guided authentication completed but no cookies found");
+                            return Ok(false);
+                        }
+                    }
+                    Ok(false) => {
+                        info!("Guided authentication was not attempted");
+                        info!("Please log into Gong in any browser and try again");
+                        return Ok(false);
+                    }
+                    Err(e) => {
+                        warn!("Guided authentication failed: {}", e);
+                        info!("Please log into Gong in any browser and try again");
+                        return Ok(false);
+                    }
+                }
             }
         };
 
@@ -520,5 +553,70 @@ impl GongAuthenticator {
     /// Get the Gong cell identifier
     pub fn get_cell(&self) -> Option<&str> {
         self.gong_cookies.as_ref().map(|c| c.cell.as_str())
+    }
+
+    /// Attempt guided authentication via Okta SSO
+    /// 
+    /// Returns Ok(true) if guided auth was attempted and completed successfully,
+    /// Ok(false) if guided auth was not attempted (user declined),
+    /// Err if guided auth failed with errors.
+    async fn try_guided_authentication(&self) -> Result<bool> {
+        info!("Checking if guided authentication is available...");
+
+        // Only attempt guided auth on macOS where we can detect/launch Okta Verify
+        #[cfg(not(target_os = "macos"))]
+        {
+            info!("Guided authentication is only available on macOS");
+            return Ok(false);
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            use inquire::Confirm;
+
+            // Ask user if they want to try guided authentication
+            let should_attempt = match Confirm::new("No valid browser cookies found. Would you like to try guided Okta authentication?")
+                .with_default(true)
+                .with_help_message("This will open a headless browser to authenticate via Okta SSO")
+                .prompt() {
+                Ok(choice) => choice,
+                Err(_) => {
+                    debug!("User declined guided authentication prompt");
+                    return Ok(false);
+                }
+            };
+
+            if !should_attempt {
+                info!("User declined guided authentication");
+                return Ok(false);
+            }
+
+            info!("Starting guided Okta authentication...");
+
+            // Create guided auth instance and attempt authentication
+            let mut guided_auth = GuidedAuth::new();
+            
+            match guided_auth.authenticate().await {
+                Ok(collected_cookies) => {
+                    info!("Guided authentication completed successfully");
+                    info!("Collected cookies for {} platforms", collected_cookies.len());
+                    
+                    // Log which platforms got cookies (without showing actual cookie values)
+                    for (platform, cookie_str) in &collected_cookies {
+                        info!("Platform {}: {} characters of cookie data", platform, cookie_str.len());
+                    }
+
+                    // The cookies should now be available in the browser for extraction
+                    // Return success and let the caller retry cookie extraction
+                    Ok(true)
+                }
+                Err(e) => {
+                    error!("Guided authentication failed: {}", e);
+                    Err(CsCliError::Authentication(format!(
+                        "Guided authentication failed: {}", e
+                    )))
+                }
+            }
+        }
     }
 }

@@ -111,7 +111,7 @@ pub async fn run_gong_tui(config: AppConfig) -> Result<ParsedCommand> {
         }
 
         // Draw UI
-        terminal.draw(|f| draw_tui(f, &app))?;
+        terminal.draw(|f| draw_tui(f, &mut app))?;
 
         // Handle input
         if event::poll(Duration::from_millis(100))? {

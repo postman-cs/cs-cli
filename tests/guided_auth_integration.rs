@@ -132,8 +132,6 @@ async fn test_chrome_browser_launch() {
 async fn test_chrome_detection() {
     println!("Testing Chrome browser detection...");
 
-    let guided_auth = GuidedAuth::new();
-
     // Check if Chrome exists at expected locations
     let chrome_paths = vec![
         #[cfg(target_os = "macos")]

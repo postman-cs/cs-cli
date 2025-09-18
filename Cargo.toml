@@ -72,9 +72,8 @@ ratatui = "0.28"           # Rich terminal UI framework for custom widgets
 crossterm = "0.28"         # Cross-platform terminal control
 
 # Guided authentication with headless browser
-tokio-tungstenite = "0.21" # WebSocket client for CDP communication
-futures-util = "0.3"       # Future utilities for WebSocket streams
-zstd = "0.13"              # Compression for embedded lightpanda binary
+headless_chrome = "1.0"    # Chrome browser automation with CDP support
+futures-util = "0.3"       # Future utilities for async streams
 
 # Configuration - figment for production-grade config management
 figment = { version = "0.10", features = ["env", "json", "toml", "yaml"] }

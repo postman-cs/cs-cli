@@ -5,7 +5,6 @@
 //! macOS-only build.
 
 pub mod browser_auth;
-pub mod cdp_client;
 pub mod cli_unlock;
 pub mod cookie_extractor;
 pub mod guided_auth;

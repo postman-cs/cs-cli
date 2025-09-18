@@ -1,217 +1,18 @@
-//! Guided authentication using lightpanda browser for Okta SSO
-//! 
-//! This module handles automated authentication to Okta when cookies are not available
-//! from existing browser sessions. It uses lightpanda headless browser to:
-//! 
-//! 1. Check if Okta Verify app is running
-//! 2. Navigate to postman.okta.com OAuth flow
-//! 3. Click the Okta Verify authentication option
-//! 4. Wait for TouchID authentication
-//! 5. Navigate to each app (Gong, Slack, Gainsight, Salesforce) to establish cookies
-//! 6. Extract cookies for subsequent API calls
+//! Guided authentication module for automating Okta SSO login
+//!
+//! This module provides browser automation for guided authentication through Okta SSO.
+//! It uses headless Chrome to automate the login process and extract session cookies.
 
-use std::process::{Command, Stdio};
-use std::time::Duration;
 use std::collections::HashMap;
+use std::sync::Arc;
 use anyhow::{Result, Context, anyhow};
-use serde_json::{self, Value};
-use tokio::time::sleep;
-use tracing::{info, warn, debug};
+use headless_chrome::{Browser, LaunchOptions, Tab};
+use tracing::{info, debug, warn};
 
-use super::cdp_client::CdpClient;
-
-/// Embedded compressed lightpanda binary for Apple Silicon macOS
-#[cfg(target_arch = "aarch64")]
-const LIGHTPANDA_COMPRESSED: &[u8] = include_bytes!("../../../bundled/lightpanda/lightpanda-aarch64-macos.zst");
-
-/// Binary name for the extracted executable
-const LIGHTPANDA_EXECUTABLE_NAME: &str = "lightpanda";
-
-/// URLs for Okta app integrations
-const OKTA_APPS: &[(&str, &str)] = &[
-    ("gong", "https://postman.okta.com/home/gong/0oa2498tgvv07sY4u5d7/aln18z05fityF2rra1d8"),
-    ("slack", "https://postman.okta.com/home/slack/0oah7rbz24ePsdEUb5d7/19411"),
-    ("gainsight", "https://postman.okta.com/home/postman_gainsight_1/0oamoyvq23HxTiYXn5d7/alnmoz76mc9cunIgV5d7"),
-    ("salesforce", "https://postman.okta.com/home/salesforce/0oa278r39cGoxK3TW5d7/46"),
-];
-
-/// Okta authentication URLs
-const OKTA_BASE_URL: &str = "https://postman.okta.com";
-const OKTA_DASHBOARD: &str = "https://postman.okta.com/app/UserHome";
-
-/// Lightpanda browser manager
-pub struct LightpandaBrowser {
-    process: Option<std::process::Child>,
-    cdp_port: u16,
-    binary_path: String,
-}
-
-/// Guided authentication manager
+/// Main guided authentication struct
 pub struct GuidedAuth {
-    browser: Option<LightpandaBrowser>,
-}
-
-impl LightpandaBrowser {
-    /// Create new browser instance with random CDP port
-    pub fn new() -> Self {
-        let cdp_port = 9222 + (rand::random::<u16>() % 1000); // Random port 9222-10222
-        
-        Self {
-            process: None,
-            cdp_port,
-            binary_path: Self::find_lightpanda_binary(),
-        }
-    }
-
-    /// Get the CDP port (for testing)
-    pub fn get_cdp_port(&self) -> u16 {
-        self.cdp_port
-    }
-
-    /// Get the binary path (for testing)
-    pub fn get_binary_path(&self) -> &str {
-        &self.binary_path
-    }
-
-    /// Get path for lightpanda binary (will be extracted from embedded data)
-    fn find_lightpanda_binary() -> String {
-        // Use a temporary directory for the extracted binary
-        let temp_dir = std::env::temp_dir();
-        let binary_path = temp_dir.join(format!("cs-cli-{}", LIGHTPANDA_EXECUTABLE_NAME));
-        
-        info!("Will use embedded lightpanda binary at: {}", binary_path.display());
-        binary_path.to_string_lossy().to_string()
-    }
-
-    /// Extract embedded lightpanda binary if not available
-    pub async fn ensure_binary(&mut self) -> Result<()> {
-        if std::path::Path::new(&self.binary_path).exists() {
-            debug!("Lightpanda binary already exists at: {}", self.binary_path);
-            return Ok(());
-        }
-
-        info!("Extracting and decompressing embedded lightpanda binary...");
-        
-        // Decompress embedded binary data
-        #[cfg(target_arch = "aarch64")]
-        let binary_data = {
-            debug!("Decompressing {} bytes with zstd", LIGHTPANDA_COMPRESSED.len());
-            let decompressed = zstd::decode_all(LIGHTPANDA_COMPRESSED)
-                .context("Failed to decompress embedded lightpanda binary")?;
-            
-            info!("Decompressed lightpanda binary: {} bytes", decompressed.len());
-            decompressed
-        };
-        
-        #[cfg(not(target_arch = "aarch64"))]
-        {
-            return Err(anyhow!(
-                "Lightpanda binary not available for this architecture. Only Apple Silicon (aarch64) is currently supported. \
-                Please build cs-cli on an Apple Silicon Mac to enable guided authentication."
-            ));
-        }
-
-        // Write decompressed binary to temporary location
-        tokio::fs::write(&self.binary_path, binary_data).await
-            .context("Failed to write decompressed lightpanda binary")?;
-
-        // Make executable
-        Command::new("chmod")
-            .args(["+x", &self.binary_path])
-            .output()
-            .context("Failed to make lightpanda binary executable")?;
-
-        info!("Successfully extracted and decompressed lightpanda binary to: {}", self.binary_path);
-        Ok(())
-    }
-
-    /// Start lightpanda browser with CDP enabled
-    pub async fn start(&mut self) -> Result<()> {
-        self.ensure_binary().await?;
-
-        info!("Starting lightpanda browser on port {}", self.cdp_port);
-
-        info!("Starting lightpanda with command: {} serve --host 127.0.0.1 --port {} --timeout 300", self.binary_path, self.cdp_port);
-        
-        let child = Command::new(&self.binary_path)
-            .args([
-                "serve",
-                "--host", "127.0.0.1",
-                "--port", &self.cdp_port.to_string(),
-                "--timeout", "300", // 5 minutes timeout
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .context("Failed to start lightpanda browser")?;
-
-        self.process = Some(child);
-
-        // Wait for browser to be ready - increase timeout for lightpanda startup
-        for attempt in 1..=20 {
-            sleep(Duration::from_millis(500)).await;
-            
-            match self.is_ready().await {
-                Ok(true) => {
-                    info!("Lightpanda browser ready on port {}", self.cdp_port);
-                    return Ok(());
-                }
-                Ok(false) => {
-                    debug!("Lightpanda not ready yet (attempt {}/20)", attempt);
-                }
-                Err(e) => {
-                    debug!("Readiness check failed (attempt {}/20): {}", attempt, e);
-                }
-            }
-        }
-
-        Err(anyhow!("Lightpanda browser failed to start within 10 seconds"))
-    }
-
-    /// Check if browser is ready by testing CDP connection
-    async fn is_ready(&self) -> Result<bool> {
-        let url = format!("http://localhost:{}/json/version", self.cdp_port);
-        
-        match reqwest::get(&url).await {
-            Ok(response) if response.status().is_success() => Ok(true),
-            _ => Ok(false),
-        }
-    }
-
-    /// Get CDP WebSocket URL for lightpanda browser
-    pub async fn new_tab(&self) -> Result<String> {
-        // Lightpanda serves directly as a WebSocket endpoint, not through /json/new
-        let ws_url = format!("ws://127.0.0.1:{}", self.cdp_port);
-        info!("Using lightpanda WebSocket endpoint: {}", ws_url);
-        
-        Ok(ws_url)
-    }
-
-    /// Stop browser process and clean up extracted binary
-    pub fn stop(&mut self) -> Result<()> {
-        if let Some(mut process) = self.process.take() {
-            info!("Stopping lightpanda browser");
-            process.kill()?;
-            process.wait()?;
-        }
-        
-        // Clean up the extracted binary
-        if std::path::Path::new(&self.binary_path).exists() {
-            match std::fs::remove_file(&self.binary_path) {
-                Ok(_) => debug!("Cleaned up extracted lightpanda binary"),
-                Err(e) => warn!("Failed to clean up extracted binary: {}", e),
-            }
-        }
-        
-        Ok(())
-    }
-}
-
-impl Drop for LightpandaBrowser {
-    fn drop(&mut self) {
-        let _ = self.stop();
-    }
+    browser: Option<Browser>,
+    active_tab: Option<Arc<Tab>>,
 }
 
 impl GuidedAuth {
@@ -219,6 +20,7 @@ impl GuidedAuth {
     pub fn new() -> Self {
         Self {
             browser: None,
+            active_tab: None,
         }
     }
 
@@ -230,8 +32,10 @@ impl GuidedAuth {
     /// Check if Okta Verify app is running on macOS
     #[cfg(target_os = "macos")]
     pub async fn check_okta_verify(&self) -> Result<bool> {
+        use std::process::Command;
+
         info!("Checking if Okta Verify is running...");
-        
+
         let output = Command::new("pgrep")
             .arg("-f")
             .arg("Okta Verify")
@@ -239,276 +43,274 @@ impl GuidedAuth {
             .context("Failed to check for Okta Verify process")?;
 
         let is_running = output.status.success() && !output.stdout.is_empty();
-        
+
         if is_running {
             info!("Okta Verify is running");
         } else {
             info!("Okta Verify is not running");
         }
-        
+
         Ok(is_running)
     }
 
-    /// Launch Okta Verify app if not running
-    #[cfg(target_os = "macos")]
-    pub async fn launch_okta_verify(&self) -> Result<()> {
-        if self.check_okta_verify().await? {
-            return Ok(());
-        }
-
-        info!("Launching Okta Verify...");
-        
-        Command::new("open")
-            .arg("-a")
-            .arg("Okta Verify")
-            .spawn()
-            .context("Failed to launch Okta Verify")?;
-
-        // Wait for app to start
-        for attempt in 1..=10 {
-            sleep(Duration::from_secs(1)).await;
-            if self.check_okta_verify().await? {
-                info!("Okta Verify launched successfully");
-                return Ok(());
-            }
-            debug!("Waiting for Okta Verify to start (attempt {}/10)", attempt);
-        }
-
-        Err(anyhow!("Failed to start Okta Verify within 10 seconds"))
+    #[cfg(not(target_os = "macos"))]
+    pub async fn check_okta_verify(&self) -> Result<bool> {
+        info!("Okta Verify check not implemented for this platform");
+        Ok(false)
     }
 
-    /// Start guided authentication flow
+    /// Start browser and navigate to Okta login
     pub async fn authenticate(&mut self) -> Result<HashMap<String, String>> {
-        info!("Starting guided Okta authentication...");
+        info!("Starting guided authentication flow...");
 
-        // Step 1: Ensure Okta Verify is running
-        #[cfg(target_os = "macos")]
-        self.launch_okta_verify().await?;
+        // Navigate to Okta OAuth authorization endpoint
+        let okta_url = "https://postman.okta.com/oauth2/v1/authorize?client_id=okta.2b1959c8-bcc0-56eb-a589-cfcfb7422f26&code_challenge=QqOla_j2ieDvzX7ebLtkAvwddcCQrhgFmqW0OgXEkTE&code_challenge_method=S256&nonce=oCAMKaZsIi9TTTkla80f4MnJfMn8kOlx0uWRhtL2AG1IcN5XVZF9UF83vjxgX8dg&redirect_uri=https%3A%2F%2Fpostman.okta.com%2Fenduser%2Fcallback&response_type=code&state=X9clhfyFhEE90WBMcHIaBtS2EtXzbYZEe4eN4XTF1PTqawEr3A4TGvD6UFTO6gV0&scope=openid%20profile%20email%20okta.users.read.self%20okta.users.manage.self%20okta.internal.enduser.read%20okta.internal.enduser.manage%20okta.enduser.dashboard.read%20okta.enduser.dashboard.manage%20okta.myAccount.sessions.manage";
 
-        // Step 2: Start lightpanda browser
-        let mut browser = LightpandaBrowser::new();
-        browser.start().await?;
-        self.browser = Some(browser);
+        info!("Navigating to Okta login page...");
+        self.navigate_to_okta(okta_url).await?;
 
-        // Step 3: Navigate to Okta and authenticate
-        self.perform_okta_auth().await?;
+        // Wait for authentication options to load
+        info!("Waiting for authentication options to load...");
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
-        // Step 4: Navigate to each app to establish cookies
-        let cookies = self.collect_app_cookies().await?;
+        // Click on Okta Verify authentication option
+        info!("Selecting Okta Verify authentication...");
+        match self.click_okta_verify_option().await {
+            Ok(()) => info!("Successfully selected Okta Verify"),
+            Err(e) => {
+                warn!("Failed to click Okta Verify, trying alternative selector: {}", e);
+                // Try alternative selector
+                self.click_element("a.select-factor:first-of-type").await?;
+            }
+        }
 
-        info!("Guided authentication completed successfully");
+        // Wait for Okta Verify to process
+        info!("Waiting for Okta Verify authentication...");
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+        // Check if we've been redirected after successful auth
+        let current_url = self.get_current_url().await?;
+        info!("Current URL after auth: {}", current_url);
+
+        // Extract cookies after authentication
+        let cookies = self.extract_cookies().await?;
+
         Ok(cookies)
     }
 
-    /// Perform Okta authentication flow
-    async fn perform_okta_auth(&self) -> Result<()> {
+    /// Click on Okta Verify authentication option
+    async fn click_okta_verify_option(&self) -> Result<()> {
+        // Try to click using aria-label
+        self.click_element(r#"a[aria-label="Select Okta Verify."]"#).await
+    }
+
+    /// Launch Chrome browser with appropriate options
+    fn launch_browser(&self) -> Result<Browser> {
+        info!("Launching Chrome browser...");
+
+        // Try to find Chrome in common locations
+        let chrome_paths = self.find_chrome_paths();
+
+        // Configure launch options
+        let mut launch_options = LaunchOptions::default_builder();
+
+        // Try each Chrome path until one works
+        for path in &chrome_paths {
+            if std::path::Path::new(path).exists() {
+                info!("Found Chrome at: {}", path);
+                launch_options.path(Some(std::path::PathBuf::from(path)));
+                break;
+            }
+        }
+
+        // Set browser options
+        launch_options
+            .headless(true)  // Run in headless mode for automated authentication
+            .window_size(Some((1280, 1024)))
+            .args(vec![
+                std::ffi::OsStr::new("--disable-blink-features=AutomationControlled"),
+                std::ffi::OsStr::new("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"),
+            ]);
+
+        // Launch browser
+        let browser = Browser::new(launch_options.build()?)
+            .context("Failed to launch Chrome browser")?;
+
+        info!("Chrome browser launched successfully");
+        Ok(browser)
+    }
+
+    /// Find Chrome executable paths based on OS
+    fn find_chrome_paths(&self) -> Vec<String> {
+        #[cfg(target_os = "macos")]
+        {
+            vec![
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".to_string(),
+                "/Applications/Chromium.app/Contents/MacOS/Chromium".to_string(),
+                "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary".to_string(),
+                "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser".to_string(),
+                "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge".to_string(),
+            ]
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            vec![
+                "/usr/bin/google-chrome".to_string(),
+                "/usr/bin/chromium".to_string(),
+                "/usr/bin/chromium-browser".to_string(),
+                "/usr/bin/brave-browser".to_string(),
+                "/usr/bin/microsoft-edge".to_string(),
+                "/snap/bin/chromium".to_string(),
+            ]
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            vec![
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe".to_string(),
+                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe".to_string(),
+                r"C:\Program Files\Chromium\Application\chrome.exe".to_string(),
+                r"C:\Program Files\Microsoft\Edge\Application\msedge.exe".to_string(),
+            ]
+        }
+
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+        {
+            vec![]
+        }
+    }
+
+    /// Navigate to Okta and perform authentication
+    pub async fn navigate_to_okta(&mut self, url: &str) -> Result<()> {
+        // Launch browser if not already initialized
+        if self.browser.is_none() {
+            let browser = self.launch_browser()?;
+            self.browser = Some(browser);
+        }
+
         let browser = self.browser.as_ref()
-            .ok_or_else(|| anyhow!("Browser not started"))?;
-        
-        // Create new tab and CDP client
-        let ws_url = browser.new_tab().await?;
-        let mut cdp = CdpClient::new();
-        cdp.connect(&ws_url).await?;
+            .ok_or_else(|| anyhow!("Browser not initialized"))?;
 
-        info!("Starting Okta OAuth flow...");
-        
-        // Step 1: Generate OAuth authorization URL manually
-        info!("Generating OAuth authorization URL for Okta Verify authentication...");
-        
-        // Generate required OAuth parameters
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        
-        let nonce = {
-            let mut hasher = DefaultHasher::new();
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos().hash(&mut hasher);
-            format!("{:x}", hasher.finish())
-        };
-        
-        let state = {
-            let mut hasher = DefaultHasher::new();
-            (nonce.clone() + "state").hash(&mut hasher);
-            format!("{:x}", hasher.finish())
-        };
-        
-        // Create OAuth authorization URL
-        let oauth_url = format!(
-            "https://postman.okta.com/oauth2/v1/authorize?\
-            client_id=okta.2b1959c8-bcc0-56eb-a589-cfcfb7422f26&\
-            code_challenge=BnGfWPKU-QlBsQtOUSTzzJVNUeV3-7kusBWGhL5QWrc&\
-            code_challenge_method=S256&\
-            nonce={}&\
-            redirect_uri=https%3A%2F%2Fpostman.okta.com%2Fenduser%2Fcallback&\
-            response_type=code&\
-            state={}&\
-            scope=openid%20profile%20email%20okta.users.read.self%20okta.users.manage.self%20okta.internal.enduser.read%20okta.internal.enduser.manage%20okta.enduser.dashboard.read%20okta.enduser.dashboard.manage%20okta.myAccount.sessions.manage%20okta.internal.navigation.enduser.read",
-            nonce, state
-        );
-        
-        info!("Navigating to OAuth URL: {}", oauth_url);
-        cdp.navigate(&oauth_url).await?;
-        
-        // Step 2: Wait for authentication page to load
-        sleep(Duration::from_secs(3)).await;
-        
-        let current_url = cdp.get_current_url().await?;
-        info!("After OAuth redirect, current URL: {}", current_url);
-        
-        // Check if we're already authenticated (immediate redirect to success)
-        if current_url.contains("postman.okta.com/app/UserHome") && 
-           current_url.contains("session_hint=AUTHENTICATED") {
-            info!("Already authenticated! No TouchID needed.");
-            return Ok(());
-        }
-        
-        // Step 3: Look for authentication options on the page
-        info!("Looking for authentication options...");
-        
-        // Try to find and click any Okta Verify related buttons
-        let find_auth_button_js = r#"
-            // Look for buttons that might trigger Okta Verify
-            const buttons = Array.from(document.querySelectorAll('button, a, .button, [role="button"]'));
-            const authButtons = buttons.filter(btn => {
-                const text = btn.textContent?.toLowerCase() || '';
-                const ariaLabel = btn.getAttribute('aria-label')?.toLowerCase() || '';
-                
-                return text.includes('okta verify') || 
-                       text.includes('sign in') || 
-                       text.includes('authenticate') ||
-                       ariaLabel.includes('okta verify') ||
-                       ariaLabel.includes('sign in');
-            });
-            
-            if (authButtons.length > 0) {
-                // Click the first auth button found
-                authButtons[0].click();
-                return true;
-            }
-            return false;
-        "#;
-        
-        let button_result = cdp.evaluate_js(find_auth_button_js).await?;
-        let clicked_button = button_result.get("result")
-            .and_then(|r| r.get("value"))
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-            
-        if clicked_button {
-            info!("Found and clicked authentication button");
+        // Use existing tab or create new one
+        let tab = if let Some(ref tab) = self.active_tab {
+            tab.clone()
         } else {
-            info!("No authentication button found - proceeding to wait for TouchID");
-        }
-        
-        sleep(Duration::from_millis(1000)).await;
+            // Get the first tab (the default blank one) or create a new one
+            let tabs = browser.get_tabs().lock().unwrap();
+            let tab = if let Some(first_tab) = tabs.first() {
+                first_tab.clone()
+            } else {
+                drop(tabs); // Release lock before creating new tab
+                browser.new_tab()
+                    .context("Failed to create new browser tab")?
+            };
+            self.active_tab = Some(tab.clone());
+            tab
+        };
 
-        // Step 4: Wait for TouchID authentication completion
-        info!("Successfully clicked Okta Verify - waiting for TouchID authentication...");
-        info!("Please complete TouchID authentication in the Okta Verify app");
-        
-        // Wait for authentication to complete and redirect to the success URL
-        let auth_start_url = cdp.get_current_url().await?;
-        info!("Starting authentication from URL: {}", auth_start_url);
-        
-        // Poll for the specific success URL with fast checks (every 500ms)
-        let max_attempts = 120; // 60 seconds total (120 * 500ms)
-        
-        for attempt in 1..=max_attempts {
-            let current_url = cdp.get_current_url().await?;
-            
-            // Success criteria: Must contain both "postman.okta.com/app/UserHome" AND "session_hint=AUTHENTICATED"
-            if current_url.contains("postman.okta.com/app/UserHome") && 
-               current_url.contains("session_hint=AUTHENTICATED") {
-                info!("SUCCESS: Authentication completed! Reached target URL: {}", current_url);
-                return Ok(());
-            }
-            
-            // Log progress every 10 attempts (5 seconds)
-            if attempt % 10 == 0 {
-                info!("Still waiting for authentication... ({}s elapsed, current URL: {})", 
-                      attempt * 500 / 1000, current_url);
-            }
-            
-            // Fast polling - check every 500ms
-            sleep(Duration::from_millis(500)).await;
-        }
-        
-        // Timeout - get final URL for debugging
-        let final_url = cdp.get_current_url().await?;
-        warn!("Authentication timeout after 60 seconds. Final URL: {}", final_url);
-        
-        // Check if we at least got to some authenticated state
-        if final_url.contains("postman.okta.com") && final_url != auth_start_url {
-            warn!("Got to Okta domain but not the expected success URL");
-            return Err(anyhow!("Authentication may have succeeded but didn't reach expected URL. Expected: postman.okta.com/app/UserHome?...session_hint=AUTHENTICATED, Got: {}", final_url));
-        }
+        info!("Navigating to: {}", url);
+        tab.navigate_to(url)
+            .context("Failed to navigate to URL")?;
 
-        // Final fallback: wait and assume success if no errors
-        sleep(Duration::from_secs(5)).await;
-        let final_url = cdp.get_current_url().await?;
-        info!("Authentication flow completed, final URL: {}", final_url);
+        tab.wait_until_navigated()
+            .context("Failed to wait for navigation")?;
 
         Ok(())
     }
 
-    /// Navigate to each app and collect cookies
-    async fn collect_app_cookies(&self) -> Result<HashMap<String, String>> {
-        let browser = self.browser.as_ref()
-            .ok_or_else(|| anyhow!("Browser not started"))?;
-        
-        // Create new tab for app navigation
-        let ws_url = browser.new_tab().await?;
-        let mut cdp = CdpClient::new();
-        cdp.connect(&ws_url).await?;
+    /// Extract cookies from authenticated session
+    pub async fn extract_cookies(&self) -> Result<HashMap<String, String>> {
+        let tab = self.active_tab.as_ref()
+            .ok_or_else(|| anyhow!("No active tab"))?;
 
-        let mut all_cookies = HashMap::new();
-        
-        for (app_name, app_url) in OKTA_APPS {
-            info!("Navigating to {} app: {}", app_name, app_url);
-            
-            // Navigate to the app URL (this should auto-login via Okta SSO)
-            cdp.navigate(app_url).await?;
-            
-            // Wait for potential redirect and app to load
-            sleep(Duration::from_secs(3)).await;
-            
-            let final_url = cdp.get_current_url().await?;
-            info!("Final URL for {}: {}", app_name, final_url);
-            
-            // Get cookies for this app
-            match cdp.get_cookies().await {
-                Ok(cookies) => {
-                    info!("Retrieved {} cookies for {}", cookies.len(), app_name);
-                    
-                    // Convert cookies to a format we can use
-                    let mut app_cookies = Vec::new();
-                    for cookie in cookies {
-                        if let (Some(name), Some(value)) = (
-                            cookie.get("name").and_then(|n| n.as_str()),
-                            cookie.get("value").and_then(|v| v.as_str())
-                        ) {
-                            app_cookies.push(format!("{}={}", name, value));
-                        }
-                    }
-                    
-                    // Store all cookies as a single string for this app
-                    let cookie_string = app_cookies.join("; ");
-                    let cookie_len = cookie_string.len();
-                    all_cookies.insert(app_name.to_string(), cookie_string);
-                    
-                    info!("Stored cookies for {}: {} characters", app_name, cookie_len);
-                }
-                Err(e) => {
-                    warn!("Failed to get cookies for {}: {}", app_name, e);
-                    // Continue with other apps
-                }
-            }
-            
-            // Brief pause between apps
-            sleep(Duration::from_millis(1000)).await;
+        // Get cookies from the page
+        let cookies = tab.get_cookies()
+            .context("Failed to get cookies")?;
+
+        let mut cookie_map = HashMap::new();
+
+        // Convert cookies to map
+        for cookie in cookies {
+            debug!("Cookie: {} = {}", cookie.name, cookie.value);
+            cookie_map.insert(cookie.name, cookie.value);
         }
-        
-        info!("Cookie collection completed for {} apps", all_cookies.len());
-        Ok(all_cookies)
+
+        info!("Extracted {} cookies", cookie_map.len());
+        Ok(cookie_map)
+    }
+
+    /// Click on element by selector
+    pub async fn click_element(&self, selector: &str) -> Result<()> {
+        let tab = self.active_tab.as_ref()
+            .ok_or_else(|| anyhow!("No active tab"))?;
+
+        info!("Clicking element: {}", selector);
+
+        // Find and click the element
+        let element = tab.find_element(selector)
+            .context("Failed to find element")?;
+
+        element.click()
+            .context("Failed to click element")?;
+
+        Ok(())
+    }
+
+    /// Wait for element to appear
+    pub async fn wait_for_element(&self, selector: &str, timeout_secs: u64) -> Result<()> {
+        let tab = self.active_tab.as_ref()
+            .ok_or_else(|| anyhow!("No active tab"))?;
+
+        info!("Waiting for element: {} (timeout: {}s)", selector, timeout_secs);
+
+        // Use built-in wait functionality
+        tab.wait_for_element(selector)
+            .context("Element not found within timeout")?;
+
+        info!("Element found: {}", selector);
+        Ok(())
+    }
+
+    /// Check if element exists
+    pub async fn element_exists(&self, selector: &str) -> bool {
+        let tab = match self.active_tab.as_ref() {
+            Some(t) => t,
+            None => return false,
+        };
+
+        tab.find_element(selector).is_ok()
+    }
+
+    /// Get current URL
+    pub async fn get_current_url(&self) -> Result<String> {
+        let tab = self.active_tab.as_ref()
+            .ok_or_else(|| anyhow!("No active tab"))?;
+
+        let url = tab.get_url();
+        Ok(url)
+    }
+
+    /// Execute JavaScript in the page
+    pub async fn execute_js(&self, script: &str) -> Result<String> {
+        let tab = self.active_tab.as_ref()
+            .ok_or_else(|| anyhow!("No active tab"))?;
+
+        let result = tab.evaluate(script, false)
+            .context("Failed to execute JavaScript")?;
+
+        Ok(format!("{:?}", result.value))
+    }
+
+    /// Close browser
+    pub fn close(&mut self) -> Result<()> {
+        self.active_tab = None;
+        if let Some(browser) = self.browser.take() {
+            // Browser will be closed when dropped
+            drop(browser);
+            info!("Browser closed");
+        }
+        Ok(())
     }
 }
 
@@ -518,21 +320,26 @@ impl Default for GuidedAuth {
     }
 }
 
+impl Drop for GuidedAuth {
+    fn drop(&mut self) {
+        let _ = self.close();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_browser_creation() {
-        let browser = LightpandaBrowser::new();
-        assert!(browser.cdp_port >= 9222 && browser.cdp_port <= 10222);
+    async fn test_guided_auth_creation() {
+        let auth = GuidedAuth::new();
+        assert!(!auth.has_browser());
     }
 
-    #[tokio::test]
-    #[cfg(target_os = "macos")]
-    async fn test_okta_verify_check() {
+    #[test]
+    fn test_chrome_paths() {
         let auth = GuidedAuth::new();
-        // This will pass regardless of whether Okta Verify is running
-        let _ = auth.check_okta_verify().await;
+        let paths = auth.find_chrome_paths();
+        assert!(!paths.is_empty());
     }
 }

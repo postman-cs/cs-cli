@@ -1,9 +1,9 @@
 //! Guided Authentication Integration Tests
 //!
-//! Tests the actual guided authentication flow using the real implementation.
-//! These tests will launch lightpanda browser and attempt Okta SSO authentication.
+//! Tests the guided authentication flow using headless Chrome.
+//! These tests will launch Chrome browser and attempt Okta SSO authentication.
 //!
-//! Run with: cargo test guided_auth --test guided_auth_integration -- --ignored --nocapture
+//! Run with: cargo test --test guided_auth_integration -- --nocapture --test-threads=1
 
 use tokio;
 
@@ -13,7 +13,7 @@ use cs_cli::common::auth::GuidedAuth;
 /// Test the complete guided authentication flow
 ///
 /// This test will:
-/// 1. Launch lightpanda browser
+/// 1. Launch Chrome browser
 /// 2. Navigate to postman.okta.com
 /// 3. Click Okta Verify authentication option
 /// 4. Wait for user TouchID authentication
@@ -22,13 +22,12 @@ use cs_cli::common::auth::GuidedAuth;
 ///
 /// User interaction required: TouchID authentication when prompted
 #[tokio::test]
-#[ignore = "requires user interaction and Okta Verify app"]
 async fn test_full_guided_authentication_flow() {
     println!("Starting guided authentication flow test...");
     println!("Make sure Okta Verify app is installed and you're ready to authenticate with TouchID");
-    
+
     let mut guided_auth = GuidedAuth::new();
-    
+
     match guided_auth.authenticate().await {
         Ok(cookies) => {
             println!("Guided authentication completed successfully!");
@@ -55,180 +54,214 @@ async fn test_full_guided_authentication_flow() {
     }
 }
 
-/// Test lightpanda browser launch without full auth flow
+/// Test Chrome browser launch
 ///
-/// This test verifies the browser can be started and stopped correctly
-/// without requiring user authentication.
+/// This test verifies the browser can be started and controlled correctly
 #[tokio::test]
-#[ignore = "downloads and extracts lightpanda binary"]
-async fn test_lightpanda_browser_lifecycle() {
-    use cs_cli::common::auth::guided_auth::LightpandaBrowser;
+async fn test_chrome_browser_launch() {
+    println!("Testing Chrome browser launch...");
 
-    println!("Testing lightpanda browser lifecycle...");
-    
-    let mut browser = LightpandaBrowser::new();
-    
-    // Test binary extraction and browser startup
-    match browser.start().await {
+    let mut guided_auth = GuidedAuth::new();
+
+    // Test browser initialization
+    assert!(!guided_auth.has_browser(), "Browser should not be initialized initially");
+
+    // Navigate to a test URL
+    match guided_auth.navigate_to_okta("https://postman.okta.com").await {
         Ok(()) => {
-            println!("Lightpanda browser started successfully");
+            println!("Chrome browser launched and navigated successfully");
+            assert!(guided_auth.has_browser(), "Browser should be initialized after navigation");
 
-            // Test that we can get a WebSocket URL for CDP
-            let ws_url = format!("ws://127.0.0.1:{}", browser.get_cdp_port());
-            println!("CDP WebSocket URL: {}", ws_url);
-            assert!(ws_url.starts_with("ws://127.0.0.1:") || ws_url.starts_with("ws://localhost:"));
-
-            // Test browser shutdown
-            match browser.stop() {
-                Ok(()) => {
-                    println!("Lightpanda browser stopped successfully");
+            // Test getting current URL
+            match guided_auth.get_current_url().await {
+                Ok(url) => {
+                    println!("Current URL: {}", url);
+                    assert!(url.contains("postman.okta.com"), "Should have navigated to Okta");
                 }
                 Err(e) => {
-                    println!("Failed to stop browser: {}", e);
-                    panic!("Should be able to stop browser: {}", e);
+                    println!("Failed to get current URL: {}", e);
                 }
             }
-        }
-        Err(e) => {
-            println!("Failed to start lightpanda browser: {}", e);
-            panic!("Should be able to start lightpanda browser: {}", e);
-        }
-    }
 
-    println!("Browser lifecycle test completed successfully!");
-}
-
-/// Test binary extraction and decompression
-///
-/// This test verifies the embedded zstd-compressed lightpanda binary
-/// can be extracted and decompressed correctly.
-#[tokio::test]
-async fn test_binary_extraction() {
-    use cs_cli::common::auth::guided_auth::LightpandaBrowser;
-
-    println!("Testing binary extraction and decompression...");
-
-    let mut browser = LightpandaBrowser::new();
-    let binary_path = browser.get_binary_path().to_string();
-
-    println!("Target binary path: {}", binary_path);
-    
-    // Clean up any existing binary
-    if std::path::Path::new(&binary_path).exists() {
-        std::fs::remove_file(&binary_path).expect("Should be able to clean up existing binary");
-    }
-    
-    // Test extraction
-    match browser.ensure_binary().await {
-        Ok(()) => {
-            println!("Binary extraction completed successfully");
-
-            // Verify the binary exists and is executable
-            assert!(std::path::Path::new(&binary_path).exists(), "Extracted binary should exist");
-
-            let metadata = std::fs::metadata(&binary_path).expect("Should be able to read binary metadata");
-            assert!(metadata.is_file(), "Should be a regular file");
-            assert!(metadata.len() > 50_000_000, "Decompressed binary should be ~55MB"); // Original size check
-
-            // On Unix systems, check if executable bit is set
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let permissions = metadata.permissions();
-                assert!(permissions.mode() & 0o111 != 0, "Binary should be executable");
-            }
-
-            println!("Binary verification passed - {} bytes", metadata.len());
-
-            // Clean up
-            std::fs::remove_file(&binary_path).expect("Should be able to clean up test binary");
-            println!("Cleaned up extracted binary");
-        }
-        Err(e) => {
-            println!("Binary extraction failed: {}", e);
-            panic!("Should be able to extract embedded binary: {}", e);
-        }
-    }
-
-    println!("Binary extraction test completed successfully!");
-}
-
-/// Test CDP connection to lightpanda browser
-#[tokio::test]
-#[ignore = "requires lightpanda browser launch"]
-async fn test_cdp_connection() {
-    use cs_cli::common::auth::guided_auth::LightpandaBrowser;
-    use cs_cli::common::auth::cdp_client::CdpClient;
-
-    println!("Testing CDP connection to lightpanda...");
-
-    let mut browser = LightpandaBrowser::new();
-
-    // Start browser
-    browser.start().await.expect("Should be able to start browser");
-
-    // Create new tab and get WebSocket URL
-    let ws_url = browser.new_tab().await.expect("Should be able to create new tab");
-    println!("Connecting to lightpanda WebSocket: {}", ws_url);
-
-    // Connect CDP client
-    let mut cdp = CdpClient::new();
-    match cdp.connect(&ws_url).await {
-        Ok(()) => {
-            println!("CDP client connected successfully");
-
-            // Test navigation
-            match cdp.navigate("about:blank").await {
+            // Close browser
+            match guided_auth.close() {
                 Ok(()) => {
-                    println!("Page navigated successfully");
-
-                    // Test getting current URL
-                    match cdp.get_current_url().await {
-                        Ok(url) => {
-                            println!("Current URL: {}", url);
-                            assert!(url.contains("about:blank") || url.is_empty(), "Should be blank page or empty");
-                        }
-                        Err(e) => {
-                            println!("Failed to get URL: {}", e);
-                        }
-                    }
-
-                    // Test JavaScript evaluation
-                    match cdp.evaluate_js("document.title || 'No Title'").await {
-                        Ok(result) => {
-                            println!("JavaScript evaluation successful");
-                            if let Some(value) = result.get("result").and_then(|r| r.get("value")) {
-                                println!("Page title: '{}'", value);
-                            }
-                        }
-                        Err(e) => {
-                            println!("JavaScript evaluation failed: {}", e);
-                        }
-                    }
+                    println!("Chrome browser closed successfully");
                 }
                 Err(e) => {
-                    println!("Navigation failed: {}", e);
+                    println!("Failed to close browser: {}", e);
                 }
             }
         }
         Err(e) => {
-            println!("CDP connection failed: {}", e);
-            browser.stop().expect("Should be able to stop browser");
-            panic!("Should be able to connect to lightpanda: {}", e);
+            println!("Failed to launch Chrome browser: {}", e);
+            panic!("Should be able to launch Chrome browser: {}", e);
+        }
+    }
+}
+
+/// Test Chrome browser detection
+///
+/// This test verifies that Chrome can be found on the system
+#[tokio::test]
+async fn test_chrome_detection() {
+    println!("Testing Chrome browser detection...");
+
+    let guided_auth = GuidedAuth::new();
+
+    // Check if Chrome exists at expected locations
+    let chrome_paths = vec![
+        #[cfg(target_os = "macos")]
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        #[cfg(target_os = "macos")]
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        #[cfg(target_os = "linux")]
+        "/usr/bin/google-chrome",
+        #[cfg(target_os = "windows")]
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    ];
+
+    let mut chrome_found = false;
+    for path in chrome_paths {
+        if std::path::Path::new(path).exists() {
+            println!("Found Chrome at: {}", path);
+            chrome_found = true;
+            break;
         }
     }
 
-    // Clean up
-    browser.stop().expect("Should be able to stop browser");
-    println!("CDP connection test completed successfully!");
+    if !chrome_found {
+        println!("Chrome not found at standard locations - browser launch may fail");
+        println!("Please ensure Chrome is installed");
+    } else {
+        println!("Chrome detection test completed successfully!");
+    }
+}
+
+/// Test navigation to Okta OAuth endpoint
+#[tokio::test]
+async fn test_okta_oauth_navigation() {
+    println!("Testing navigation to Okta OAuth authorization endpoint...");
+
+    let mut guided_auth = GuidedAuth::new();
+
+    let okta_url = "https://postman.okta.com/oauth2/v1/authorize?client_id=okta.2b1959c8-bcc0-56eb-a589-cfcfb7422f26&code_challenge=QqOla_j2ieDvzX7ebLtkAvwddcCQrhgFmqW0OgXEkTE&code_challenge_method=S256&nonce=oCAMKaZsIi9TTTkla80f4MnJfMn8kOlx0uWRhtL2AG1IcN5XVZF9UF83vjxgX8dg&redirect_uri=https%3A%2F%2Fpostman.okta.com%2Fenduser%2Fcallback&response_type=code&state=X9clhfyFhEE90WBMcHIaBtS2EtXzbYZEe4eN4XTF1PTqawEr3A4TGvD6UFTO6gV0&scope=openid%20profile%20email%20okta.users.read.self%20okta.users.manage.self%20okta.internal.enduser.read%20okta.internal.enduser.manage%20okta.enduser.dashboard.read%20okta.enduser.dashboard.manage%20okta.myAccount.sessions.manage";
+
+    match guided_auth.navigate_to_okta(&okta_url).await {
+        Ok(()) => {
+            println!("Successfully navigated to Okta OAuth endpoint");
+
+            // Wait longer for Okta sign-in widget to load
+            println!("Waiting for Okta sign-in widget to initialize...");
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+            // Check what's in the okta-sign-in container
+            let check_container_js = r#"
+                (function() {
+                    const container = document.getElementById('okta-sign-in');
+                    if (container) {
+                        return JSON.stringify({
+                            found: true,
+                            id: container.id,
+                            className: container.className,
+                            childCount: container.children.length,
+                            innerHTML: container.innerHTML.substring(0, 500)
+                        });
+                    } else {
+                        // Check body content to see what's actually on the page
+                        return JSON.stringify({
+                            found: false,
+                            bodyHTML: document.body.innerHTML.substring(0, 1000),
+                            title: document.title,
+                            readyState: document.readyState
+                        });
+                    }
+                })()
+            "#;
+
+            match guided_auth.execute_js(check_container_js).await {
+                Ok(result) => {
+                    println!("\n=== Page Content Debug ===");
+                    println!("{}", result);
+                    println!("=========================\n");
+                }
+                Err(e) => {
+                    println!("Failed to check page content: {}", e);
+                }
+            }
+
+            // Extract and analyze page content
+            let extract_links_js = r#"
+                JSON.stringify(Array.from(document.querySelectorAll('a')).map(link => ({
+                    href: link.href,
+                    text: link.textContent?.trim() || '',
+                    ariaLabel: link.getAttribute('aria-label') || '',
+                    className: link.className || '',
+                    id: link.id || '',
+                    dataSe: link.getAttribute('data-se') || ''
+                })))
+            "#;
+
+            match guided_auth.execute_js(extract_links_js).await {
+                Ok(result) => {
+                    println!("\nLinks found on the OAuth authorization page:");
+                    println!("{}", "=".repeat(60));
+                    println!("{}", result);
+                    println!("{}", "=".repeat(60));
+                }
+                Err(e) => {
+                    println!("Failed to extract links: {}", e);
+                }
+            }
+
+            // Extract any buttons that might be authentication options
+            let extract_buttons_js = r#"
+                JSON.stringify(Array.from(document.querySelectorAll('button, input[type="button"], input[type="submit"], [role="button"]')).map(btn => ({
+                    text: btn.textContent?.trim() || btn.value || '',
+                    type: btn.type || '',
+                    className: btn.className || '',
+                    id: btn.id || '',
+                    ariaLabel: btn.getAttribute('aria-label') || ''
+                })))
+            "#;
+
+            match guided_auth.execute_js(extract_buttons_js).await {
+                Ok(result) => {
+                    println!("\nButtons found on the page:");
+                    println!("{}", "=".repeat(60));
+                    println!("{}", result);
+                    println!("{}", "=".repeat(60));
+                }
+                Err(e) => {
+                    println!("Failed to extract buttons: {}", e);
+                }
+            }
+
+            // Get page title
+            match guided_auth.execute_js("JSON.stringify(document.title || 'No Title')").await {
+                Ok(title) => {
+                    println!("\nPage title: {}", title);
+                }
+                Err(e) => {
+                    println!("Failed to get page title: {}", e);
+                }
+            }
+
+            // Close browser
+            let _ = guided_auth.close();
+            println!("Navigation test completed successfully!");
+        }
+        Err(e) => {
+            println!("Navigation failed: {}", e);
+            panic!("Should be able to navigate to Okta: {}", e);
+        }
+    }
 }
 
 /// Test Okta Verify app detection on macOS
 #[cfg(target_os = "macos")]
 #[tokio::test]
 async fn test_okta_verify_detection() {
-    use cs_cli::common::auth::GuidedAuth;
-
     println!("Testing Okta Verify app detection...");
 
     let guided_auth = GuidedAuth::new();

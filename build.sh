@@ -73,92 +73,14 @@ usage() {
     echo "  --help                        Show this help"
     echo ""
     echo "Default target: $TARGETS_DEFAULT (Apple Silicon macOS)"
-    echo "Note: CS-CLI is Apple Silicon only due to bundled lightpanda browser"
+    echo "Note: CS-CLI uses the system's Chrome browser for guided authentication"
     exit 1
 }
 
 # --- Core Logic Functions ---
 
-download_lightpanda() {
-    log STEP "Ensuring lightpanda binary is available for embedding..."
-    
-    local lightpanda_url="https://github.com/lightpanda-io/browser/releases/download/nightly/lightpanda-aarch64-macos"
-    local lightpanda_path="bundled/lightpanda/lightpanda-aarch64-macos"
-    
-    # Check if binary already exists
-    if [ -f "$lightpanda_path" ]; then
-        local size=$(stat -f%z "$lightpanda_path" 2>/dev/null || echo "0")
-        if [ "$size" -gt 1000000 ]; then  # > 1MB indicates valid download
-            log INFO "Using existing lightpanda binary ($(numfmt --to=iec $size))"
-            return
-        else
-            log WARN "Existing lightpanda binary is too small, re-downloading..."
-            rm -f "$lightpanda_path"
-        fi
-    fi
-    
-    # Only download on Apple Silicon macOS
-    local arch="$(uname -m)"
-    if [ "$arch" != "arm64" ]; then
-        log WARN "Lightpanda binary only supported on Apple Silicon macOS"
-        log INFO "Current architecture: $arch - guided authentication will not be available"
-        return
-    fi
-    
-    # Create bundled directory if it doesn't exist
-    mkdir -p "bundled/lightpanda"
-    
-    log INFO "Downloading lightpanda binary for embedding..."
-    
-    # Download lightpanda binary with progress
-    if command -v curl >/dev/null 2>&1; then
-        curl -L --progress-bar -o "$lightpanda_path" "$lightpanda_url"
-    else
-        log ERROR "curl is required to download lightpanda binary"
-    fi
-    
-    # Verify the downloaded file
-    if [ ! -f "$lightpanda_path" ]; then
-        log ERROR "Failed to download lightpanda binary"
-    fi
-    
-    local downloaded_size=$(stat -f%z "$lightpanda_path" 2>/dev/null || echo "0")
-    if [ "$downloaded_size" -lt 1000000 ]; then  # Less than 1MB is suspicious
-        log ERROR "Downloaded lightpanda binary is too small ($(numfmt --to=iec $downloaded_size)), download may have failed"
-    fi
-    
-    log SUCCESS "Successfully downloaded lightpanda binary ($(numfmt --to=iec $downloaded_size))"
-    
-    # Compress the binary with zstd for embedding
-    local compressed_path="${lightpanda_path}.zst"
-    log INFO "Compressing binary with zstd for embedding..."
-    
-    if command -v zstd >/dev/null 2>&1; then
-        # Use high compression level (-19) for maximum space savings
-        zstd -19 -f "$lightpanda_path" -o "$compressed_path"
-        
-        local compressed_size=$(stat -f%z "$compressed_path" 2>/dev/null || echo "0")
-        local compression_ratio=$(( (downloaded_size - compressed_size) * 100 / downloaded_size ))
-        
-        log SUCCESS "Compressed binary: $(numfmt --to=iec $compressed_size) (${compression_ratio}% reduction)"
-        log INFO "Compressed binary will be embedded in cs-cli executable"
-    else
-        log WARN "zstd not found - installing via Homebrew..."
-        if command -v brew >/dev/null 2>&1; then
-            brew install zstd
-            if command -v zstd >/dev/null 2>&1; then
-                zstd -19 -f "$lightpanda_path" -o "$compressed_path"
-                local compressed_size=$(stat -f%z "$compressed_path" 2>/dev/null || echo "0")
-                local compression_ratio=$(( (downloaded_size - compressed_size) * 100 / downloaded_size ))
-                log SUCCESS "Compressed binary: $(numfmt --to=iec $compressed_size) (${compression_ratio}% reduction)"
-            else
-                log ERROR "Failed to install zstd. Please install manually: brew install zstd"
-            fi
-        else
-            log ERROR "zstd not found and Homebrew not available. Please install zstd manually"
-        fi
-    fi
-}
+# Function removed - no longer bundling lightpanda
+# CS-CLI now uses the system's installed Chrome browser for guided authentication
 
 parse_args() {
     SELECTED_TARGETS="$TARGETS_DEFAULT" # Default to Apple Silicon
@@ -598,8 +520,7 @@ main() {
     log STEP "Starting build for CS-CLI v${VERSION}"
     log INFO "Targets: $SELECTED_TARGETS"
 
-    # Download lightpanda binary for embedding before building
-    download_lightpanda
+    # Chrome browser detection is now handled at runtime
 
     rm -rf dist
     mkdir -p dist/binaries dist/release

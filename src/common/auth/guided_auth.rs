@@ -99,7 +99,8 @@ impl LightpandaBrowser {
         #[cfg(not(target_arch = "aarch64"))]
         {
             return Err(anyhow!(
-                "Lightpanda binary not available for this architecture. Only Apple Silicon (aarch64) is currently supported."
+                "Lightpanda binary not available for this architecture. Only Apple Silicon (aarch64) is currently supported. \
+                Please build cs-cli on an Apple Silicon Mac to enable guided authentication."
             ));
         }
 

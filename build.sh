@@ -80,6 +80,58 @@ usage() {
 
 # --- Core Logic Functions ---
 
+download_lightpanda() {
+    log STEP "Ensuring lightpanda binary is available for embedding..."
+    
+    local lightpanda_url="https://github.com/lightpanda-io/browser/releases/download/nightly/lightpanda-aarch64-macos"
+    local lightpanda_path="bundled/lightpanda/lightpanda-aarch64-macos"
+    
+    # Check if binary already exists
+    if [ -f "$lightpanda_path" ]; then
+        local size=$(stat -f%z "$lightpanda_path" 2>/dev/null || echo "0")
+        if [ "$size" -gt 1000000 ]; then  # > 1MB indicates valid download
+            log INFO "Using existing lightpanda binary ($(numfmt --to=iec $size))"
+            return
+        else
+            log WARN "Existing lightpanda binary is too small, re-downloading..."
+            rm -f "$lightpanda_path"
+        fi
+    fi
+    
+    # Only download on Apple Silicon macOS
+    local arch="$(uname -m)"
+    if [ "$arch" != "arm64" ]; then
+        log WARN "Lightpanda binary only supported on Apple Silicon macOS"
+        log INFO "Current architecture: $arch - guided authentication will not be available"
+        return
+    fi
+    
+    # Create bundled directory if it doesn't exist
+    mkdir -p "bundled/lightpanda"
+    
+    log INFO "Downloading lightpanda binary for embedding..."
+    
+    # Download lightpanda binary with progress
+    if command -v curl >/dev/null 2>&1; then
+        curl -L --progress-bar -o "$lightpanda_path" "$lightpanda_url"
+    else
+        log ERROR "curl is required to download lightpanda binary"
+    fi
+    
+    # Verify the downloaded file
+    if [ ! -f "$lightpanda_path" ]; then
+        log ERROR "Failed to download lightpanda binary"
+    fi
+    
+    local downloaded_size=$(stat -f%z "$lightpanda_path" 2>/dev/null || echo "0")
+    if [ "$downloaded_size" -lt 1000000 ]; then  # Less than 1MB is suspicious
+        log ERROR "Downloaded lightpanda binary is too small ($(numfmt --to=iec $downloaded_size)), download may have failed"
+    fi
+    
+    log SUCCESS "Successfully downloaded lightpanda binary ($(numfmt --to=iec $downloaded_size))"
+    log INFO "Binary will be embedded in cs-cli executable for guided authentication"
+}
+
 parse_args() {
     SELECTED_TARGETS="$TARGETS_ALL" # Default to all targets
 
@@ -562,6 +614,9 @@ main() {
 
     log STEP "Starting build for CS-CLI v${VERSION}"
     log INFO "Targets: $SELECTED_TARGETS"
+
+    # Download lightpanda binary for embedding before building
+    download_lightpanda
 
     rm -rf dist
     mkdir -p dist/binaries dist/release

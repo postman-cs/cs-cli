@@ -1,14 +1,10 @@
 //! Smart Keychain Management
 //!
-//! Simple macOS-only keychain management that implements two flows:
-//! 1. If com.postman.cs-cli exists and accessible -> use it to unlock keychain
-//! 2. If not -> prompt for password, validate, store, and unlock keychain
+//! Simple macOS-only keychain management that ensures proper ACL permissions
+//! for accessing browser cookies without password prompts.
 
-use crate::common::auth::cli_unlock::{
-    get_stored_password, has_stored_password, store_password, unlock_keychain_with_password,
-};
 use crate::{CsCliError, Result};
-use owo_colors::OwoColorize;
+use std::process::Command;
 use tracing::{debug, info};
 
 /// Simple keychain manager for macOS-only operation
@@ -20,79 +16,94 @@ impl SmartKeychainManager {
         Ok(Self)
     }
 
-    /// Main entry point: Handle keychain unlock with the two flows
-    /// FLOW 1: Check for stored password -> use it -> unlock keychain
-    /// FLOW 2: No stored password -> prompt -> validate -> store -> unlock keychain
+    /// Ensure keychain access with proper ACL permissions (no password prompts)
     pub fn ensure_keychain_access(&self) -> Result<()> {
-        info!("Checking keychain access...");
+        info!("Ensuring keychain access with proper ACL permissions...");
 
-        // FLOW 1: Try to use stored password
-        if has_stored_password() {
-            debug!("Found com.postman.cs-cli keychain item, attempting to use stored password");
-
-            match get_stored_password() {
-                Ok(stored_password) => {
-                    match unlock_keychain_with_password(&stored_password) {
-                        Ok(()) => {
-                            info!("Successfully unlocked keychain using stored password");
-                            return Ok(());
-                        }
-                        Err(e) => {
-                            debug!("Stored password failed to unlock keychain: {}", e);
-                            info!("Stored password appears to be invalid, will prompt for new password");
-                            // Continue to FLOW 2
-                        }
-                    }
-                }
-                Err(e) => {
-                    debug!("Could not retrieve stored password: {}", e);
-                    // Continue to FLOW 2
-                }
+        // Check if we can access keychain without prompts
+        match self.test_keychain_access() {
+            Ok(()) => {
+                info!("Keychain access available");
+                return Ok(());
             }
-        } else {
-            debug!("No com.postman.cs-cli keychain item found");
+            Err(e) => {
+                debug!("Initial keychain access test failed: {}", e);
+                // Continue to setup proper permissions
+            }
         }
 
-        // FLOW 2: Prompt user for password and validate
-        info!("Prompting for keychain password...");
-        println!();
-        println!("{}", "Keychain Access Required".truecolor(255, 142, 100));
-        println!(
-            "{}",
-            "CS-CLI needs your Mac login password to authenticate".truecolor(230, 230, 230)
-        );
-        println!();
+        // Set up keychain permissions for our application
+        self.setup_keychain_permissions()?;
 
-        loop {
-            let password = rpassword::prompt_password(format!(
-                "{}",
-                "Enter your Mac login password: ".truecolor(111, 44, 186)
-            ))
-            .map_err(|e| CsCliError::Authentication(format!("Failed to read password: {e}")))?;
+        // Verify access now works
+        self.test_keychain_access()
+            .map_err(|e| CsCliError::Authentication(format!("Keychain setup failed: {}", e)))?;
 
-            // Validate password by attempting keychain unlock
-            match unlock_keychain_with_password(&password) {
-                Ok(()) => {
-                    info!("Password validated successfully, keychain unlocked");
+        info!("Keychain access configured successfully");
+        Ok(())
+    }
 
-                    // Store password for future use
-                    match store_password(&password) {
-                        Ok(()) => {
-                            info!("Password stored in keychain for future automatic access");
-                        }
-                        Err(e) => {
-                            debug!("Failed to store password (non-fatal): {}", e);
-                            // This is non-fatal - keychain is unlocked which is what matters
-                        }
-                    }
+    /// Test if we can access keychain without password prompts
+    fn test_keychain_access(&self) -> Result<()> {
+        debug!("Testing keychain access...");
 
-                    return Ok(());
-                }
-                Err(_) => {
-                    println!("{}", "Invalid password. Please try again.".red());
-                    continue;
-                }
-            }
+        // Try to list keychain items - this should work without prompts if ACL is set correctly
+        let output = Command::new("security")
+            .args(["dump-keychain", "-d"])
+            .output()
+            .map_err(|e| CsCliError::Authentication(format!("Failed to test keychain access: {e}")))?;
+
+        if output.status.success() {
+            debug!("Keychain access test successful");
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(CsCliError::Authentication(format!(
+                "Keychain access test failed: {}",
+                stderr.trim()
+            )))
+        }
+    }
+
+    /// Set up keychain permissions for passwordless access
+    fn setup_keychain_permissions(&self) -> Result<()> {
+        info!("Setting up keychain permissions for cs-cli...");
+
+        // Get current executable path for ACL (not currently used but may be needed for future ACL setup)
+        let _current_exe = std::env::current_exe().map_err(|e| {
+            CsCliError::Authentication(format!("Could not determine executable path: {e}"))
+        })?;
+
+        let home = std::env::var("HOME")
+            .map_err(|_| CsCliError::Authentication("Could not find home directory".to_string()))?;
+
+        let main_keychain = format!("{home}/Library/Keychains/login.keychain-db");
+
+        // Create an ACL entry for our application
+        info!("Adding ACL entry for cs-cli to keychain...");
+
+        // Set up keychain permissions using signature-based trust for our signed app
+        let output = Command::new("security")
+            .args([
+                "set-key-partition-list",
+                "-S",
+                "apple-tool:,apple:,com.postman.cs-cli", // Include our bundle identifier
+                "-s",
+                "-k",
+                "", // Empty password - will use current session
+                &main_keychain,
+            ])
+            .output()
+            .map_err(|e| CsCliError::Authentication(format!("Failed to setup keychain permissions: {e}")))?;
+
+        if output.status.success() {
+            info!("Keychain permissions configured successfully");
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            debug!("Keychain permission setup result: {}", stderr);
+            // This might "fail" but still work, so we'll test access next
+            Ok(())
         }
     }
 }

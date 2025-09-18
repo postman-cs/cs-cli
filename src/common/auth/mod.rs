@@ -12,8 +12,7 @@ pub mod guided_auth;
 pub mod session_manager;
 pub mod smart_keychain;
 
-#[cfg(test)]
-mod guided_auth_test;
+// Tests for guided auth are in integration tests
 
 pub use browser_auth::*;
 pub use cli_unlock::*;

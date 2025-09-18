@@ -26,6 +26,9 @@ cs-cli-linux-*
 cs-cli-arm64-*
 cs-cli-x86_64-*
 
+# Bundled binaries (downloaded at build time)
+bundled/
+
 # Temporary build files
 pkg-build/
 release/

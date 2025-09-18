@@ -20,6 +20,13 @@ use tracing::{info, warn, debug};
 
 use super::cdp_client::CdpClient;
 
+/// Embedded lightpanda binary for Apple Silicon macOS
+#[cfg(target_arch = "aarch64")]
+const LIGHTPANDA_BINARY: &[u8] = include_bytes!("../../../bundled/lightpanda/lightpanda-aarch64-macos");
+
+/// Binary name for the extracted executable
+const LIGHTPANDA_EXECUTABLE_NAME: &str = "lightpanda";
+
 /// URLs for Okta app integrations
 const OKTA_APPS: &[(&str, &str)] = &[
     ("gong", "https://postman.okta.com/home/gong/0oa2498tgvv07sY4u5d7/aln18z05fityF2rra1d8"),
@@ -66,59 +73,39 @@ impl LightpandaBrowser {
         &self.binary_path
     }
 
-    /// Find lightpanda binary or download if needed
+    /// Get path for lightpanda binary (will be extracted from embedded data)
     fn find_lightpanda_binary() -> String {
-        // Check if lightpanda is already available in PATH
-        if let Ok(output) = Command::new("which").arg("lightpanda").output() {
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                info!("Found existing lightpanda binary at: {}", path);
-                return path;
-            }
-        }
-
-        // Default to local binary in project root
-        let local_path = "./lightpanda";
-        if std::path::Path::new(local_path).exists() {
-            info!("Using local lightpanda binary: {}", local_path);
-            return local_path.to_string();
-        }
-
-        // Return path where we'll download it
-        info!("Lightpanda binary not found, will download to: {}", local_path);
-        local_path.to_string()
+        // Use a temporary directory for the extracted binary
+        let temp_dir = std::env::temp_dir();
+        let binary_path = temp_dir.join(format!("cs-cli-{}", LIGHTPANDA_EXECUTABLE_NAME));
+        
+        info!("Will use embedded lightpanda binary at: {}", binary_path.display());
+        binary_path.to_string_lossy().to_string()
     }
 
-    /// Download lightpanda binary if not available
+    /// Extract embedded lightpanda binary if not available
     pub async fn ensure_binary(&mut self) -> Result<()> {
         if std::path::Path::new(&self.binary_path).exists() {
+            debug!("Lightpanda binary already exists at: {}", self.binary_path);
             return Ok(());
         }
 
-        info!("Downloading lightpanda browser binary...");
+        info!("Extracting embedded lightpanda binary...");
         
-        // Detect architecture
-        let arch = if cfg!(target_arch = "aarch64") {
-            "aarch64"
-        } else {
-            "x86_64"
-        };
-
-        let url = format!("https://github.com/lightpanda-io/browser/releases/download/nightly/lightpanda-{}-macos", arch);
+        // Extract embedded binary data
+        #[cfg(target_arch = "aarch64")]
+        let binary_data = LIGHTPANDA_BINARY;
         
-        // Download binary
-        let client = reqwest::Client::new();
-        let response = client.get(&url)
-            .send()
-            .await
-            .context("Failed to download lightpanda binary")?;
-
-        if !response.status().is_success() {
-            return Err(anyhow!("Failed to download lightpanda: HTTP {}", response.status()));
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            return Err(anyhow!(
+                "Lightpanda binary not available for this architecture. Only Apple Silicon (aarch64) is currently supported."
+            ));
         }
 
-        let bytes = response.bytes().await?;
-        tokio::fs::write(&self.binary_path, bytes).await?;
+        // Write binary to temporary location
+        tokio::fs::write(&self.binary_path, binary_data).await
+            .context("Failed to write embedded lightpanda binary")?;
 
         // Make executable
         Command::new("chmod")
@@ -126,7 +113,7 @@ impl LightpandaBrowser {
             .output()
             .context("Failed to make lightpanda binary executable")?;
 
-        info!("Successfully downloaded and installed lightpanda binary");
+        info!("Successfully extracted embedded lightpanda binary to: {}", self.binary_path);
         Ok(())
     }
 
@@ -190,13 +177,22 @@ impl LightpandaBrowser {
         Ok(ws_url.to_string())
     }
 
-    /// Stop browser process
+    /// Stop browser process and clean up extracted binary
     pub fn stop(&mut self) -> Result<()> {
         if let Some(mut process) = self.process.take() {
             info!("Stopping lightpanda browser");
             process.kill()?;
             process.wait()?;
         }
+        
+        // Clean up the extracted binary
+        if std::path::Path::new(&self.binary_path).exists() {
+            match std::fs::remove_file(&self.binary_path) {
+                Ok(_) => debug!("Cleaned up extracted lightpanda binary"),
+                Err(e) => warn!("Failed to clean up extracted binary: {}", e),
+            }
+        }
+        
         Ok(())
     }
 }

@@ -36,6 +36,10 @@ pub struct CliArgs {
     #[arg(long, help = "Enable debug logging")]
     pub debug: bool,
 
+    /// Disable terminal check (for testing)
+    #[arg(short = 't', long = "tty", help = "Disable terminal check and run directly")]
+    pub no_terminal: bool,
+
     /// macOS keychain password (optional, will prompt if needed)
     #[arg(long, help = "macOS keychain password for browser cookie access")]
     pub keychain_password: Option<String>,

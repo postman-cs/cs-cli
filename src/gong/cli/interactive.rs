@@ -236,12 +236,60 @@ pub fn interactive_team_mode(saved_stream_id: Option<String>) -> Result<ParsedCo
         stream_id
     };
 
+    // Get time period for team calls
+    let days = get_team_time_period()?;
+
+    // Show confirmation summary
+    show_team_confirmation_summary(&stream_id, days);
+
     Ok(ParsedCommand::Team {
         stream_id: Some(stream_id),
-        days: Some(7), // Default to 7 days for team
+        days: Some(days),
         from_date: None,
         to_date: None,
     })
+}
+
+/// Get time period for team calls with sensible defaults and validation
+fn get_team_time_period() -> Result<u32> {
+    println!();
+    println!("{}", "How far back should I look for team calls?".truecolor(111, 44, 186));
+    println!(
+        "{}",
+        "Common choices: 7 days (1 week), 14 days (2 weeks), 30 days (1 month)".truecolor(230, 230, 230)
+    );
+
+    loop {
+        let days_input: String = Input::new()
+            .with_prompt("Number of days")
+            .default("7".to_string())
+            .show_default(true)
+            .interact_text()
+            .map_err(|e| crate::CsCliError::Generic(format!("Input error: {e}")))?;
+
+        match days_input.trim().parse::<u32>() {
+            Ok(days) if days > 0 && days <= 365 => return Ok(days), // Max 1 year for team calls
+            Ok(_) => {
+                println!(
+                    "{}",
+                    "Please enter a number between 1 and 365 days.".yellow()
+                );
+                continue;
+            }
+            Err(_) => {
+                println!("{}", "Using default: 7 days".yellow());
+                return Ok(7);
+            }
+        }
+    }
+}
+
+/// Show confirmation summary for team extraction before proceeding
+fn show_team_confirmation_summary(stream_id: &str, days: u32) {
+    println!();
+    println!("{} {}", "✓ Call Stream ID:".truecolor(255, 255, 255), stream_id);
+    println!("{} Last {} days", "✓ Time period:".truecolor(255, 255, 255), days);
+    println!();
 }
 
 /// Show instructions for finding team call stream ID

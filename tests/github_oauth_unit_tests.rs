@@ -16,7 +16,7 @@ fn test_oauth_url_generation() {
     // URL should contain all required components
     assert!(url.contains("github.com/login/oauth/authorize"));
     assert!(url.contains("scope=gist"));
-    assert!(url.contains(&format!("state={}", state)));
+    assert!(url.contains(&format!("state={state}")));
     assert!(url.contains("redirect_uri="));
     assert!(url.contains("client_id=test_client_id_abc"));
 
@@ -107,7 +107,7 @@ fn test_missing_client_id() {
 
 #[cfg(test)]
 mod oauth_flow_tests {
-    use super::*;
+    
     use cs_cli::common::auth::github_oauth_flow::GitHubOAuthFlow;
 
     #[test]

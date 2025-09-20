@@ -1,6 +1,6 @@
-//! CS-CLI: Customer Success Communication Extraction Tool
+//! CS-CLI: Customer Success Communication Retrieval Tool
 //!
-//! A Rust implementation of the customer success CLI for extracting
+//! A Rust implementation of the customer success CLI for retrieving
 //! customer communications from Gong and formatting them as markdown.
 
 pub mod common;

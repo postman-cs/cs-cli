@@ -3,7 +3,7 @@
 //! This module provides a full-featured TUI that manages:
 //! - Customer selection with autocomplete
 //! - Time period and content type selection
-//! - Extraction progress with loading bars
+//! - Retrieval progress with loading bars
 //! - Results summary
 
 use crate::common::cli::args::{ContentType, ParsedCommand};
@@ -20,24 +20,6 @@ use std::collections::HashSet;
 use std::time::Instant;
 use tokio::sync::mpsc;
 
-/// Easing functions for smooth animations
-mod easing {
-    /// Ease out cubic for smooth deceleration
-    pub fn ease_out_cubic(t: f64) -> f64 {
-        let t = t - 1.0;
-        t * t * t + 1.0
-    }
-    
-    /// Ease in out cubic for smooth acceleration and deceleration
-    pub fn ease_in_out_cubic(t: f64) -> f64 {
-        if t < 0.5 {
-            4.0 * t * t * t
-        } else {
-            let t = 2.0 * t - 2.0;
-            1.0 + t * t * t / 2.0
-        }
-    }
-}
 
 /// Result type for TUI operations
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -85,28 +67,28 @@ impl TuiApp {
 }
 
 
-/// Messages from extraction thread to TUI
+/// Messages from retrieval thread to TUI
 #[derive(Debug, Clone)]
-pub enum ExtractionMessage {
+pub enum RetrievalMessage {
     // Authentication messages
     AuthProgress(f64, String), // Progress and status message
     AuthSuccess,
     AuthFailed(String),
 
-    // Extraction messages
+    // Retreival messages
     Phase(String),
     Progress(f64), // 0.0 to 1.0
     SubTask(String),
     CallsFound(usize),
     EmailsFound(usize),
     FileSaved(String),
-    Complete(ExtractionResults),
+    Complete(RetrievalResults),
     Error(String),
 }
 
-/// Final extraction results
+/// Final retrieval results
 #[derive(Debug, Clone)]
-pub struct ExtractionResults {
+pub struct RetrievalResults {
     pub total_calls: usize,
     pub total_emails: usize,
     pub files_saved: usize,
@@ -116,9 +98,6 @@ pub struct ExtractionResults {
 /// State machine for the complete workflow
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppState {
-    // Sync choice phase (shown on first run)
-    SyncChoice,
-
     // Authentication phase
     Authenticating,
     AuthenticationFailed(String),
@@ -129,9 +108,9 @@ pub enum AppState {
     ContentSelection,
     Confirmation,
 
-    // Extraction phases
+    // Retrieval phases
     Initializing,
-    Extracting,
+    Retrieving,
     Complete,
     Error(String),
 
@@ -169,18 +148,18 @@ pub struct TuiApp {
     // Content type selection
     pub content_selection: usize, // 0=calls, 1=emails, 2=both
 
-    // Extraction progress
+    // Retrieval progress
     pub current_phase: String,
     pub current_progress: f64,
     pub current_subtask: String,
-    pub extraction_log: Vec<String>,
+    pub retrieval_log: Vec<String>,
     pub start_time: Option<Instant>,
 
     // Results
-    pub results: Option<ExtractionResults>,
+    pub results: Option<RetrievalResults>,
 
     // Communication channel
-    pub extraction_rx: Option<mpsc::UnboundedReceiver<ExtractionMessage>>,
+    pub retrieval_rx: Option<mpsc::UnboundedReceiver<RetrievalMessage>>,
 
     // UI feedback
     pub error_message: Option<String>,
@@ -222,13 +201,13 @@ impl Default for TuiApp {
 impl TuiApp {
     pub fn new() -> Self {
         Self {
-            state: AppState::SyncChoice, // Start with sync choice - TUI runner will determine if needed
+            state: AppState::Authenticating, // Start directly with authentication (which includes sync choice)
             auth_progress: 0.0,
             auth_status: "Starting authentication...".to_string(),
             auth_error: None,
             auth_steps_completed: Vec::new(),
             auth_current_step: 0,
-            auth_total_steps: 7, // Total auth steps: Check credentials, Initialize session, Connect Okta, Select Verify, Verify auth, Connect platforms, Save auth
+            auth_total_steps: 9, // Total auth steps: Initializing, Preparing GitHub, Checking stored, Launching browser, Connecting Okta, Selecting Verify, Verifying auth, Loading platforms, Storing auth
             auth_start_time: Some(Instant::now()),
             input: String::new(),
             cursor: 0,
@@ -243,10 +222,10 @@ impl TuiApp {
             current_phase: String::new(),
             current_progress: 0.0,
             current_subtask: String::new(),
-            extraction_log: Vec::new(),
+            retrieval_log: Vec::new(),
             start_time: None,
             results: None,
-            extraction_rx: None,
+            retrieval_rx: None,
             error_message: None,
             sync_enabled: false, // Will be updated when we determine sync status
             sync_choice_made: false,
@@ -266,8 +245,8 @@ impl TuiApp {
         }
     }
 
-    pub fn set_extraction_channel(&mut self, rx: mpsc::UnboundedReceiver<ExtractionMessage>) {
-        self.extraction_rx = Some(rx);
+    pub fn set_retrieval_channel(&mut self, rx: mpsc::UnboundedReceiver<RetrievalMessage>) {
+        self.retrieval_rx = Some(rx);
     }
 
     /// Set cross-device sync status
@@ -301,30 +280,6 @@ impl TuiApp {
         self.sync_choice_selection = if self.sync_enabled { 0 } else { 1 };
     }
 
-    /// Handle sync choice input
-    fn handle_sync_choice_input(&mut self, key: KeyCode) -> bool {
-        match key {
-            KeyCode::Up => {
-                if self.sync_choice_selection > 0 {
-                    self.sync_choice_selection -= 1;
-                }
-                false
-            }
-            KeyCode::Down => {
-                if self.sync_choice_selection < 1 {
-                    self.sync_choice_selection += 1;
-                }
-                false
-            }
-            KeyCode::Enter => {
-                self.sync_choice_made = true;
-                self.sync_enabled = self.sync_choice_selection == 0; // 0 = GitHub OAuth, 1 = Local only
-                self.state = AppState::Authenticating;
-                false
-            }
-            _ => false,
-        }
-    }
 
     /// Handle authentication storage choice input
     fn handle_auth_choice_input(&mut self, key: KeyCode) -> bool {
@@ -347,19 +302,6 @@ impl TuiApp {
         }
     }
 
-    /// Handle sync choice mouse events
-    fn handle_sync_choice_mouse(&mut self, mouse: MouseEvent) -> bool {
-        match mouse.kind {
-            MouseEventKind::Down(MouseButton::Left) => {
-                // Simple click handling - could be enhanced with precise button detection
-                self.sync_choice_made = true;
-                self.sync_enabled = self.sync_choice_selection == 0;
-                self.state = AppState::Authenticating;
-                false
-            }
-            _ => false,
-        }
-    }
 
     /// Handle authentication storage choice mouse events
     fn handle_auth_choice_mouse(&mut self, mouse: MouseEvent) -> bool {
@@ -396,10 +338,10 @@ impl TuiApp {
         false
     }
 
-    pub fn handle_extraction_message(&mut self, msg: ExtractionMessage) {
+    pub fn handle_retrieval_message(&mut self, msg: RetrievalMessage) {
         match msg {
             // Authentication messages
-            ExtractionMessage::AuthProgress(_progress, status) => {
+            RetrievalMessage::AuthProgress(_progress, status) => {
                 // Parse status to determine which step we're on
                 let step_progress = self.determine_auth_step(&status);
 
@@ -416,51 +358,51 @@ impl TuiApp {
                     (self.auth_current_step as f64) / (self.auth_total_steps as f64);
                 self.auth_status = status;
             }
-            ExtractionMessage::AuthSuccess => {
+            RetrievalMessage::AuthSuccess => {
                 self.auth_progress = 1.0;
                 self.auth_current_step = self.auth_total_steps;
                 self.state = AppState::CustomerSelection;
             }
-            ExtractionMessage::AuthFailed(error) => {
+            RetrievalMessage::AuthFailed(error) => {
                 self.state = AppState::AuthenticationFailed(error.clone());
                 self.auth_error = Some(error);
             }
 
-            // Extraction messages
-            ExtractionMessage::Phase(phase) => {
+            // Retrieval messages
+            RetrievalMessage::Phase(phase) => {
                 self.current_phase = phase.clone();
                 self.current_progress = 0.0;
-                self.extraction_log.push(format!("▶ {phase}"));
+                self.retrieval_log.push(format!("▶ {phase}"));
             }
-            ExtractionMessage::Progress(p) => {
+            RetrievalMessage::Progress(p) => {
                 self.current_progress = p;
             }
-            ExtractionMessage::SubTask(task) => {
+            RetrievalMessage::SubTask(task) => {
                 self.current_subtask = task.clone();
-                self.extraction_log.push(format!("  • {task}"));
+                self.retrieval_log.push(format!("  • {task}"));
             }
-            ExtractionMessage::CallsFound(n) => {
-                self.extraction_log.push(format!("  ✓ Found {n} calls"));
+            RetrievalMessage::CallsFound(n) => {
+                self.retrieval_log.push(format!("  ✓ Found {n} calls"));
             }
-            ExtractionMessage::EmailsFound(n) => {
-                self.extraction_log.push(format!("  ✓ Found {n} emails"));
+            RetrievalMessage::EmailsFound(n) => {
+                self.retrieval_log.push(format!("  ✓ Found {n} emails"));
             }
-            ExtractionMessage::FileSaved(path) => {
-                self.extraction_log.push(format!("  📄 {path}"));
+            RetrievalMessage::FileSaved(path) => {
+                self.retrieval_log.push(format!("  📄 {path}"));
             }
-            ExtractionMessage::Complete(results) => {
+            RetrievalMessage::Complete(results) => {
                 self.results = Some(results);
                 self.state = AppState::Complete;
             }
-            ExtractionMessage::Error(e) => {
+            RetrievalMessage::Error(e) => {
                 self.state = AppState::Error(e.clone());
-                self.extraction_log.push(format!("❌ Error: {e}"));
+                self.retrieval_log.push(format!("❌ Error: {e}"));
             }
         }
 
         // Keep log size manageable
-        if self.extraction_log.len() > 100 {
-            self.extraction_log.drain(0..50);
+        if self.retrieval_log.len() > 100 {
+            self.retrieval_log.drain(0..50);
         }
     }
 
@@ -471,7 +413,6 @@ impl TuiApp {
         }
 
         match self.state {
-            AppState::SyncChoice => self.handle_sync_choice_input(key),
             AppState::Authenticating => self.handle_auth_choice_input(key),
             AppState::AuthenticationFailed(_) => {
                 match key {
@@ -494,7 +435,7 @@ impl TuiApp {
             AppState::TimeSelection => self.handle_time_input(key),
             AppState::ContentSelection => self.handle_content_input(key),
             AppState::Confirmation => self.handle_confirmation_input(key),
-            AppState::Initializing | AppState::Extracting => false, // No input during extraction (Escape already handled)
+            AppState::Initializing | AppState::Retrieving => false, // No input during retrieval (Escape already handled)
             AppState::Complete | AppState::Error(_) => {
                 matches!(key, KeyCode::Enter) // Enter also exits on complete/error screens
             }
@@ -506,16 +447,14 @@ impl TuiApp {
     pub fn handle_mouse(&mut self, mouse: MouseEvent) -> bool {
         // Check for auth mode button clicks first (available on most screens)
         if let Some(button_area) = self.auth_mode_button_area {
-            if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
-                if self.is_mouse_in_area(&mouse, button_area) {
+            if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
+                && self.is_mouse_in_area(&mouse, button_area) {
                     self.toggle_auth_mode();
                     return false; // Don't exit, just toggle mode
                 }
-            }
         }
 
         match self.state {
-            AppState::SyncChoice => self.handle_sync_choice_mouse(mouse),
             AppState::Authenticating => self.handle_auth_choice_mouse(mouse),
             AppState::CustomerSelection => self.handle_customer_mouse(mouse),
             AppState::TimeSelection => self.handle_time_mouse(mouse),
@@ -695,7 +634,7 @@ impl TuiApp {
             self.in_dropdown = true;
             self.highlight_index = 0;
         } else if self.highlight_index < self.suggestions.len().saturating_sub(1) {
-            self.highlight_index = self.highlight_index + 1;
+            self.highlight_index += 1;
         }
         
         self.ensure_suggestions_state_valid();
@@ -830,7 +769,7 @@ impl TuiApp {
     fn handle_confirmation_mouse(&mut self, mouse: MouseEvent) -> bool {
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
-                // Any click starts the extraction
+                // Any click starts the retrieval process
                 self.state = AppState::Initializing;
                 self.start_time = Some(std::time::Instant::now());
                 false
@@ -840,17 +779,19 @@ impl TuiApp {
     }
 
     fn determine_auth_step(&self, status: &str) -> usize {
-        // Lookup table for auth step patterns
+        // Lookup table for auth step patterns (0-based indexing)
         const STEP_PATTERNS: &[(&[&str], usize)] = &[
-            (&["Checking", "stored", "saved"], 1),
-            (&["Launching", "browser", "Initializ"], 2),
-            (&["Navigating", "Okta", "Connect"], 3),
-            (&["Selecting", "Verify"], 4),
-            (&["Waiting", "authentication", "Verif"], 5),
-            (&["platform", "Loading"], 6),
-            (&["Storing", "Successfully", "Sav"], 7),
+            (&["Initializing authentication", "Starting"], 0),
+            (&["Preparing GitHub", "GitHub sync"], 1),
+            (&["Checking", "stored", "saved"], 2),
+            (&["Launching", "browser"], 3),
+            (&["Navigating", "Okta", "Connect"], 4),
+            (&["Selecting", "Verify"], 5),
+            (&["Waiting", "authentication", "Verif"], 6),
+            (&["platform", "Loading"], 7),
+            (&["Storing", "Successfully", "Sav"], 8),
         ];
-        
+
         STEP_PATTERNS
             .iter()
             .find(|(patterns, _)| patterns.iter().any(|pattern| status.contains(pattern)))
@@ -1002,7 +943,7 @@ fn format_customer_count_exact(count: usize) -> String {
     if count == 1 {
         String::from("1 customer")
     } else {
-        format!("{} customers", count)
+        format!("{count} customers")
     }
 }
 
@@ -1015,11 +956,6 @@ pub fn draw_tui(f: &mut Frame, app: &mut TuiApp) {
     let state = app.state.clone();
 
     match state {
-        AppState::SyncChoice => {
-            // Draw sync choice UI - this would need a proper UI function
-            // For now, just draw authentication UI as placeholder
-            draw_authentication_ui(f, app);
-        }
         AppState::Exiting(_) => {
             // Should not reach here with immediate exit, but just in case
         }
@@ -1035,8 +971,8 @@ pub fn draw_tui(f: &mut Frame, app: &mut TuiApp) {
         | AppState::Confirmation => {
             draw_selection_ui(f, app);
         }
-        AppState::Initializing | AppState::Extracting => {
-            draw_extraction_ui(f, app);
+            AppState::Initializing | AppState::Retrieving => {
+            draw_retrieval_ui(f, app);
         }
         AppState::Complete => {
             draw_results_ui(f, app);
@@ -1095,7 +1031,6 @@ fn draw_selection_ui(f: &mut Frame, app: &mut TuiApp) {
 
     // Draw main content based on state
     match app.state {
-        AppState::SyncChoice => draw_sync_choice(f, chunks[1], app),
         AppState::CustomerSelection => draw_customer_selection(f, chunks[1], app),
         AppState::TimeSelection => draw_time_selection(f, chunks[1], app),
         AppState::ContentSelection => draw_content_selection(f, chunks[1], app),
@@ -1354,7 +1289,7 @@ fn draw_confirmation(f: &mut Frame, area: Rect, app: &TuiApp) {
     let confirmation = vec![
         Line::from(""),
         Line::from(vec![Span::styled(
-            "Ready to extract:",
+            "Ready to retrieve:",
             Style::default()
                 .fg(THEME.text_primary)
                 .add_modifier(Modifier::BOLD),
@@ -1401,7 +1336,7 @@ fn draw_confirmation(f: &mut Frame, area: Rect, app: &TuiApp) {
     f.render_widget(widget, area);
 }
 
-fn draw_extraction_ui(f: &mut Frame, app: &mut TuiApp) {
+fn draw_retrieval_ui(f: &mut Frame, app: &mut TuiApp) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -1416,10 +1351,10 @@ fn draw_extraction_ui(f: &mut Frame, app: &mut TuiApp) {
     let header_chunks = create_header_layout(chunks[0]);
 
     // Main title
-    let extraction_title = format_header_title("CS-CLI: Extraction in Progress", app.get_sync_indicator());
+    let retrieval_title = format_header_title("CS-CLI: Retrieval in Progress", app.get_sync_indicator());
     let header = Paragraph::new(vec![
         Line::from(vec![Span::styled(
-            extraction_title,
+            retrieval_title,
             Style::default()
                 .fg(THEME.primary)
                 .add_modifier(Modifier::BOLD),
@@ -1454,8 +1389,8 @@ fn draw_extraction_ui(f: &mut Frame, app: &mut TuiApp) {
         .style(Style::default().fg(THEME.text_muted));
     f.render_widget(progress_label, progress_chunks[0]);
 
-    // Apply smooth easing to progress animation
-    let smooth_progress = easing::ease_in_out_cubic(app.current_progress);
+    // Use linear progress
+    let smooth_progress = app.current_progress;
     let progress = Gauge::default()
         .block(Block::default().borders(Borders::NONE))
         .gauge_style(Style::default().fg(THEME.accent))
@@ -1470,8 +1405,8 @@ fn draw_extraction_ui(f: &mut Frame, app: &mut TuiApp) {
 
     // Activity log
     let log_height = chunks[2].height as usize;
-    let start = app.extraction_log.len().saturating_sub(log_height - 2);
-    let visible_log = &app.extraction_log[start..];
+    let start = app.retrieval_log.len().saturating_sub(log_height - 2);
+    let visible_log = &app.retrieval_log[start..];
 
     let log_items: Vec<ListItem> = visible_log
         .iter()
@@ -1500,7 +1435,7 @@ fn draw_extraction_ui(f: &mut Frame, app: &mut TuiApp) {
     f.render_widget(log, chunks[2]);
 
     // Footer
-    let footer = Paragraph::new("Extraction in progress... Please wait | ESC: Exit")
+    let footer = Paragraph::new("Retrieval in progress... Please wait | ESC: Exit")
         .style(Style::default().fg(THEME.text_muted))
         .alignment(Alignment::Center)
         .block(Block::default().borders(Borders::TOP));
@@ -1521,7 +1456,7 @@ fn draw_results_ui(f: &mut Frame, app: &mut TuiApp) {
     let header_chunks = create_header_layout(chunks[0]);
 
     // Main title
-    let complete_title = format_header_title("CS-CLI: Extraction Complete!", app.get_sync_indicator());
+    let complete_title = format_header_title("CS-CLI: Retrieval Complete!", app.get_sync_indicator());
     let header = Paragraph::new(vec![Line::from(vec![Span::styled(
         complete_title,
         Style::default()
@@ -1542,7 +1477,7 @@ fn draw_results_ui(f: &mut Frame, app: &mut TuiApp) {
         let content = vec![
             Line::from(""),
             Line::from(vec![Span::styled(
-                "✓ Extraction Complete",
+                "✓ Retrieval Complete",
                 Style::default()
                     .fg(THEME.success)
                     .add_modifier(Modifier::BOLD),
@@ -1562,14 +1497,14 @@ fn draw_results_ui(f: &mut Frame, app: &mut TuiApp) {
             Line::from(vec![
                 Span::raw("  "),
                 Span::styled(
-                    format!("• Calls extracted: {}", results.total_calls),
+                    format!("• Calls retrieved: {}", results.total_calls),
                     Style::default().fg(THEME.info),
                 ),
             ]),
             Line::from(vec![
                 Span::raw("  "),
                 Span::styled(
-                    format!("• Emails extracted: {}", results.total_emails),
+                    format!("• Emails retrieved: {}", results.total_emails),
                     Style::default().fg(THEME.info),
                 ),
             ]),
@@ -1596,7 +1531,7 @@ fn draw_results_ui(f: &mut Frame, app: &mut TuiApp) {
         let results_widget = Paragraph::new(content).alignment(Alignment::Center).block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Extraction Results")
+                .title("Retrieval Results")
                 .title_style(Style::default().fg(THEME.primary)),
         );
         f.render_widget(results_widget, chunks[1]);
@@ -1655,7 +1590,6 @@ fn draw_error_ui(f: &mut Frame, error: &str) {
 
 fn draw_footer(f: &mut Frame, area: Rect, state: &AppState) {
     let help = match state {
-        AppState::SyncChoice => "↑↓: Select option | ENTER: Confirm choice | ESC: Exit",
         AppState::CustomerSelection => {
             "TAB/Click: Select | ENTER: Next | ESC: Exit | Mouse: Navigate"
         }
@@ -1732,11 +1666,11 @@ const POSTMAN_LOGO_RAW: &str = r#"
 "#;
 /// Draw authentication UI with progress and overlay auth choice buttons
 fn draw_authentication_ui(f: &mut Frame, app: &mut TuiApp) {
-    // Calculate logo animation progress with smooth easing (3 second animation)
+    // Calculate logo animation progress (3 second linear animation)
     let logo_progress = if let Some(start_time) = app.auth_start_time {
         let elapsed = start_time.elapsed().as_millis() as f64;
-        let raw_progress = (elapsed / 3000.0).min(1.0); // 3 second animation
-        easing::ease_out_cubic(raw_progress) // Apply smooth easing
+         // 3 second animation
+        (elapsed / 3000.0).min(1.0) // Use linear progress
     } else {
         0.0
     };
@@ -1786,7 +1720,7 @@ fn draw_authentication_ui(f: &mut Frame, app: &mut TuiApp) {
     let header_width = chunks[1].width as usize;
 
     let header = Paragraph::new(vec![Line::from(vec![Span::styled(
-        format!("{:^width$}", header_text, width = header_width),
+        format!("{header_text:^header_width$}"),
         Style::default()
             .fg(THEME.background)
             .bg(THEME.text_primary)
@@ -2120,128 +2054,3 @@ fn draw_auth_failed_ui(f: &mut Frame, error: &str) {
     f.render_widget(footer, chunks[2]);
 }
 
-/// Draw sync choice screen
-fn draw_sync_choice(f: &mut Frame, area: Rect, app: &TuiApp) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(8), // Title and description
-            Constraint::Length(6), // Options
-            Constraint::Min(0),    // Spacer
-        ])
-        .split(area);
-
-    // Title and description
-    let title_content = vec![
-        Line::from(vec![Span::styled(
-            "Session Sync",
-            Style::default()
-                .fg(THEME.primary)
-                .add_modifier(Modifier::BOLD),
-        )]),
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            "Keep your login sessions synchronized across all your devices",
-            Style::default().fg(THEME.text_secondary),
-        )]),
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            "Choose your preferred sync method:",
-            Style::default().fg(THEME.warning),
-        )]),
-    ];
-
-    let title_widget = Paragraph::new(title_content)
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::NONE));
-    f.render_widget(title_widget, chunks[0]);
-
-    // Sync options
-    let github_option = if app.sync_choice_selection == 0 {
-        vec![
-            Line::from(vec![Span::styled(
-                "🔗 GitHub OAuth Sync",
-                Style::default()
-                    .fg(THEME.primary)
-                    .add_modifier(Modifier::BOLD),
-            )]),
-            Line::from(vec![Span::styled(
-                "   Encrypted storage in your personal GitHub gist",
-                Style::default().fg(THEME.button_bg),
-            )]),
-            Line::from(vec![Span::styled(
-                "   Works across all devices, secure and private",
-                Style::default().fg(THEME.button_bg),
-            )]),
-        ]
-    } else {
-        vec![
-            Line::from(vec![Span::styled(
-                "GitHub OAuth (sync)",
-                Style::default().fg(THEME.text_muted),
-            )]),
-            Line::from(vec![Span::styled(
-                "   Encrypted storage in your personal GitHub gist",
-                Style::default().fg(THEME.text_disabled),
-            )]),
-            Line::from(vec![Span::styled(
-                "   Works across all devices, secure and private",
-                Style::default().fg(THEME.text_disabled),
-            )]),
-        ]
-    };
-
-    let local_option = if app.sync_choice_selection == 1 {
-        vec![
-            Line::from(vec![Span::styled(
-                "Local Only (nosync)",
-                Style::default()
-                    .fg(THEME.primary)
-                    .add_modifier(Modifier::BOLD),
-            )]),
-            Line::from(vec![Span::styled(
-                "   Store sessions locally in macOS keychain",
-                Style::default().fg(THEME.button_bg),
-            )]),
-            Line::from(vec![Span::styled(
-                "   No external dependencies, completely offline",
-                Style::default().fg(THEME.button_bg),
-            )]),
-        ]
-    } else {
-        vec![
-            Line::from(vec![Span::styled(
-                "🔒 Local Keychain Only",
-                Style::default().fg(THEME.text_muted),
-            )]),
-            Line::from(vec![Span::styled(
-                "   Store sessions locally in macOS keychain",
-                Style::default().fg(THEME.text_disabled),
-            )]),
-            Line::from(vec![Span::styled(
-                "   No external dependencies, completely offline",
-                Style::default().fg(THEME.text_disabled),
-            )]),
-        ]
-    };
-
-    let mut options_content = github_option;
-    options_content.push(Line::from(""));
-    options_content.extend(local_option);
-
-    let options_widget = Paragraph::new(options_content)
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::NONE));
-    f.render_widget(options_widget, chunks[1]);
-
-    // Instructions
-    let instructions = Paragraph::new(vec![
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            "Use ↑↓ to select, ENTER to confirm",
-            Style::default().fg(THEME.text_muted),
-        )]),
-    ])
-    .alignment(Alignment::Center);
-    f.render_widget(instructions, chunks[2]);
-}

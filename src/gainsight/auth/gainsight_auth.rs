@@ -3,7 +3,7 @@
 //! Platform-specific authentication logic for Gainsight customer success platform.
 //! Handles Gainsight-specific session cookies, domain validation, and authentication tokens.
 
-use crate::common::auth::{Cookie, CookieExtractor, SessionManager};
+use crate::common::auth::{Cookie, CookieRetriever, SessionManager};
 use crate::{CsCliError, Result};
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -22,7 +22,7 @@ pub struct GainsightSession {
 /// Gainsight authentication manager using common abstractions
 pub struct GainsightAuth {
     company_domain: String,
-    cookie_extractor: CookieExtractor,
+    cookie_retriever: CookieRetriever,
     current_session: Option<GainsightSession>,
     pub detected_browser: Option<String>,
 }
@@ -38,26 +38,26 @@ impl GainsightAuth {
             "gainsight.com".to_string(),
             ".gainsight.com".to_string(),
         ];
-        let cookie_extractor = CookieExtractor::new(domains);
+        let cookie_retriever = CookieRetriever::new(domains);
 
         Self {
             company_domain,
-            cookie_extractor,
+            cookie_retriever,
             current_session: None,
             detected_browser: None,
         }
     }
 
-    /// Extract Gainsight authentication from browser
+    /// Retrieve Gainsight authentication from browser
     /// 
     /// This method will:
     /// 1. Find a browser with valid Gainsight authentication
-    /// 2. Extract Gainsight-specific session cookies
+    /// 2. Retrieve Gainsight-specific session cookies
     /// 3. Validate the session with Gainsight's authentication endpoints
-    /// 4. Extract any necessary API tokens or session identifiers
-    pub async fn extract_browser_auth(&mut self) -> Result<GainsightSession> {
+    /// 4. Retrieve any necessary API tokens or session identifiers
+    pub async fn retrieve_browser_auth(&mut self) -> Result<GainsightSession> {
         info!(
-            "Extracting Gainsight authentication for {}",
+            "Retrieving Gainsight authentication for {}",
             self.company_domain
         );
 
@@ -101,7 +101,7 @@ impl GainsightAuth {
         // This might involve:
         // - Making API calls to Gainsight's auth endpoints
         // - Parsing authentication responses for API tokens
-        // - Extracting user/company information from authenticated endpoints
+        // - Retreiving user/company information from authenticated endpoints
 
         let session = GainsightSession {
             instance_url: format!("https://{}", self.company_domain),
@@ -126,11 +126,11 @@ impl GainsightAuth {
 
         // Test browsers in order of preference
         let browser_tests = vec![
-            ("Firefox", self.cookie_extractor.extract_firefox_cookies()),
-            ("Chrome", self.cookie_extractor.extract_chrome_cookies()),
-            ("Brave", self.cookie_extractor.extract_brave_cookies()),
-            ("Edge", self.cookie_extractor.extract_edge_cookies()),
-            ("Arc", self.cookie_extractor.extract_arc_cookies()),
+            ("Firefox", self.cookie_retriever.retrieve_firefox_cookies()),
+            ("Chrome", self.cookie_retriever.retrieve_chrome_cookies()),
+            ("Brave", self.cookie_retriever.retrieve_brave_cookies()),
+            ("Edge", self.cookie_retriever.retrieve_edge_cookies()),
+            ("Arc", self.cookie_retriever.retrieve_arc_cookies()),
         ];
 
         for (browser_name, cookie_result) in browser_tests {
@@ -192,7 +192,7 @@ impl GainsightAuth {
 
     /// Get cookies for debugging
     pub fn get_domain_cookies(&self, domain: &str) -> Result<Vec<Cookie>> {
-        let all_cookies = self.cookie_extractor.extract_firefox_cookies()?;
+        let all_cookies = self.cookie_retriever.retrieve_firefox_cookies()?;
 
         let gainsight_cookies: Vec<Cookie> = all_cookies
             .into_iter()
@@ -212,12 +212,12 @@ impl SessionManager for GainsightAuth {
     type SessionData = GainsightSession;
 
     async fn initialize_session(&mut self) -> Result<()> {
-        self.extract_browser_auth().await?;
+        self.retrieve_browser_auth().await?;
         Ok(())
     }
 
     async fn authenticate(&mut self) -> Result<bool> {
-        match self.extract_browser_auth().await {
+        match self.retrieve_browser_auth().await {
             Ok(_) => Ok(true),
             Err(e) => {
                 warn!("Gainsight authentication failed: {}", e);

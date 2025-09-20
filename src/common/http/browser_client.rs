@@ -1,6 +1,6 @@
-//! Browser-impersonating HTTP client implementation
+//! Browser-compatible HTTP client implementation
 //!
-//! Generic HTTP client with TLS fingerprinting and browser impersonation
+//! Generic HTTP client with TLS fingerprinting and browser compatibility
 //! that can be used by both Gong and Slack integrations.
 
 use super::client::HttpClient;
@@ -19,7 +19,7 @@ use std::time::Duration;
 use tokio::sync::{Mutex, Semaphore};
 use tracing::{debug, info, warn};
 
-/// Browser-impersonating HTTP client with TLS fingerprinting
+/// Browser-compatible HTTP client with TLS fingerprinting
 pub struct BrowserHttpClient {
     client: Impit<Jar>,
     config: HttpSettings,
@@ -33,20 +33,20 @@ impl BrowserHttpClient {
     pub async fn new(config: HttpSettings) -> Result<Self> {
         // Parse browser type - impit supports Chrome and Firefox directly
         // Other browsers (Brave, Edge, Safari) are Chromium-based so use Chrome fingerprinting
-        let browser = match config.impersonate_browser.to_lowercase().as_str() {
+        let browser = match config.browser_type.to_lowercase().as_str() {
             "firefox" => Browser::Firefox,
             "chrome" => Browser::Chrome,
             "brave" | "edge" | "safari" | "chromium" | "arc" | "opera" | "vivaldi" => {
                 info!(
                     "Browser '{}' is Chromium-based, using Chrome fingerprinting",
-                    config.impersonate_browser
+                    config.browser_type
                 );
                 Browser::Chrome
             }
             _ => {
                 warn!(
                     "Unknown browser '{}', defaulting to Chrome",
-                    config.impersonate_browser
+                    config.browser_type
                 );
                 Browser::Chrome
             }
@@ -70,7 +70,7 @@ impl BrowserHttpClient {
 
         info!(
             "Building HTTP client with enhanced {} fingerprinting",
-            config.impersonate_browser
+            config.browser_type
         );
         info!("Features: TLS(JA3/JA4) + HTTP/2 + HTTP/3(QUIC) + Headers + Timing");
 
@@ -79,7 +79,7 @@ impl BrowserHttpClient {
 
         info!(
             "Browser HTTP client initialized: browser={}, concurrency={}, timeout={:.1}s",
-            config.impersonate_browser, config.max_concurrency_per_client, config.timeout_seconds
+            config.browser_type, config.max_concurrency_per_client, config.timeout_seconds
         );
 
         Ok(Self {
@@ -109,9 +109,11 @@ impl BrowserHttpClient {
             .map_err(|e| CsCliError::ApiRequest(format!("Failed to acquire semaphore: {e}")))?;
 
         for attempt in 0..MAX_RETRIES {
+            info!("Making HTTP request: {} {} (attempt {})", method, url, attempt + 1);
             match self.make_request(method, url, body).await {
                 Ok(response) => {
                     let status = response.status().as_u16();
+                    info!("HTTP request completed: {} {} -> {}", method, url, status);
 
                     // Handle rate limiting (429) - honor Retry-After header
                     if status == 429 {

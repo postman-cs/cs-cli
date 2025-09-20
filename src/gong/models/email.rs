@@ -146,8 +146,8 @@ pub struct Email {
     pub status: Option<String>,
 
     // Enhancement metadata
-    /// Whether body content has been fetched
-    pub body_fetched: bool,
+    /// Whether body content has been retrieved
+    pub body_retrieved: bool,
 
     /// When this email record was last updated
     pub updated_at: Option<Zoned>,
@@ -207,7 +207,7 @@ impl Email {
             similarity_score: None,
             bounce_status: None,
             status: None,
-            body_fetched: false,
+            body_retrieved: false,
             updated_at: None,
             embedding: None,
         }

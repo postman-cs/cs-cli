@@ -7,14 +7,14 @@ use tracing::{error, info};
 
 use crate::gong::models::{Call, Email};
 
-/// Formatter for generating markdown reports from team calls and emails
-pub struct CallMarkdownFormatter {
+/// Renderer for generating markdown reports from team calls and emails
+pub struct CallMarkdownRenderer {
     /// Output directory for markdown files
     output_dir: PathBuf,
 }
 
-impl CallMarkdownFormatter {
-    /// Create a new markdown formatter
+impl CallMarkdownRenderer {
+    /// Create a new markdown renderer
     pub fn new(output_dir: Option<PathBuf>) -> Self {
         let output_dir = output_dir.unwrap_or_else(|| {
             // Default to desktop for easy access
@@ -171,10 +171,10 @@ impl CallMarkdownFormatter {
         fs::create_dir_all(&output_dir).context("Failed to create output directory")?;
 
         // Use output directory for saving files
-        let temp_formatter = CallMarkdownFormatter::new(Some(output_dir.clone()));
+        let temp_renderer = CallMarkdownRenderer::new(Some(output_dir.clone()));
 
         for call in calls {
-            match temp_formatter.save_call_markdown(call) {
+            match temp_renderer.save_call_markdown(call) {
                 Ok(filepath) => saved_files.push(filepath),
                 Err(e) => {
                     error!("Failed to save call {}: {}", call.id, e);
@@ -328,7 +328,7 @@ impl CallMarkdownFormatter {
 }
 
 /// Email formatting methods
-impl CallMarkdownFormatter {
+impl CallMarkdownRenderer {
     /// Format a single email into markdown content
     pub fn format_email_to_markdown(&self, email: &Email) -> String {
         // Extract email information

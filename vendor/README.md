@@ -6,11 +6,11 @@ This directory contains vendored dependencies that are critical for the CS-CLI p
 
 **Source**: https://github.com/apify/impit.git
 **Commit**: f47c814 (docs(ci): fix missing GitHub Pages upload)
-**Purpose**: HTTP client with TLS fingerprinting and browser impersonation capabilities
+**Purpose**: HTTP client with TLS fingerprinting and browser compatibility capabilities
 
 ### Why Vendored?
 
-The impit library is critical for bypassing anti-bot detection on enterprise platforms. We vendor it locally to:
+The impit library is critical for browser-compatible HTTP requests on enterprise platforms. We vendor it locally to:
 
 1. **Ensure availability**: Protect against the upstream repository being deleted or made private
 2. **Version stability**: Lock to a specific known-working version

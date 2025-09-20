@@ -361,8 +361,12 @@ pub fn setup_test_env() {
         env::set_var("RUST_LOG", "cs_cli=debug");
     }
 
-    // Initialize tracing for tests
-    let _ = tracing_subscriber::fmt::try_init();
+    // Initialize tracing for tests (ignore if already initialized)
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let _ = tracing_subscriber::fmt::try_init();
+    });
 }
 
 /// Run test with timeout

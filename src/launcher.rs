@@ -9,6 +9,12 @@ pub fn ensure_terminal() {
         return;
     }
 
+    // Check if --tty or -t flag was passed (run in current terminal)
+    let args: Vec<String> = env::args().collect();
+    if args.iter().any(|arg| arg == "--tty" || arg == "-t") {
+        return;
+    }
+
     // If we're already in a terminal, continue normally
     if std::io::stdout().is_terminal() {
         return;

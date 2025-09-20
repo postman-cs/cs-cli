@@ -4,7 +4,7 @@
 //! and in error conditions to ensure robust operation.
 
 use cs_cli::common::cli::args::CliArgs;
-use cs_cli::common::models::time::ExtractionRange;
+use cs_cli::common::models::time::RetrievalRange;
 use cs_cli::gong::output::html::html_to_markdown;
 use std::collections::HashMap;
 use std::fs;
@@ -64,6 +64,9 @@ fn test_cli_args_boundary_conditions() {
     let _args = CliArgs {
         debug: false,
         keychain_password: None,
+        local_only: false,
+        reset_sync: false,
+        sync_status: false,
         command: None,
         raw_args: vec![],
     };
@@ -74,6 +77,9 @@ fn test_cli_args_boundary_conditions() {
     let args = CliArgs {
         debug: false,
         keychain_password: None,
+        local_only: false,
+        reset_sync: false,
+        sync_status: false,
         command: None,
         raw_args: vec!["customer".to_string(), long_name.clone(), "30".to_string()],
     };
@@ -87,6 +93,9 @@ fn test_cli_args_boundary_conditions() {
     let args = CliArgs {
         debug: false,
         keychain_password: None,
+        local_only: false,
+        reset_sync: false,
+        sync_status: false,
         command: None,
         raw_args: vec![
             "customer".to_string(),
@@ -105,6 +114,9 @@ fn test_cli_args_boundary_conditions() {
         let _args = CliArgs {
             debug: false,
             keychain_password: None,
+            local_only: false,
+            reset_sync: false,
+            sync_status: false,
             command: None,
             raw_args: vec!["customer".to_string(), "Test".to_string(), days.to_string()],
         };
@@ -117,17 +129,17 @@ fn test_cli_args_boundary_conditions() {
 #[tokio::test]
 async fn test_extraction_range_edge_cases() {
     // Test zero days - actually works in the implementation
-    let result = ExtractionRange::last_days(0);
+    let result = RetrievalRange::last_days(0);
     assert!(result.is_ok(), "Implementation accepts zero days");
 
     // Test very large number of days
-    let result = ExtractionRange::last_days(999999);
+    let result = RetrievalRange::last_days(999999);
     assert!(result.is_ok(), "Should handle large day counts");
 
     // Test boundary values
     let valid_ranges = vec![1, 7, 30, 90, 365, 1000];
     for days in valid_ranges {
-        let result = ExtractionRange::last_days(days);
+        let result = RetrievalRange::last_days(days);
         assert!(result.is_ok(), "Should accept valid day range: {days}");
     }
 }

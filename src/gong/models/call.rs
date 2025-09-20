@@ -51,7 +51,7 @@ pub struct Call {
     #[serde(alias = "generatedTitle")]
     pub generated_title: Option<String>,
 
-    /// Customer name (resolved from text-suggestions or extracted)
+    /// Customer name (resolved from text-suggestions or retrieved)
     #[serde(alias = "customerName")]
     pub customer_name: Option<String>,
 

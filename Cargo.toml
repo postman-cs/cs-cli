@@ -12,9 +12,16 @@ name = "cs-cli"
 path = "src/main.rs"
 
 [dependencies]
-# HTTP client with TLS fingerprinting and browser impersonation
+# HTTP client with TLS fingerprinting and browser compatibility
 impit = { path = "vendor/impit/impit" }
 reqwest = { version = "0.12", features = ["json", "cookies", "gzip", "http3", "blocking"] }
+
+# WebDriver and browser automation
+fantoccini = { version = "0.22", default-features = false, features = ["native-tls"] }
+zip = "0.6"                   # ZIP file extraction for driver downloads
+regex = "1.10"                # Regex for version parsing
+tar = "0.4"                   # TAR archive extraction for GeckoDriver
+flate2 = "1.0"                # GZIP decompression for tar.gz files
 
 # Async runtime - optimized features for our use case
 tokio = { version = "1.0", features = [
@@ -64,23 +71,23 @@ crossterm = "0.28"         # Cross-platform terminal control
 
 # Guided authentication with headless browser
 # Browser automation
-fantoccini = { version = "0.22", default-features = false, features = ["rustls-tls"] }
+cookie = "0.18"  # Cookie types for fantoccini (must match fantoccini's version)
 zstd = { version = "0.13", features = ["zstdmt"] }  # Compressed driver extraction
 
 # Configuration
 figment = { version = "0.10", features = ["env", "json", "toml", "yaml"] }
 
-# Regular expressions
-regex = "1.10"
 
 # Base64 encoding/decoding
 base64-simd = "0.8"
 
 # URL encoding for query parameters
 urlencoding = "2.1"
+url = "2.5"                  # URL parsing and validation
 
 # Directory handling
 dirs = "5.0"                # Cross-platform directory paths
+tempfile = "3.8"            # Temporary directories for browser profiles
 
 # GitHub API client
 octocrab = "0.39"           # GitHub API client
@@ -90,9 +97,14 @@ aes-gcm = "0.10"             # Authenticated encryption (AES-256-GCM)
 hkdf = "0.12"               # HKDF key derivation function  
 zeroize = { version = "1.7", features = ["zeroize_derive"] } # Secure memory clearing
 sha2 = "0.10"               # SHA-256 for key derivation
+subtle = "2.5"              # Constant-time operations for secure comparisons
 
 # Time handling for session metadata
 chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling and testing
+thiserror = "1.0"
+mockall = "0.13"
 
 [features]
 default = []
@@ -151,7 +163,7 @@ winapi = { version = "0.3", features = ["winuser"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"               # System calls for process detection
 
-# Patched dependencies required for impit browser impersonation
+# Patched dependencies required for impit browser compatibility
 [patch.crates-io]
 rustls = { git = "https://github.com/apify/rustls.git" }
 h2 = { git = "https://github.com/apify/h2.git" }

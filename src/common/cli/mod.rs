@@ -17,4 +17,4 @@ pub use full_interactive::run_full_interactive;
 pub use interactive::*;
 pub use multiselect::{run_multiselect, MultiSelectState, SuggestionProvider};
 pub use theme::THEME;
-pub use tui_app::{draw_tui, AppState, ExtractionMessage, ExtractionResults, TuiApp};
+pub use tui_app::{draw_tui, AppState, RetrievalMessage, RetrievalResults, TuiApp};

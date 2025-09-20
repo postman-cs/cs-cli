@@ -1,17 +1,17 @@
-//! Gong-specific TUI runner that manages the complete extraction workflow
+//! Gong-specific TUI runner that manages the complete retrieval workflow
 //!
-//! This module integrates the common TUI app with Gong-specific extraction logic,
+//! This module integrates the common TUI app with Gong-specific retrieval logic,
 //! providing a seamless experience from customer selection to results display.
 
 use crate::common::auth::hybrid_cookie_storage::set_sync_preference;
 use crate::common::cli::args::{ContentType, ParsedCommand};
-use crate::common::cli::tui_app::{draw_tui, ExtractionMessage, ExtractionResults, TuiApp};
+use crate::common::cli::tui_app::{draw_tui, RetrievalMessage, RetrievalResults, TuiApp};
 use crate::gong::api::client::HttpClientPool;
-use crate::gong::api::customer::GongCustomerSearchClient;
+use crate::gong::api::customer::GongCustomerSearchRetriever;
 use crate::gong::auth::GongAuthenticator;
 use crate::gong::cli::{load_config, save_config};
 use crate::gong::config::AppConfig;
-use crate::gong::extractor::TeamCallsExtractor;
+use crate::gong::retriever::TeamCallsRetriever;
 use crate::Result;
 
 use crossterm::{
@@ -44,26 +44,40 @@ pub async fn run_gong_tui(config: AppConfig) -> Result<ParsedCommand> {
     let mut suggestion_provider: Option<SuggestionProvider> = None;
     let mut auth_task_running = false; // Start as false, will be set when auth starts
 
-    // Channel for extraction progress and authentication
-    let (extraction_tx, mut extraction_rx) = mpsc::unbounded_channel::<ExtractionMessage>();
+    // Channel for retrieval progress and authentication
+    let (retrieval_tx, mut retrieval_rx) = mpsc::unbounded_channel::<RetrievalMessage>();
 
-    // Always show the authentication choice screen first
-    // This allows users to choose storage method and ensures proper authentication flow
-    // Even if cookies exist, they might be expired/invalid, so let the user choose
-    app.state = crate::common::cli::tui_app::AppState::Authenticating;
+    // Allow the TUI to start with its default state (Authenticating)
+    // This ensures the proper authentication animation sequence is shown
 
-    // Load existing sync preference as default
-    app.sync_enabled = get_current_sync_preference().await;
+    // Check if user has previously made a sync choice
+    let has_existing_preference = match get_sync_preference_for_check().await {
+        Ok(preference) => {
+            app.sync_enabled = preference;
+            app.sync_choice_made = true; // Skip choice if already made previously
+            true
+        }
+        Err(_) => {
+            // First run - user needs to choose
+            app.sync_enabled = false; // Default to local-only
+            app.sync_choice_made = false; // Require user choice
+            false
+        }
+    };
 
-    // Don't start authentication automatically - wait for user choice
-    // Authentication will start when user clicks storage option in TUI
+    // Only show choice UI on first run
+    if has_existing_preference {
+        // Authentication will start automatically since choice is already made
+    } else {
+        // Authentication will wait for user choice
+    }
 
     // Main event loop
     let result = loop {
-        // Check for extraction messages
-        while let Ok(msg) = extraction_rx.try_recv() {
+        // Check for retrieval messages
+        while let Ok(msg) = retrieval_rx.try_recv() {
             // Handle authentication success by creating suggestion provider
-            if let ExtractionMessage::AuthSuccess = msg {
+            if let RetrievalMessage::AuthSuccess = msg {
                 auth_task_running = false; // Authentication completed successfully
                                            // Create suggestion provider now that we're authenticated
                 match create_suggestion_provider(config.clone()).await {
@@ -72,7 +86,7 @@ pub async fn run_gong_tui(config: AppConfig) -> Result<ParsedCommand> {
                         app.state = crate::common::cli::tui_app::AppState::CustomerSelection;
                     }
                     Err(e) => {
-                        app.handle_extraction_message(ExtractionMessage::AuthFailed(format!(
+                        app.handle_retrieval_message(RetrievalMessage::AuthFailed(format!(
                             "Failed to initialize search: {e}"
                         )));
                         continue;
@@ -81,30 +95,30 @@ pub async fn run_gong_tui(config: AppConfig) -> Result<ParsedCommand> {
             }
 
             // Handle authentication failure
-            if let ExtractionMessage::AuthFailed(_) = msg {
+            if let RetrievalMessage::AuthFailed(_) = msg {
                 auth_task_running = false; // Authentication task completed (with failure)
             }
 
-            app.handle_extraction_message(msg);
+            app.handle_retrieval_message(msg);
         }
 
-        // Handle sync choice completion OR retry after failure
+        // Start authentication only after user makes storage choice
         if app.state == crate::common::cli::tui_app::AppState::Authenticating
-            && app.sync_choice_made
             && !auth_task_running
+            && app.sync_choice_made
         {
-            // User made sync choice, save preference and start authentication
+            // Save current sync preference
             if let Err(e) = set_sync_preference(app.sync_enabled).await {
                 eprintln!("Failed to save sync preference: {e}");
             }
 
-            // Clear any invalid stored session data before retrying
+            // Clear any invalid stored session data before starting
             if let Err(e) = clear_invalid_session_data().await {
                 eprintln!("Failed to clear invalid session data: {e}");
             }
 
             auth_task_running = true;
-            let auth_tx = extraction_tx.clone();
+            let auth_tx = retrieval_tx.clone();
             let auth_config = config.clone();
             tokio::spawn(async move {
                 run_authentication(auth_config, auth_tx).await;
@@ -131,18 +145,18 @@ pub async fn run_gong_tui(config: AppConfig) -> Result<ParsedCommand> {
             }
         }
 
-        // Check if we need to start extraction
+        // Check if we need to start retreival
         if app.state == crate::common::cli::tui_app::AppState::Initializing {
-            app.state = crate::common::cli::tui_app::AppState::Extracting;
+            app.state = crate::common::cli::tui_app::AppState::Retrieving;
 
             // Get the parsed command
             let command = app.get_parsed_command();
 
-            // Start extraction in background
-            let tx = extraction_tx.clone();
+            // Start retreival in background
+            let tx = retrieval_tx.clone();
             let config_clone = config.clone();
             tokio::spawn(async move {
-                run_extraction(command, config_clone, tx).await;
+                run_retrieval(command, config_clone, tx).await;
             });
         }
 
@@ -150,7 +164,7 @@ pub async fn run_gong_tui(config: AppConfig) -> Result<ParsedCommand> {
         app.update_animations();
 
         // Only redraw if animation is dirty or we have other state changes
-        if app.animation_dirty || app.state != crate::common::cli::tui_app::AppState::Authenticating {
+        if app.animation_dirty || app.state != crate::common::cli::tui_app::AppState::Retrieving {
             terminal.draw(|f| draw_tui(f, &mut app))?;
             app.animation_dirty = false; // Reset dirty flag after drawing
         }
@@ -177,7 +191,7 @@ pub async fn run_gong_tui(config: AppConfig) -> Result<ParsedCommand> {
                                 app.auth_progress = 0.0;
                                 app.auth_error = None;
 
-                                let auth_tx = extraction_tx.clone();
+                                let auth_tx = retrieval_tx.clone();
                                 let auth_config = config.clone();
                                 tokio::spawn(async move {
                                     run_authentication(auth_config, auth_tx).await;
@@ -237,7 +251,7 @@ async fn create_suggestion_provider(config: AppConfig) -> Result<SuggestionProvi
     }
 
     // Create search client
-    let search_client = Arc::new(GongCustomerSearchClient::new(
+    let search_client = Arc::new(GongCustomerSearchRetriever::new(
         Arc::new(http),
         Arc::new(auth),
         Some(config),
@@ -251,32 +265,31 @@ async fn create_suggestion_provider(config: AppConfig) -> Result<SuggestionProvi
         let client = Arc::clone(&search_client);
         let input_str = input.to_string();
 
-        // Create a new thread with its own runtime for the API call
-        let handle = std::thread::spawn(move || {
-            // Create a new runtime in this thread
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async move {
-                match tokio::time::timeout(
-                    Duration::from_millis(800),
-                    client.search_customers(&input_str),
-                )
-                .await
-                {
-                    Ok(Ok(results)) => results.into_iter().map(|r| r.name).collect(),
-                    _ => Vec::new(),
-                }
-            })
-        });
+        // Use the existing async context instead of creating a nested runtime
+        let search_future = async move {
+            match tokio::time::timeout(
+                Duration::from_millis(800),
+                client.search_customers(&input_str),
+            )
+            .await
+            {
+                Ok(Ok(results)) => results.into_iter().map(|r| r.name).collect(),
+                _ => Vec::new(),
+            }
+        };
 
-        // Wait for the thread to complete with a timeout
-        handle.join().unwrap_or_default()
+        // Since we're in a sync context but the caller is async, we need to spawn
+        // the task on the current runtime instead of creating a new one
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(search_future)
+        })
     }))
 }
 
 /// Run authentication process with progress updates
-async fn run_authentication(config: AppConfig, tx: mpsc::UnboundedSender<ExtractionMessage>) {
-    // Send initial progress
-    tx.send(ExtractionMessage::AuthProgress(
+async fn run_authentication(config: AppConfig, tx: mpsc::UnboundedSender<RetrievalMessage>) {
+    // Send initial progress - step 1
+    tx.send(RetrievalMessage::AuthProgress(
         0.1,
         "Initializing authentication system...".to_string(),
     ))
@@ -284,9 +297,9 @@ async fn run_authentication(config: AppConfig, tx: mpsc::UnboundedSender<Extract
 
     // Check if GitHub sync is enabled and perform OAuth first if needed
     if get_current_sync_preference().await {
-        tx.send(ExtractionMessage::AuthProgress(
-            0.2,
-            "Checking GitHub sync status...".to_string(),
+        tx.send(RetrievalMessage::AuthProgress(
+            0.15,
+            "Preparing GitHub sync...".to_string(),
         ))
         .ok();
 
@@ -319,7 +332,7 @@ async fn run_authentication(config: AppConfig, tx: mpsc::UnboundedSender<Extract
                             // Try a simple API call to verify token validity
                             match client.current().user().await {
                                 Ok(_) => {
-                                    tx.send(ExtractionMessage::AuthProgress(
+                                    tx.send(RetrievalMessage::AuthProgress(
                                         0.3,
                                         "GitHub sync already configured, continuing...".to_string(),
                                     ))
@@ -346,7 +359,7 @@ async fn run_authentication(config: AppConfig, tx: mpsc::UnboundedSender<Extract
         };
 
         if needs_oauth {
-            tx.send(ExtractionMessage::AuthProgress(
+            tx.send(RetrievalMessage::AuthProgress(
                 0.2,
                 "Setting up GitHub sync...".to_string(),
             ))
@@ -358,7 +371,7 @@ async fn run_authentication(config: AppConfig, tx: mpsc::UnboundedSender<Extract
             let mut oauth_flow = GitHubOAuthFlow::new();
             match oauth_flow.authenticate().await {
                 Ok(access_token) => {
-                    tx.send(ExtractionMessage::AuthProgress(
+                    tx.send(RetrievalMessage::AuthProgress(
                         0.3,
                         "GitHub authorization successful, storing token...".to_string(),
                     ))
@@ -382,7 +395,7 @@ async fn run_authentication(config: AppConfig, tx: mpsc::UnboundedSender<Extract
                     match output {
                         Ok(out) if out.status.success() => {
                             tracing::info!("GitHub token stored successfully in keychain");
-                            tx.send(ExtractionMessage::AuthProgress(
+                            tx.send(RetrievalMessage::AuthProgress(
                                 0.4,
                                 "GitHub sync ready, continuing with authentication...".to_string(),
                             ))
@@ -400,9 +413,8 @@ async fn run_authentication(config: AppConfig, tx: mpsc::UnboundedSender<Extract
                     }
                 }
                 Err(e) => {
-                    tx.send(ExtractionMessage::AuthFailed(format!(
-                        "GitHub authorization failed: {}. Continuing with local storage only.",
-                        e
+                    tx.send(RetrievalMessage::AuthFailed(format!(
+                        "GitHub authorization failed: {e}. Continuing with local storage only."
                     )))
                     .ok();
                     // Continue with authentication even if GitHub OAuth fails
@@ -416,7 +428,7 @@ async fn run_authentication(config: AppConfig, tx: mpsc::UnboundedSender<Extract
     let mut auth = match GongAuthenticator::new(config.auth.clone()).await {
         Ok(auth) => auth,
         Err(e) => {
-            tx.send(ExtractionMessage::AuthFailed(format!(
+            tx.send(RetrievalMessage::AuthFailed(format!(
                 "Failed to initialize authenticator: {e}"
             )))
             .ok();
@@ -424,42 +436,42 @@ async fn run_authentication(config: AppConfig, tx: mpsc::UnboundedSender<Extract
         }
     };
 
-    tx.send(ExtractionMessage::AuthProgress(
+    tx.send(RetrievalMessage::AuthProgress(
         0.5,
-        "Extracting browser cookies...".to_string(),
+        "Retreiving browser sessions...".to_string(),
     ))
     .ok();
 
     // Check if already authenticated first
     if auth.is_authenticated() {
-        tx.send(ExtractionMessage::AuthProgress(
+        tx.send(RetrievalMessage::AuthProgress(
             1.0,
             "Authentication successful!".to_string(),
         ))
         .ok();
-        tx.send(ExtractionMessage::AuthSuccess).ok();
+        tx.send(RetrievalMessage::AuthSuccess).ok();
         return;
     }
 
     // Perform authentication
     match auth.authenticate().await {
         Ok(true) => {
-            tx.send(ExtractionMessage::AuthProgress(
+            tx.send(RetrievalMessage::AuthProgress(
                 1.0,
                 "Authentication successful!".to_string(),
             ))
             .ok();
-            tx.send(ExtractionMessage::AuthSuccess).ok();
+            tx.send(RetrievalMessage::AuthSuccess).ok();
         }
         Ok(false) => {
-            tx.send(ExtractionMessage::AuthFailed(
+            tx.send(RetrievalMessage::AuthFailed(
                 "Authentication failed. Please ensure you're logged into Gong in your browser."
                     .to_string(),
             ))
             .ok();
         }
         Err(e) => {
-            tx.send(ExtractionMessage::AuthFailed(format!(
+            tx.send(RetrievalMessage::AuthFailed(format!(
                 "Authentication error: {e}"
             )))
             .ok();
@@ -467,42 +479,42 @@ async fn run_authentication(config: AppConfig, tx: mpsc::UnboundedSender<Extract
     }
 }
 
-/// Run the extraction process with progress updates
-async fn run_extraction(
+/// Run the retrieval process with progress updates
+async fn run_retrieval(
     command: ParsedCommand,
     config: AppConfig,
-    tx: mpsc::UnboundedSender<ExtractionMessage>,
+    tx: mpsc::UnboundedSender<RetrievalMessage>,
 ) {
-    // Initialize extractor with quiet mode enabled (no console output)
+    // Initialize retriever with quiet mode enabled (no console output)
     let config_clone = config.clone();
-    let mut extractor = TeamCallsExtractor::new(config);
-    extractor.set_quiet(true); // Suppress console output
+    let mut retriever = TeamCallsRetriever::new(config);
+    retriever.set_quiet(true); // Suppress console output
     let mut cli_config = load_config();
 
     // Setup phase - skip authentication since it's already done
-    tx.send(ExtractionMessage::Phase(
-        "Initializing extraction system...".to_string(),
+    tx.send(RetrievalMessage::Phase(
+        "Initializing retrieval system...".to_string(),
     ))
     .ok();
-    tx.send(ExtractionMessage::Progress(0.1)).ok();
+    tx.send(RetrievalMessage::Progress(0.1)).ok();
 
     // Setup without authentication (since TUI already authenticated)
-    match setup_extractor_without_auth(&mut extractor, config_clone).await {
+    match setup_retriever_without_auth(&mut retriever, config_clone).await {
         Ok(_) => {
-            tx.send(ExtractionMessage::SubTask(
-                "Extraction system ready".to_string(),
+            tx.send(RetrievalMessage::SubTask(
+                "Retrieval system ready".to_string(),
             ))
             .ok();
-            tx.send(ExtractionMessage::Progress(0.2)).ok();
+            tx.send(RetrievalMessage::Progress(0.2)).ok();
         }
         Err(e) => {
-            tx.send(ExtractionMessage::Error(format!("Setup failed: {e}")))
+            tx.send(RetrievalMessage::Error(format!("Setup failed: {e}")))
                 .ok();
             return;
         }
     }
 
-    // Extract based on command type
+    // Retreive based on command type
     let mut total_calls = 0;
     let mut total_emails = 0;
     let mut saved_files = Vec::new();
@@ -530,19 +542,19 @@ async fn run_extraction(
                     names.len(),
                     customer_name
                 );
-                tx.send(ExtractionMessage::Phase(phase)).ok();
+                tx.send(RetrievalMessage::Phase(phase)).ok();
 
                 let base_progress = 0.2 + (0.7 * idx as f64 / names.len() as f64);
-                tx.send(ExtractionMessage::Progress(base_progress)).ok();
+                tx.send(RetrievalMessage::Progress(base_progress)).ok();
 
-                // Extract communications
-                tx.send(ExtractionMessage::SubTask(format!(
+                // Retreive communications
+                tx.send(RetrievalMessage::SubTask(format!(
                     "Searching for {customer_name}"
                 )))
                 .ok();
 
-                let (calls, emails, resolved_name) = match extractor
-                    .extract_customer_communications(
+                let (calls, emails, resolved_name) = match retriever
+                    .retrieve_customer_communications(
                         customer_name,
                         days,
                         matches!(content_type, ContentType::Both | ContentType::Emails),
@@ -553,28 +565,28 @@ async fn run_extraction(
                 {
                     Ok(result) => result,
                     Err(e) => {
-                        tx.send(ExtractionMessage::SubTask(format!(
-                            "Failed to extract for {customer_name}: {e}"
+                        tx.send(RetrievalMessage::SubTask(format!(
+                            "Failed to retrieve for {customer_name}: {e}"
                         )))
                         .ok();
                         continue;
                     }
                 };
 
-                tx.send(ExtractionMessage::CallsFound(calls.len())).ok();
-                tx.send(ExtractionMessage::EmailsFound(emails.len())).ok();
+                tx.send(RetrievalMessage::CallsFound(calls.len())).ok();
+                tx.send(RetrievalMessage::EmailsFound(emails.len())).ok();
 
                 total_calls += calls.len();
                 total_emails += emails.len();
 
                 // Save results
                 if !calls.is_empty() && !emails_only {
-                    tx.send(ExtractionMessage::SubTask(
+                    tx.send(RetrievalMessage::SubTask(
                         "Saving call transcripts...".to_string(),
                     ))
                     .ok();
 
-                    match extractor.save_calls_as_markdown_with_resolved_name(
+                    match retriever.save_calls_as_markdown_with_resolved_name(
                         &calls,
                         Some(&first_customer),
                         Some(&resolved_name),
@@ -582,7 +594,7 @@ async fn run_extraction(
                         Ok(files) => {
                             for file in &files {
                                 if let Some(name) = file.file_name() {
-                                    tx.send(ExtractionMessage::FileSaved(
+                                    tx.send(RetrievalMessage::FileSaved(
                                         name.to_string_lossy().to_string(),
                                     ))
                                     .ok();
@@ -594,7 +606,7 @@ async fn run_extraction(
                             saved_files.extend(files);
                         }
                         Err(e) => {
-                            tx.send(ExtractionMessage::SubTask(format!(
+                            tx.send(RetrievalMessage::SubTask(format!(
                                 "Failed to save calls: {e}"
                             )))
                             .ok();
@@ -603,14 +615,14 @@ async fn run_extraction(
                 }
 
                 if !emails.is_empty() {
-                    tx.send(ExtractionMessage::SubTask("Saving emails...".to_string()))
+                    tx.send(RetrievalMessage::SubTask("Saving emails...".to_string()))
                         .ok();
 
-                    match extractor.save_emails_as_markdown(&emails, &first_customer) {
+                    match retriever.save_emails_as_markdown(&emails, &first_customer) {
                         Ok(files) => {
                             for file in &files {
                                 if let Some(name) = file.file_name() {
-                                    tx.send(ExtractionMessage::FileSaved(
+                                    tx.send(RetrievalMessage::FileSaved(
                                         name.to_string_lossy().to_string(),
                                     ))
                                     .ok();
@@ -624,7 +636,7 @@ async fn run_extraction(
                             saved_files.extend(files);
                         }
                         Err(e) => {
-                            tx.send(ExtractionMessage::SubTask(format!(
+                            tx.send(RetrievalMessage::SubTask(format!(
                                 "Failed to save emails: {e}"
                             )))
                             .ok();
@@ -633,7 +645,7 @@ async fn run_extraction(
                 }
 
                 let progress = 0.2 + (0.7 * (idx + 1) as f64 / names.len() as f64);
-                tx.send(ExtractionMessage::Progress(progress)).ok();
+                tx.send(RetrievalMessage::Progress(progress)).ok();
             }
         }
 
@@ -656,19 +668,19 @@ async fn run_extraction(
                     names.len(),
                     customer_name
                 );
-                tx.send(ExtractionMessage::Phase(phase)).ok();
+                tx.send(RetrievalMessage::Phase(phase)).ok();
 
                 let base_progress = 0.2 + (0.7 * idx as f64 / names.len() as f64);
-                tx.send(ExtractionMessage::Progress(base_progress)).ok();
+                tx.send(RetrievalMessage::Progress(base_progress)).ok();
 
-                // Extract communications
-                tx.send(ExtractionMessage::SubTask(format!(
+                // Retreive communications
+                tx.send(RetrievalMessage::SubTask(format!(
                     "Searching for {customer_name}"
                 )))
                 .ok();
 
-                let (calls, emails, resolved_name) = match extractor
-                    .extract_customer_communications(
+                let (calls, emails, resolved_name) = match retriever
+                    .retrieve_customer_communications(
                         customer_name,
                         days,
                         matches!(content_type, ContentType::Both | ContentType::Emails),
@@ -679,28 +691,28 @@ async fn run_extraction(
                 {
                     Ok(result) => result,
                     Err(e) => {
-                        tx.send(ExtractionMessage::SubTask(format!(
-                            "Failed to extract for {customer_name}: {e}"
+                        tx.send(RetrievalMessage::SubTask(format!(
+                            "Failed to retrieve for {customer_name}: {e}"
                         )))
                         .ok();
                         continue;
                     }
                 };
 
-                tx.send(ExtractionMessage::CallsFound(calls.len())).ok();
-                tx.send(ExtractionMessage::EmailsFound(emails.len())).ok();
+                tx.send(RetrievalMessage::CallsFound(calls.len())).ok();
+                tx.send(RetrievalMessage::EmailsFound(emails.len())).ok();
 
                 total_calls += calls.len();
                 total_emails += emails.len();
 
                 // Save results
                 if !calls.is_empty() && !emails_only {
-                    tx.send(ExtractionMessage::SubTask(
+                    tx.send(RetrievalMessage::SubTask(
                         "Saving call transcripts...".to_string(),
                     ))
                     .ok();
 
-                    match extractor.save_calls_as_markdown_with_resolved_name(
+                    match retriever.save_calls_as_markdown_with_resolved_name(
                         &calls,
                         Some(&first_customer),
                         Some(&resolved_name),
@@ -708,7 +720,7 @@ async fn run_extraction(
                         Ok(files) => {
                             for file in &files {
                                 if let Some(name) = file.file_name() {
-                                    tx.send(ExtractionMessage::FileSaved(
+                                    tx.send(RetrievalMessage::FileSaved(
                                         name.to_string_lossy().to_string(),
                                     ))
                                     .ok();
@@ -720,7 +732,7 @@ async fn run_extraction(
                             saved_files.extend(files);
                         }
                         Err(e) => {
-                            tx.send(ExtractionMessage::SubTask(format!(
+                            tx.send(RetrievalMessage::SubTask(format!(
                                 "Failed to save calls: {e}"
                             )))
                             .ok();
@@ -729,14 +741,14 @@ async fn run_extraction(
                 }
 
                 if !emails.is_empty() {
-                    tx.send(ExtractionMessage::SubTask("Saving emails...".to_string()))
+                    tx.send(RetrievalMessage::SubTask("Saving emails...".to_string()))
                         .ok();
 
-                    match extractor.save_emails_as_markdown(&emails, &first_customer) {
+                    match retriever.save_emails_as_markdown(&emails, &first_customer) {
                         Ok(files) => {
                             for file in &files {
                                 if let Some(name) = file.file_name() {
-                                    tx.send(ExtractionMessage::FileSaved(
+                                    tx.send(RetrievalMessage::FileSaved(
                                         name.to_string_lossy().to_string(),
                                     ))
                                     .ok();
@@ -750,7 +762,7 @@ async fn run_extraction(
                             saved_files.extend(files);
                         }
                         Err(e) => {
-                            tx.send(ExtractionMessage::SubTask(format!(
+                            tx.send(RetrievalMessage::SubTask(format!(
                                 "Failed to save emails: {e}"
                             )))
                             .ok();
@@ -759,22 +771,22 @@ async fn run_extraction(
                 }
 
                 let progress = 0.2 + (0.7 * (idx + 1) as f64 / names.len() as f64);
-                tx.send(ExtractionMessage::Progress(progress)).ok();
+                tx.send(RetrievalMessage::Progress(progress)).ok();
             }
         }
 
         ParsedCommand::Team {
             stream_id, days, ..
         } => {
-            tx.send(ExtractionMessage::Phase(
-                "Extracting team calls...".to_string(),
+            tx.send(RetrievalMessage::Phase(
+                "Retrieving team calls...".to_string(),
             ))
             .ok();
 
             let stream_id = match stream_id {
                 Some(id) => id,
                 None => {
-                    tx.send(ExtractionMessage::Error(
+                    tx.send(RetrievalMessage::Error(
                         "No stream ID provided".to_string(),
                     ))
                     .ok();
@@ -784,21 +796,21 @@ async fn run_extraction(
 
             let days = days.unwrap_or(7);
 
-            match extractor
-                .extract_team_calls(&stream_id, Some(days), None, None)
+            match retriever
+                .retrieve_team_calls(&stream_id, Some(days), None, None)
                 .await
             {
                 Ok(calls) => {
-                    tx.send(ExtractionMessage::CallsFound(calls.len())).ok();
+                    tx.send(RetrievalMessage::CallsFound(calls.len())).ok();
                     total_calls = calls.len();
 
                     if !calls.is_empty() {
-                        tx.send(ExtractionMessage::SubTask(
+                        tx.send(RetrievalMessage::SubTask(
                             "Saving team calls...".to_string(),
                         ))
                         .ok();
 
-                        match extractor.save_calls_as_markdown_with_resolved_name(
+                        match retriever.save_calls_as_markdown_with_resolved_name(
                             &calls,
                             Some("Team"),
                             Some("Team"),
@@ -810,7 +822,7 @@ async fn run_extraction(
                                 saved_files.extend(files);
                             }
                             Err(e) => {
-                                tx.send(ExtractionMessage::Error(format!(
+                                tx.send(RetrievalMessage::Error(format!(
                                     "Failed to save calls: {e}"
                                 )))
                                 .ok();
@@ -824,8 +836,8 @@ async fn run_extraction(
                     save_config(&cli_config).ok();
                 }
                 Err(e) => {
-                    tx.send(ExtractionMessage::Error(format!(
-                        "Failed to extract team calls: {e}"
+                    tx.send(RetrievalMessage::Error(format!(
+                        "Failed to retrieve team calls: {e}"
                     )))
                     .ok();
                     return;
@@ -836,13 +848,11 @@ async fn run_extraction(
     }
 
     // Cleanup
-    tx.send(ExtractionMessage::Phase("Finalizing...".to_string()))
-        .ok();
-    extractor.cleanup().await;
+    retriever.cleanup().await;
 
     // Send completion
-    tx.send(ExtractionMessage::Progress(1.0)).ok();
-    tx.send(ExtractionMessage::Complete(ExtractionResults {
+    tx.send(RetrievalMessage::Progress(1.0)).ok();
+    tx.send(RetrievalMessage::Complete(RetrievalResults {
         total_calls,
         total_emails,
         files_saved: saved_files.len(),
@@ -851,9 +861,9 @@ async fn run_extraction(
     .ok();
 }
 
-/// Setup extractor without authentication (assumes auth is already done)
-async fn setup_extractor_without_auth(
-    extractor: &mut TeamCallsExtractor,
+/// Setup retriever without authentication (assumes auth is already done)
+async fn setup_retriever_without_auth(
+    retriever: &mut TeamCallsRetriever,
     config: AppConfig,
 ) -> Result<()> {
     // Initialize Gong HTTP client and auth
@@ -864,7 +874,7 @@ async fn setup_extractor_without_auth(
     let authenticated = auth.authenticate().await?;
     if !authenticated {
         return Err(crate::common::error::types::CsCliError::Authentication(
-            "Failed to re-authenticate for extraction setup".to_string(),
+            "Failed to re-authenticate for retrieval setup".to_string(),
         ));
     }
 
@@ -877,8 +887,8 @@ async fn setup_extractor_without_auth(
     let http_arc = Arc::new(http);
     let auth_arc = Arc::new(auth);
 
-    // Initialize the extractor components using the new method
-    extractor.setup_with_auth(http_arc, auth_arc).await?;
+    // Initialize the retriever components using the new method
+    retriever.setup_with_auth(http_arc, auth_arc).await?;
 
     Ok(())
 }
@@ -898,6 +908,31 @@ async fn get_current_sync_preference() -> bool {
         }
     }
     false
+}
+
+/// Check if sync preference exists and return it, or error if no preference set
+async fn get_sync_preference_for_check() -> Result<bool> {
+    use dirs;
+
+    let config_dir = match dirs::config_dir() {
+        Some(dir) => dir.join("cs-cli"),
+        None => return Err(crate::common::error::types::CsCliError::Configuration(
+            "Unable to determine config directory".to_string(),
+        )),
+    };
+
+    let preference_path = config_dir.join("sync-preference");
+    if preference_path.exists() {
+        let content = std::fs::read_to_string(preference_path)
+            .map_err(|e| crate::common::error::types::CsCliError::Configuration(
+                format!("Failed to read sync preference: {e}")
+            ))?;
+        Ok(content.trim() == "enabled")
+    } else {
+        Err(crate::common::error::types::CsCliError::Configuration(
+            "No sync preference found - first run".to_string(),
+        ))
+    }
 }
 
 /// Clear invalid session data to force fresh authentication

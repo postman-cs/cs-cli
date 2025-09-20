@@ -1,6 +1,6 @@
 //! Common HTTP client modules
 //!
-//! Shared HTTP client functionality including browser impersonation,
+//! Shared HTTP client functionality including browser compatibility,
 //! client pooling, and generic traits for both Gong and Slack integrations.
 
 pub mod browser_client;

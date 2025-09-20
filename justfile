@@ -1,5 +1,5 @@
 #!/usr/bin/env just --justfile
-# CS-CLI Build Commands - Simplified for AI assistants and developers
+# CS-CLI Build Commands
 # Run `just` to see all available commands
 
 # Load .env file
@@ -12,22 +12,30 @@ target := "aarch64-apple-darwin"
 default:
     @just --list
 
-# Run development version (with automatic code signing)
-# Without args: launches interactive TUI
-# With args: runs non-interactive mode (e.g., "just run Fiserv 30 both")
-run *args: sign-debug
-    cargo run --target {{target}} -- {{args}}
-
-# Run without signing (faster, but auth features won't work)
-run-unsigned *args:
-    cargo run --target {{target}} -- {{args}}
+# =============================================================================
+# BUILD COMMANDS
+# =============================================================================
 
 # Build and sign debug binary for development
 sign-debug:
     ./build.sh --sign-debug
 
-# Build release version
+# Build release version (incremental build + signing)
 build:
+    cargo build --release --target {{target}}
+    @if [ -n "${SIGNING_IDENTITY}" ]; then \
+        echo "Signing release binary..."; \
+        codesign --force --options runtime --timestamp \
+            --identifier "com.postman.cs-cli" \
+            --sign "${SIGNING_IDENTITY}" \
+            "target/{{target}}/release/cs-cli" && \
+        echo "Binary signed successfully"; \
+    else \
+        echo "Warning: SIGNING_IDENTITY not set, binary will not be signed"; \
+    fi
+
+# Full build with clean and complete packaging (uses build.sh)
+fullbuild:
     ./build.sh
 
 # Build release with PKG installer
@@ -38,6 +46,29 @@ release:
 install:
     ./build.sh --install
 
+# Check code without building
+check:
+    cargo check
+
+# Clean build artifacts
+clean:
+    cargo clean
+    rm -rf dist/
+
+# Build documentation
+docs:
+    cargo doc --open
+
+# Show binary size
+size:
+    @echo "Binary sizes:"
+    @ls -lh target/*/release/cs-cli 2>/dev/null || echo "No release builds found"
+    @ls -lh target/*/debug/cs-cli 2>/dev/null || echo "No debug builds found"
+
+# =============================================================================
+# TEST COMMANDS
+# =============================================================================
+
 # Run all tests
 test:
     cargo test
@@ -46,170 +77,64 @@ test:
 test-verbose:
     cargo test -- --nocapture
 
-# Run specific test
-test-one name:
-    cargo test {{name}} -- --nocapture
-
-# Run GitHub OAuth tests
-test-oauth:
-    cargo test github_oauth
+# Run unit tests only
+test-unit:
+    cargo test --lib
 
 # Run integration tests with real API (requires browser session)
 test-integration:
     USE_REAL_API=true cargo test -- --ignored --nocapture
 
-# Run unit tests only
-test-unit:
-    cargo test --lib
+# Run GitHub OAuth tests
+test-oauth:
+    cargo test github_oauth
 
-# =============================================================================
-# ADVANCED TESTING OPTIONS
-# =============================================================================
+# Regression test suite
+test-regression:
+    ./tests/run_tests.sh
 
-# Compile but don't run tests
-test-no-run:
-    cargo test --no-run
-
-# Run all tests regardless of failure
-test-no-fail-fast:
-    cargo test --no-fail-fast
-
-# Quiet output (one character per test)
-test-quiet:
-    cargo test -q
-
-# Verbose output levels (1-3)
-test-verbose-level level="1":
-    cargo test -v{{level}}
-
-# Test with specific features
-test-features features:
-    cargo test --features {{features}}
-
-# Test with all features enabled
-test-all-features:
-    cargo test --all-features
-
-# Test in release mode
-test-release:
-    cargo test --release
-
-# Test all packages in workspace
-test-workspace:
-    cargo test --workspace
-
-# Test without network access
-test-offline:
-    cargo test --offline
-
-# Test all targets (excludes doctests)
-test-all-targets:
-    cargo test --all-targets
-
-# Test only library documentation
-test-doc:
-    cargo test --doc
-
-# Number of test threads
-test-threads threads:
-    cargo test -- --test-threads {{threads}}
-
-# Skip tests matching pattern
-test-skip pattern:
-    cargo test -- --skip {{pattern}}
-
-# Exact match for test names
-test-exact name:
-    cargo test {{name}} -- --exact
-
-# Include ignored tests
-test-include-ignored:
-    cargo test -- --include-ignored
-
-# Run only ignored tests
-test-ignored-only:
-    cargo test -- --ignored
-
-# Shuffle test execution order
-test-shuffle:
-    cargo test -- --shuffle
-
-# =============================================================================
-# FLEXIBLE TESTING INTERFACE
-# =============================================================================
-
-# Run cargo test with custom arguments (e.g., "just test-args '--release --features slack'")
+# Run cargo test with custom arguments
 test-args *args:
     cargo test {{args}}
 
-# Run cargo test with custom test binary arguments (e.g., "just test-binary-args '--test-threads 4 --skip integration'")
-test-binary-args *args:
-    cargo test -- {{args}}
+# =============================================================================
+# DEVELOPMENT COMMANDS
+# =============================================================================
 
-# Combined: custom cargo args + test binary args (e.g., "just test-combined '--features slack' '--test-threads 4'")
-test-combined cargo_args test_args:
-    cargo test {{cargo_args}} -- {{test_args}}
+# Run development version (with automatic code signing)
+run *args:
+    cargo build --target {{target}}
+    @if [ -n "${SIGNING_IDENTITY}" ]; then \
+        echo "Signing debug binary..."; \
+        codesign --force --options runtime --timestamp \
+            --identifier "com.postman.cs-cli" \
+            --sign "${SIGNING_IDENTITY}" \
+            "target/{{target}}/debug/cs-cli" && \
+        echo "Debug binary signed successfully"; \
+    else \
+        echo "Warning: SIGNING_IDENTITY not set, binary will not be signed"; \
+    fi
+    cargo run --target {{target}} -- {{args}}
 
-# Check code without building
-check:
-    cargo check
+# Run without signing (faster, but auth features won't work)
+run-unsigned *args:
+    cargo run --target {{target}} -- {{args}}
 
-# Format code
-fmt:
-    cargo fmt
-
-# Check formatting without applying
-fmt-check:
-    cargo fmt -- --check
-
-# Run clippy linter
-lint:
-    cargo clippy -- -D warnings
-
-# Clean build artifacts
-clean:
-    cargo clean
-    rm -rf dist/
-
-# Full clean including .env credentials (careful!)
-clean-all: clean
-    rm -f .env
-
-# Launch interactive TUI mode for development
+# Launch interactive TUI mode for development with debug logging
 dev:
-    just run
+    RUST_LOG=cs_cli=debug just run
 
-# Quick non-interactive test with a specific customer
-dev-quick customer="Fiserv" days="7":
-    just run {{customer}} {{days}} both
+# Run with debug logging
+debug *args:
+    RUST_LOG=cs_cli=debug just run {{args}}
 
-# Show current git status
-status:
-    git status
+# Watch for file changes and rebuild
+watch:
+    cargo watch -x check -x test -x run
 
-# Create a new git commit (runs tests first)
-commit message: test
-    git add -A
-    git commit -m "{{message}}"
-
-# View recent Gong transcripts for a customer
-view customer="Fiserv":
-    ls -la ~/Desktop/ct_{{customer}}/
-
-# Open latest transcript for a customer
-open-latest customer="Fiserv":
-    open ~/Desktop/ct_{{customer}}/$(ls -t ~/Desktop/ct_{{customer}}/ | head -1)
-
-# Verify environment setup
-check-env:
-    @echo "Checking environment setup..."
-    @echo "SIGNING_IDENTITY: ${SIGNING_IDENTITY:-Not set}"
-    @echo "GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-Not set}"
-    @echo "GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:+Set}"
-    @echo "RUSTFLAGS: ${RUSTFLAGS:-Not set}"
-    @which cargo > /dev/null && echo "✓ cargo found" || echo "✗ cargo not found"
-    @which rustc > /dev/null && echo "✓ rustc found" || echo "✗ rustc not found"
-    @test -f .env && echo "✓ .env file exists" || echo "✗ .env file not found"
+# =============================================================================
+# SETUP & VERIFICATION
+# =============================================================================
 
 # Setup development environment
 setup:
@@ -224,54 +149,13 @@ setup:
     @echo "2. Run 'just check-env' to verify setup"
     @echo "3. Run 'just run' to start the application"
 
-# Watch for file changes and rebuild
-watch:
-    cargo watch -x check -x test -x run
-
-# Run with debug logging
-debug *args:
-    RUST_LOG=cs_cli=debug just run {{args}}
-
-# Run with trace logging (very verbose)
-trace *args:
-    RUST_LOG=cs_cli=trace just run {{args}}
-
-# Quick test after code changes
-quick: fmt check test-unit
-
-# Full test suite before committing
-precommit: fmt-check lint test
-
-# Update dependencies
-update:
-    cargo update
-
-# Build documentation
-docs:
-    cargo doc --open
-
-# Show binary size
-size:
-    @echo "Binary sizes:"
-    @ls -lh target/*/release/cs-cli 2>/dev/null || echo "No release builds found"
-    @ls -lh target/*/debug/cs-cli 2>/dev/null || echo "No debug builds found"
-
-# Regression test suite
-test-regression:
-    ./tests/run_tests.sh
-
-# Help for common issues
-doctor:
-    @echo "Common fixes:"
-    @echo ""
-    @echo "Authentication issues:"
-    @echo "  - Make sure you're logged into Gong in Safari/Chrome"
-    @echo "  - Run 'just sign-debug' to sign the debug binary"
-    @echo ""
-    @echo "GitHub OAuth issues:"
-    @echo "  - Check GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in .env"
-    @echo "  - Run 'just check-env' to verify settings"
-    @echo ""
-    @echo "Build issues:"
-    @echo "  - Run 'just clean' to clean build artifacts"
-    @echo "  - Run 'just setup' to reinstall dependencies"
+# Verify environment setup
+check-env:
+    @echo "Checking environment setup..."
+    @echo "SIGNING_IDENTITY: ${SIGNING_IDENTITY:-Not set}"
+    @echo "GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-Not set}"
+    @echo "GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:+Set}"
+    @echo "RUSTFLAGS: ${RUSTFLAGS:-Not set}"
+    @which cargo > /dev/null && echo "✓ cargo found" || echo "✗ cargo not found"
+    @which rustc > /dev/null && echo "✓ rustc found" || echo "✗ rustc not found"
+    @test -f .env && echo "✓ .env file exists" || echo "✗ .env file not found"

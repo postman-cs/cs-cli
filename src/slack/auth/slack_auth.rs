@@ -2,7 +2,7 @@
 //!
 //! Demonstrates how the common auth framework works with Slack workspaces
 
-use crate::common::auth::{Cookie, CookieExtractor, SessionManager};
+use crate::common::auth::{Cookie, CookieRetriever, SessionManager};
 use crate::{CsCliError, Result};
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -22,7 +22,7 @@ pub struct SlackSession {
 /// Slack authentication manager using common abstractions
 pub struct SlackAuth {
     workspace_domain: String,
-    cookie_extractor: CookieExtractor,
+    cookie_retriever: CookieRetriever,
     current_session: Option<SlackSession>,
     pub detected_browser: Option<String>,
 }
@@ -35,20 +35,20 @@ impl SlackAuth {
             "app.slack.com".to_string(),
             "slack.com".to_string(),
         ];
-        let cookie_extractor = CookieExtractor::new(domains);
+        let cookie_retriever = CookieRetriever::new(domains);
 
         Self {
             workspace_domain,
-            cookie_extractor,
+            cookie_retriever,
             current_session: None,
             detected_browser: None,
         }
     }
 
-    /// Extract Slack authentication from browser using auth API
-    pub async fn extract_browser_auth(&mut self) -> Result<SlackSession> {
+    /// Retrieve Slack authentication from browser using auth API
+    pub async fn retrieve_browser_auth(&mut self) -> Result<SlackSession> {
         info!(
-            "Extracting Slack authentication for {}",
+            "Retrieving Slack authentication for {}",
             self.workspace_domain
         );
 
@@ -80,7 +80,7 @@ impl SlackAuth {
             .find(|c| c.name == "d")
             .ok_or_else(|| {
                 CsCliError::Authentication(
-                    "Required 'd' session cookie not found. Please log into Slack in Firefox."
+                    "Required 'd' session cookie not found in your browser. Please log into Slack in your browser first."
                         .to_string(),
                 )
             })?;
@@ -106,7 +106,7 @@ impl SlackAuth {
         };
 
         info!(
-            "Successfully extracted Slack session for workspace: {}",
+            "Successfully retrieved Slack session for workspace: {}",
             session.workspace_url
         );
         self.current_session = Some(session.clone());
@@ -122,7 +122,7 @@ impl SlackAuth {
         info!("Fetching xoxc token from Slack auth API...");
 
         // Create HTTP client for auth request - match the browser we got cookies from
-        let browser_to_impersonate = self.detected_browser.as_deref().unwrap_or("firefox");
+        let browser_type = self.detected_browser.as_deref().unwrap_or("firefox");
 
         let http_config = HttpSettings {
             pool_size: 1,
@@ -133,12 +133,12 @@ impl SlackAuth {
             enable_http3: true, // Use HTTP/3 for better performance and browser matching
             force_http3: false, // Allow fallback to HTTP/2 if needed
             tls_version: None,
-            impersonate_browser: browser_to_impersonate.to_string(),
+            browser_type: browser_type.to_string(),
         };
 
         info!(
-            "Creating HTTP client impersonating: {}",
-            browser_to_impersonate
+            "Creating HTTP client with browser type: {}",
+            browser_type
         );
 
         let client = BrowserHttpClient::new(http_config).await?;
@@ -283,7 +283,7 @@ impl SlackAuth {
         // No need to unlock here - avoids multiple password prompts
 
         // Test Firefox
-        if let Ok(cookies) = self.cookie_extractor.extract_firefox_cookies() {
+        if let Ok(cookies) = self.cookie_retriever.retrieve_firefox_cookies() {
             if self.has_valid_slack_session(&cookies, "Firefox").await? {
                 info!("Firefox has valid Slack authentication");
                 return Ok((cookies, "Firefox".to_string()));
@@ -291,7 +291,7 @@ impl SlackAuth {
         }
 
         // Test Chrome
-        if let Ok(cookies) = self.cookie_extractor.extract_chrome_cookies() {
+        if let Ok(cookies) = self.cookie_retriever.retrieve_chrome_cookies() {
             if self.has_valid_slack_session(&cookies, "Chrome").await? {
                 info!("Chrome has valid Slack authentication");
                 return Ok((cookies, "Chrome".to_string()));
@@ -299,7 +299,7 @@ impl SlackAuth {
         }
 
         // Test Brave
-        if let Ok(cookies) = self.cookie_extractor.extract_brave_cookies() {
+        if let Ok(cookies) = self.cookie_retriever.retrieve_brave_cookies() {
             if self.has_valid_slack_session(&cookies, "Brave").await? {
                 info!("Brave has valid Slack authentication");
                 return Ok((cookies, "Brave".to_string()));
@@ -307,7 +307,7 @@ impl SlackAuth {
         }
 
         // Test Edge
-        if let Ok(cookies) = self.cookie_extractor.extract_edge_cookies() {
+        if let Ok(cookies) = self.cookie_retriever.retrieve_edge_cookies() {
             if self.has_valid_slack_session(&cookies, "Edge").await? {
                 info!("Edge has valid Slack authentication");
                 return Ok((cookies, "Edge".to_string()));
@@ -315,7 +315,7 @@ impl SlackAuth {
         }
 
         // Test Arc
-        if let Ok(cookies) = self.cookie_extractor.extract_arc_cookies() {
+        if let Ok(cookies) = self.cookie_retriever.retrieve_arc_cookies() {
             if self.has_valid_slack_session(&cookies, "Arc").await? {
                 info!("Arc has valid Slack authentication");
                 return Ok((cookies, "Arc".to_string()));
@@ -380,7 +380,7 @@ impl SlackAuth {
     /// Get cookies for debugging
     pub fn get_domain_cookies(&self, domain: &str) -> Result<Vec<Cookie>> {
         // Get ALL Firefox cookies and filter for Slack-related ones
-        let all_cookies = self.cookie_extractor.extract_firefox_cookies()?;
+        let all_cookies = self.cookie_retriever.retrieve_firefox_cookies()?;
 
         let slack_cookies: Vec<Cookie> = all_cookies
             .into_iter()
@@ -400,12 +400,12 @@ impl SessionManager for SlackAuth {
     type SessionData = SlackSession;
 
     async fn initialize_session(&mut self) -> Result<()> {
-        self.extract_browser_auth().await?;
+        self.retrieve_browser_auth().await?;
         Ok(())
     }
 
     async fn authenticate(&mut self) -> Result<bool> {
-        match self.extract_browser_auth().await {
+        match self.retrieve_browser_auth().await {
             Ok(_) => Ok(true),
             Err(e) => {
                 warn!("Slack authentication failed: {}", e);

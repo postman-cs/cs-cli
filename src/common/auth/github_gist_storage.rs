@@ -213,7 +213,7 @@ impl GitHubGistStorage {
         info!("Setting up GitHub gist storage...");
 
         // Perform OAuth authentication
-        let mut oauth_flow = GitHubOAuthFlow::new();
+        let mut oauth_flow = GitHubOAuthFlow::new()?;
         let access_token = oauth_flow.authenticate().await?;
 
         // Create GitHub client
@@ -360,6 +360,32 @@ impl GitHubGistStorage {
         }
     }
 
+    /// Clear GitHub token from keychain (for testing only)
+    #[cfg(test)]
+    fn clear_test_github_token() -> Result<()> {
+        let output = Command::new("security")
+            .args([
+                "delete-generic-password",
+                "-s",
+                "com.postman.cs-cli.github-token",
+                "-a",
+                "oauth-access-token",
+            ])
+            .output()
+            .map_err(|e| CsCliError::GistStorage(format!("Failed to clear keychain: {e}")))?;
+
+        // Don't error if token doesn't exist (already clean)
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !stderr.contains("could not be found") {
+                return Err(CsCliError::GistStorage(format!(
+                    "Failed to clear keychain: {stderr}"
+                )));
+            }
+        }
+        Ok(())
+    }
+
     /// Load gist configuration from local storage
     fn load_config() -> Result<GistConfig> {
         let config_path = Self::get_config_path()?;
@@ -452,6 +478,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_gist_storage_initialization() {
+        // Clear any existing GitHub token and config for clean test
+        let _ = GitHubGistStorage::clear_test_github_token();
+        let _ = GitHubGistStorage::remove_config();
+
         // Test that GitHubGistStorage can be created without authentication
         let result = GitHubGistStorage::new().await;
         assert!(result.is_ok());

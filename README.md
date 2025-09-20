@@ -2,6 +2,8 @@
 
 # CS Deep Research CLI
 
+**AUTHORIZED USE ONLY**: This tool accesses YOUR OWN authenticated browser sessions and retrieves conversations YOU already have access to. No one else's data is accessed.
+
 **What you'll discover:**
 - Issues your customer forgot to follow up on
 - Problems brewing beneath the surface  
@@ -30,7 +32,7 @@ source ~/.zshrc && cs-cli
   <img src="demo.gif" alt="Demo Gif">
 </div>
 
-**Important:** Before using the tool, make sure you're logged into Gοng in your browser. The tool needs Gοng to download your customer conversations.
+**Important:** Before using the tool, make sure you're logged into Gοng in your browser. The tool accesses your own authenticated browser session to retrieve conversations you already have access to.
 
 Just click the app or run `cs-cli` in your terminal and answer 3 simple questions: 
 - WHO: Which Customer?
@@ -40,10 +42,10 @@ Just click the app or run `cs-cli` in your terminal and answer 3 simple question
 #### Advanced: Command-Line Mode
 Arguments can be in any order. If you don't specify days, it defaults to 90:
 ```bash
-cs-cli Postman 90 calls emails        # Last 3 months of Postman
-cs-cli Wells Fargo calls              # Last 90 days (default) of Wells Fargo calls
-cs-cli 7 - 11 365                     # Last year of 7-Eleven
-cs-cli emails Stripe 30                # Last month of Stripe emails
+cs-cli Postman 90 calls emails        # Retrieve last 3 months of Postman
+cs-cli Wells Fargo calls              # Retrieve last 90 days (default) of Wells Fargo calls
+cs-cli 7 - 11 365                     # Retrieve last year of 7-Eleven
+cs-cli emails Stripe 30                # Retrieve last month of Stripe emails
 ```
 
 ### Step 2: Find Your Results
@@ -145,7 +147,7 @@ Each integration follows the same pattern: authenticate once with your browser, 
 ## Your Next Move
 
 1. Pick a customer you're worried about
-2. Run the tool to extract their last 90 days
+2. Run the tool to retrieve their last 90 days
 3. Use AI to find issues you didn't know existed
 4. Show up to your next call as their hero
 

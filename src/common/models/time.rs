@@ -6,19 +6,19 @@ use jiff::{civil::Date, Span, Zoned};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Date range for API extraction with chunking support
+/// Date range for API retrieval with chunking support
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExtractionRange {
-    /// Start date for extraction
+pub struct RetrievalRange {
+    /// Start date for retrieval
     pub start_date: Date,
-    /// End date for extraction
+    /// End date for retrieval
     pub end_date: Date,
     /// Maximum chunk size in days (for API rate limiting)
     pub chunk_days: i32,
 }
 
-impl ExtractionRange {
-    /// Create a new extraction range
+impl RetrievalRange {
+    /// Create a new retrieval range
     pub fn new(start_date: Date, end_date: Date, chunk_days: i32) -> Self {
         Self {
             start_date,
@@ -86,7 +86,7 @@ impl ExtractionRange {
     }
 
     /// Split range into chunks (matching Python to_chunks method)
-    pub fn to_chunks(&self, days: i32) -> Vec<ExtractionRange> {
+    pub fn to_chunks(&self, days: i32) -> Vec<RetrievalRange> {
         let mut chunks = Vec::new();
         let mut current = self.start_date;
 
@@ -94,7 +94,7 @@ impl ExtractionRange {
             let chunk_span = Span::new().days(days as i64);
             let chunk_end = std::cmp::min(current.saturating_add(chunk_span), self.end_date);
 
-            chunks.push(ExtractionRange {
+            chunks.push(RetrievalRange {
                 start_date: current,
                 end_date: chunk_end,
                 chunk_days: days,

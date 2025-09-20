@@ -186,7 +186,7 @@ impl CSRFManager {
 
     /// Attempt a single token refresh with proper error handling
     async fn attempt_token_refresh(&self, url: &str, cell: &str, attempt: u32) -> Result<String> {
-        debug!(
+        info!(
             url = %url,
             attempt = attempt + 1,
             "Attempting CSRF token refresh"
@@ -205,18 +205,24 @@ impl CSRFManager {
         );
 
         // Update headers on the HTTP client
+        info!("Setting headers for CSRF token request");
         self.http_client.update_headers(headers).await?;
 
         // Make the actual HTTP request
+        info!("Making HTTP GET request to CSRF endpoint");
         let response = self.http_client.get(url).await?;
+        info!("CSRF request completed, status: {}", response.status());
 
         // Parse the JSON response
+        info!("Reading response body...");
         let json_text = response
             .text()
             .await
             .map_err(|e| CsCliError::ApiRequest(format!("Failed to read CSRF response: {e}")))?;
+        info!("Response body length: {} characters", json_text.len());
 
         // Use serde_json for JSON parsing
+        info!("Parsing JSON response...");
         let data: Value = serde_json::from_str(&json_text)
             .map_err(|e| CsCliError::ApiRequest(format!("Failed to parse CSRF response: {e}")))?;
 
@@ -224,6 +230,7 @@ impl CSRFManager {
             CsCliError::Authentication("CSRF response missing token field".to_string())
         })?;
 
+        info!("Successfully extracted CSRF token, length: {}", token.len());
         Ok(token.to_string())
     }
 

@@ -40,7 +40,7 @@ impl SlackExplorer {
         self.auth.authenticate().await?;
 
         // Create HTTP client matching the browser used for authentication
-        let browser_to_impersonate = self.auth.detected_browser.as_deref().unwrap_or("firefox");
+        let browser_type = self.auth.detected_browser.as_deref().unwrap_or("firefox");
 
         let http_config = HttpSettings {
             pool_size: 1,
@@ -51,12 +51,12 @@ impl SlackExplorer {
             enable_http3: true, // Use HTTP/3 for better performance and modern browser matching
             force_http3: false, // Allow fallback to HTTP/2 if Slack doesn't support HTTP/3
             tls_version: None,
-            impersonate_browser: browser_to_impersonate.to_string(),
+            browser_type: browser_type.to_string(),
         };
 
         info!(
-            "Explorer HTTP client impersonating: {}",
-            browser_to_impersonate
+            "Explorer HTTP client using browser type: {}",
+            browser_type
         );
 
         let client = BrowserHttpClient::new(http_config).await?;

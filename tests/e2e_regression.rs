@@ -46,6 +46,9 @@ async fn test_complete_workflow_interactive_mode() {
     let args = CliArgs {
         debug: false,
         keychain_password: None,
+        local_only: false,
+        reset_sync: false,
+        sync_status: false,
         command: None,
         raw_args: vec![],
     };
@@ -69,6 +72,9 @@ async fn test_complete_workflow_cli_args() {
     let _args = CliArgs {
         debug: false,
         keychain_password: None,
+        local_only: false,
+        reset_sync: false,
+        sync_status: false,
         command: None,
         raw_args: vec![
             "customer".to_string(),
@@ -331,6 +337,9 @@ async fn test_cli_argument_parsing() {
         let args = CliArgs {
             debug: false,
             keychain_password: None,
+            local_only: false,
+            reset_sync: false,
+            sync_status: false,
             command: None,
             raw_args: raw_args.iter().map(|s| s.to_string()).collect(),
         };

@@ -1,19 +1,19 @@
-//! Gong data extraction and processing logic
+//! Gong data retrieval and processing logic
 //!
-//! This module handles all Gong-specific extraction functionality including
+//! This module handles all Gong-specific retrieval functionality including
 //! calls, emails, and transcripts. It's designed to be UI-agnostic and can
 //! be used by any interface (CLI, TUI, API, etc.)
 
 use crate::gong::api::client::HttpClientPool;
 use crate::gong::api::customer::CustomerCallInfo;
-use crate::gong::api::customer::GongCustomerSearchClient;
-use crate::gong::api::email::EmailEnhancer;
-use crate::gong::api::library::{CallDetailsFetcher, GongLibraryClient, LibraryCallInfo};
-use crate::gong::api::timeline::TimelineExtractor;
+use crate::gong::api::customer::GongCustomerSearchRetriever;
+use crate::gong::api::email::EmailRetriever;
+use crate::gong::api::library::{CallDetailsRetriever, GongLibraryRetriever, LibraryCallInfo};
+use crate::gong::api::timeline::TimelineRetriever;
 use crate::gong::auth::GongAuthenticator;
 use crate::gong::config::AppConfig;
 use crate::gong::models::{Call, CallDirection, Email};
-use crate::gong::output::markdown::{CallMarkdownFormatter, CallSummaryReporter};
+use crate::gong::output::markdown::{CallMarkdownRenderer, CallSummaryReporter};
 use crate::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 use owo_colors::OwoColorize;
@@ -100,23 +100,23 @@ fn convert_library_call_info_to_call(info: LibraryCallInfo) -> Call {
     }
 }
 
-/// Main orchestrator for Gong data extraction
-pub struct TeamCallsExtractor {
+/// Main orchestrator for Gong data retrieval
+pub struct TeamCallsRetriever {
     config: AppConfig,
     http: Option<Arc<HttpClientPool>>,
     auth: Option<Arc<GongAuthenticator>>,
-    library_client: Option<GongLibraryClient>,
-    details_fetcher: Option<CallDetailsFetcher>,
-    customer_search_client: Option<GongCustomerSearchClient>,
-    timeline_extractor: Option<TimelineExtractor>,
-    email_enhancer: Option<EmailEnhancer>,
-    formatter: CallMarkdownFormatter,
+    library_client: Option<GongLibraryRetriever>,
+    details_fetcher: Option<CallDetailsRetriever>,
+    customer_search_client: Option<GongCustomerSearchRetriever>,
+    timeline_retriever: Option<TimelineRetriever>,
+    email_enhancer: Option<EmailRetriever>,
+    formatter: CallMarkdownRenderer,
     summary_reporter: CallSummaryReporter,
     quiet: bool, // Suppress console output when true
 }
 
-impl TeamCallsExtractor {
-    /// Create a new extractor instance
+impl TeamCallsRetriever {
+    /// Create a new retriever instance
     pub fn new(config: AppConfig) -> Self {
         Self {
             config,
@@ -125,9 +125,9 @@ impl TeamCallsExtractor {
             library_client: None,
             details_fetcher: None,
             customer_search_client: None,
-            timeline_extractor: None,
+            timeline_retriever: None,
             email_enhancer: None,
-            formatter: CallMarkdownFormatter::new(None),
+            formatter: CallMarkdownRenderer::new(None),
             summary_reporter: CallSummaryReporter::new(),
             quiet: false,
         }
@@ -138,53 +138,53 @@ impl TeamCallsExtractor {
         self.quiet = quiet;
     }
 
-    /// Initialize extractor with pre-authenticated components
+    /// Initialize retriever with pre-authenticated components
     /// This allows reusing authentication from other parts of the system
     pub async fn setup_with_auth(
         &mut self,
         http: Arc<HttpClientPool>,
         auth: Arc<GongAuthenticator>,
     ) -> Result<()> {
-        self.print("Setting up extraction components...".to_string());
+        self.print("Setting up retrieval components...".to_string());
 
         // Store Arc references
         self.http = Some(Arc::clone(&http));
         self.auth = Some(Arc::clone(&auth));
 
         // Initialize API clients
-        self.library_client = Some(GongLibraryClient::new(
+        self.library_client = Some(GongLibraryRetriever::new(
             Arc::clone(&http),
             Arc::clone(&auth),
             Some(self.config.clone()),
         ));
 
-        self.details_fetcher = Some(CallDetailsFetcher::new(
+        self.details_fetcher = Some(CallDetailsRetriever::new(
             Arc::clone(&http),
             Arc::clone(&auth),
             Some(self.config.clone()),
         ));
 
-        self.customer_search_client = Some(GongCustomerSearchClient::new(
+        self.customer_search_client = Some(GongCustomerSearchRetriever::new(
             Arc::clone(&http),
             Arc::clone(&auth),
             Some(self.config.clone()),
         )?);
 
-        self.timeline_extractor = Some(TimelineExtractor::new(
+        self.timeline_retriever = Some(TimelineRetriever::new(
             Arc::clone(&http),
             Arc::clone(&auth),
             Some(self.config.clone()),
             Some(30), // Default chunk days
         )?);
 
-        self.email_enhancer = Some(EmailEnhancer::new(
+        self.email_enhancer = Some(EmailRetriever::new(
             Arc::clone(&http),
             Arc::clone(&auth),
             Some(self.config.clone()),
             None, // Default batch size
         ));
 
-        self.print("✅ Extraction system ready".green().to_string());
+        self.print("✅ Retrieval system ready".green().to_string());
         Ok(())
     }
 
@@ -198,7 +198,7 @@ impl TeamCallsExtractor {
     /// Setup all required API clients
     pub async fn setup(&mut self) -> Result<()> {
         self.print(format!(
-            "Initializing {} extraction system...",
+            "Initializing {} retrieval system...",
             "CS-CLI".truecolor(255, 255, 255)
         ));
 
@@ -230,32 +230,32 @@ impl TeamCallsExtractor {
         self.auth = Some(Arc::clone(&auth_arc));
 
         // Initialize API clients
-        self.library_client = Some(GongLibraryClient::new(
+        self.library_client = Some(GongLibraryRetriever::new(
             Arc::clone(&http_arc),
             Arc::clone(&auth_arc),
             Some(self.config.clone()),
         ));
 
-        self.details_fetcher = Some(CallDetailsFetcher::new(
+        self.details_fetcher = Some(CallDetailsRetriever::new(
             Arc::clone(&http_arc),
             Arc::clone(&auth_arc),
             Some(self.config.clone()),
         ));
 
-        self.customer_search_client = Some(GongCustomerSearchClient::new(
+        self.customer_search_client = Some(GongCustomerSearchRetriever::new(
             Arc::clone(&http_arc),
             Arc::clone(&auth_arc),
             Some(self.config.clone()),
         )?);
 
-        self.timeline_extractor = Some(TimelineExtractor::new(
+        self.timeline_retriever = Some(TimelineRetriever::new(
             Arc::clone(&http_arc),
             Arc::clone(&auth_arc),
             Some(self.config.clone()),
             Some(30), // Default chunk days
         )?);
 
-        self.email_enhancer = Some(EmailEnhancer::new(
+        self.email_enhancer = Some(EmailRetriever::new(
             Arc::clone(&http_arc),
             Arc::clone(&auth_arc),
             Some(self.config.clone()),
@@ -266,8 +266,8 @@ impl TeamCallsExtractor {
         Ok(())
     }
 
-    /// Extract team calls for a given stream
-    pub async fn extract_team_calls(
+    /// Retrieve team calls for a given stream
+    pub async fn retrieve_team_calls(
         &mut self,
         stream_id: &str,
         days: Option<u32>,
@@ -370,8 +370,8 @@ impl TeamCallsExtractor {
         Ok(detailed_calls)
     }
 
-    /// Extract customer calls
-    pub async fn extract_customer_calls(
+    /// Retrieve customer calls
+    pub async fn retrieve_customer_calls(
         &mut self,
         name: &str,
         _days: Option<u32>,
@@ -514,8 +514,8 @@ impl TeamCallsExtractor {
         Ok((all_calls, resolved_name))
     }
 
-    /// Extract customer communications (calls + emails)
-    pub async fn extract_customer_communications(
+    /// Retrieve customer communications (calls + emails)
+    pub async fn retrieve_customer_communications(
         &mut self,
         name: &str,
         days: u32,
@@ -524,22 +524,22 @@ impl TeamCallsExtractor {
         fetch_email_bodies: bool,
     ) -> Result<(Vec<Call>, Vec<Email>, String)> {
         self.print(
-            format!("Extracting communications for '{name}' from last {days} days...")
+            format!("Retrieving communications for '{name}' from last {days} days...")
                 .cyan()
                 .to_string(),
         );
 
         if emails_only {
             self.print(
-                "Email-only mode: Skipping call extraction"
+                "Email-only mode: Skipping call retrieval"
                     .yellow()
                     .to_string(),
             );
         }
 
-        // Extract calls if not email-only mode
+        // Retrieve calls if not email-only mode
         let (mut calls, resolved_name) = if !emails_only {
-            self.extract_customer_calls(name, Some(days), None, None)
+            self.retrieve_customer_calls(name, Some(days), None, None)
                 .await?
         } else {
             // Still need to resolve customer name
@@ -565,7 +565,7 @@ impl TeamCallsExtractor {
                     .yellow()
                     .to_string(),
             );
-            self.extract_customer_emails(&resolved_name, days, fetch_email_bodies)
+            self.retrieve_customer_emails(&resolved_name, days, fetch_email_bodies)
                 .await?
         } else {
             Vec::new()
@@ -576,7 +576,7 @@ impl TeamCallsExtractor {
 
         self.print(
             format!(
-                "Extraction complete: {} calls, {} emails",
+                "Retrieval complete: {} calls, {} emails",
                 calls.len(),
                 emails.len()
             )
@@ -584,11 +584,11 @@ impl TeamCallsExtractor {
             .to_string(),
         );
 
-        Ok((calls, emails, resolved_name))
+        Ok((calls, emails, resolved_name.to_string()))
     }
 
-    /// Extract customer emails
-    async fn extract_customer_emails(
+    /// Retrieve customer emails
+    async fn retrieve_customer_emails(
         &mut self,
         name: &str,
         days: u32,
@@ -606,9 +606,9 @@ impl TeamCallsExtractor {
             )
         })?;
 
-        let timeline_extractor = self.timeline_extractor.as_mut().ok_or_else(|| {
+        let timeline_retriever = self.timeline_retriever.as_mut().ok_or_else(|| {
             crate::common::error::types::CsCliError::Generic(
-                "Timeline extractor not initialized".to_string(),
+                "Timeline retriever not initialized".to_string(),
             )
         })?;
 
@@ -627,12 +627,12 @@ impl TeamCallsExtractor {
                 .expect("Customer should always have an ID")
                 .clone()
         } else {
-            return Ok(Vec::new()); // No customer found, skip email extraction
+            return Ok(Vec::new()); // No customer found, skip email retrieval
         };
 
-        // Search for emails using timeline extraction
-        let timeline_result = timeline_extractor
-            .extract_account_timeline(
+        // Search for emails using timeline retrieval
+        let timeline_result = timeline_retriever
+            .retrieve_account_timeline(
                 &customer_id,
                 jiff::Zoned::now().saturating_sub(jiff::Span::new().days(days as i64)),
                 None,
@@ -651,7 +651,7 @@ impl TeamCallsExtractor {
         if fetch_bodies {
             self.print("Fetching email bodies...".cyan().to_string());
             emails = email_enhancer
-                .enhance_emails_with_progress(emails, true)
+                .retrieve_emails_with_progress(emails, true)
                 .await?;
         }
 
@@ -820,7 +820,7 @@ impl TeamCallsExtractor {
 
     /// Cleanup resources
     pub async fn cleanup(&self) {
-        info!("Cleaning up extraction resources...");
+        info!("Cleaning up retrieval resources...");
         // Any cleanup logic if needed
     }
 }

@@ -218,11 +218,27 @@ sign_debug_binary() {
         debug_binary="target/debug/$BINARY_NAME"
     fi
 
+    # Check if binary exists and is newer than source files
+    local needs_rebuild=false
     if [ ! -f "$debug_binary" ]; then
         log WARN "Debug binary not found at $debug_binary"
+        needs_rebuild=true
+    else
+        # Check if any Rust source files are newer than the binary
+        local binary_time=$(stat -f "%m" "$debug_binary" 2>/dev/null || echo "0")
+        local source_time=$(find src -name "*.rs" -exec stat -f "%m" {} \; 2>/dev/null | sort -n | tail -1)
+        
+        if [ "$source_time" -gt "$binary_time" ]; then
+            log INFO "Source files newer than binary, rebuilding..."
+            needs_rebuild=true
+        fi
+    fi
+
+    if $needs_rebuild; then
         log INFO "Building debug binary for Apple Silicon..."
         
         # Use same RUSTFLAGS as release build for consistency
+        # Use incremental build for faster development
         RUSTFLAGS='--cfg reqwest_unstable -C target-feature=+neon,+aes,+sha2' \
             cargo build --target aarch64-apple-darwin
 
@@ -230,6 +246,8 @@ sign_debug_binary() {
         if [ ! -f "$debug_binary" ]; then
             log ERROR "Failed to find or build debug binary"
         fi
+    else
+        log INFO "Binary is up to date, skipping rebuild"
     fi
 
     # Sign the debug binary with bundle ID

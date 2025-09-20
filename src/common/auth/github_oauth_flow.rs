@@ -3,7 +3,7 @@
 //! Handles GitHub OAuth for personal account access by opening the authorization
 //! page in the user's default browser and listening for the callback.
 
-use super::github_oauth_config::*;
+use super::github_oauth_config::{GitHubOAuthConfig, OAuthState, build_oauth_url, validate_oauth_callback};
 use crate::{CsCliError, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -13,21 +13,26 @@ use tokio::net::TcpListener;
 use tracing::{debug, info};
 
 pub struct GitHubOAuthFlow {
-    oauth_state: String,
+    oauth_state: OAuthState,
+    config: GitHubOAuthConfig,
 }
 
 impl Default for GitHubOAuthFlow {
     fn default() -> Self {
-        Self::new()
+        Self::new().expect("Failed to create GitHubOAuthFlow - check environment variables")
     }
 }
 
 impl GitHubOAuthFlow {
     /// Create new OAuth flow that opens the user's default browser
-    pub fn new() -> Self {
-        Self {
-            oauth_state: generate_oauth_state(),
-        }
+    pub fn new() -> Result<Self> {
+        let config = GitHubOAuthConfig::from_env()?;
+        let oauth_state = OAuthState::new()?;
+        
+        Ok(Self {
+            oauth_state,
+            config,
+        })
     }
 
     /// Open URL in the user's default browser using platform-specific commands
@@ -59,7 +64,7 @@ impl GitHubOAuthFlow {
         let listener = self.start_callback_server().await?;
 
         // Navigate to GitHub OAuth authorization page
-        let oauth_url = build_oauth_url(&self.oauth_state).map_err(CsCliError::GitHubOAuth)?;
+        let oauth_url = build_oauth_url(&self.config, self.oauth_state.as_str())?;
         info!("Opening GitHub authorization page in your browser...");
         self.open_browser(&oauth_url)?;
 
@@ -155,7 +160,7 @@ Content-Type: text/html; charset=utf-8
 
             // Verify state parameter (CSRF protection)
             if let Some(received_state) = params.get("state") {
-                if !validate_oauth_callback(&self.oauth_state, received_state) {
+                if !validate_oauth_callback(self.oauth_state.as_str(), received_state)? {
                     return Err(CsCliError::Authentication(
                         "OAuth state mismatch - possible security issue".to_string(),
                     ));
@@ -212,21 +217,19 @@ Content-Type: text/html; charset=utf-8
             scope: String,
         }
 
-        let client_id = get_github_client_id()
-            .ok_or_else(|| CsCliError::GitHubOAuth("GITHUB_CLIENT_ID not set".to_string()))?;
-        let client_secret = get_github_client_secret()
-            .ok_or_else(|| CsCliError::GitHubOAuth("GITHUB_CLIENT_SECRET not set".to_string()))?;
+        let client_id = &self.config.client_id;
+        let client_secret = &self.config.client_secret;
 
         let client = reqwest::Client::new();
         let response = client
-            .post(OAUTH_TOKEN_URL)
+            .post(&self.config.token_url)
             .header("Accept", "application/json")
             .header("User-Agent", "cs-cli/1.0.0")
             .form(&[
                 ("client_id", &client_id),
                 ("client_secret", &client_secret),
                 ("code", &auth_code.to_string()),
-                ("redirect_uri", &CALLBACK_URL.to_string()),
+                ("redirect_uri", &self.config.callback_url),
             ])
             .send()
             .await
@@ -274,59 +277,100 @@ mod tests {
 
     #[test]
     fn test_oauth_url_generation() {
-        let state = "test_state_123";
-        let url = build_oauth_url(state);
+        // Set up test environment
+        std::env::set_var("GITHUB_CLIENT_ID", "test_client_id_12345");
+        std::env::set_var("GITHUB_CLIENT_SECRET", "test_secret_123456789012345");
+        
+        let config = GitHubOAuthConfig::from_env().unwrap();
+        let state = "test_state_123456789012345";
+        let url = build_oauth_url(&config, state).unwrap();
 
-        assert!(url.as_ref().unwrap().contains("client_id="));
-        assert!(url.as_ref().unwrap().contains("scope=gist"));
-        assert!(url.as_ref().unwrap().contains("state=test_state_123"));
-        assert!(url.as_ref().unwrap().contains("redirect_uri="));
+        assert!(url.contains("client_id="));
+        assert!(url.contains("scope=gist"));
+        assert!(url.contains("state=test_state_123456789012345"));
+        assert!(url.contains("redirect_uri="));
+        
+        // Clean up
+        std::env::remove_var("GITHUB_CLIENT_ID");
+        std::env::remove_var("GITHUB_CLIENT_SECRET");
     }
 
     #[test]
     fn test_query_param_parsing() {
-        let oauth_flow = GitHubOAuthFlow::new();
+        // Set up test environment
+        std::env::set_var("GITHUB_CLIENT_ID", "test_client_id_12345");
+        std::env::set_var("GITHUB_CLIENT_SECRET", "test_secret_123456789012345");
+        
+        let oauth_flow = GitHubOAuthFlow::new().unwrap();
         let query = "code=abc123&state=xyz789&scope=gist";
         let params = oauth_flow.parse_query_params(query);
 
         assert_eq!(params.get("code"), Some(&"abc123".to_string()));
         assert_eq!(params.get("state"), Some(&"xyz789".to_string()));
         assert_eq!(params.get("scope"), Some(&"gist".to_string()));
+        
+        // Clean up
+        std::env::remove_var("GITHUB_CLIENT_ID");
+        std::env::remove_var("GITHUB_CLIENT_SECRET");
     }
 
     #[test]
     fn test_auth_code_extraction_success() {
-        let oauth_flow = GitHubOAuthFlow::new();
+        // Set up test environment
+        std::env::set_var("GITHUB_CLIENT_ID", "test_client_id_12345");
+        std::env::set_var("GITHUB_CLIENT_SECRET", "test_secret_123456789012345");
+        
+        let oauth_flow = GitHubOAuthFlow::new().unwrap();
         let request = format!(
             "GET /auth/github/callback?code=test_code_123&state={} HTTP/1.1\r\nHost: localhost:8080\r\n\r\n",
-            oauth_flow.oauth_state
+            oauth_flow.oauth_state.as_str()
         );
 
         let result = oauth_flow.extract_auth_code(&request);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "test_code_123");
+        
+        // Clean up
+        std::env::remove_var("GITHUB_CLIENT_ID");
+        std::env::remove_var("GITHUB_CLIENT_SECRET");
     }
 
     #[test]
     fn test_auth_code_extraction_state_mismatch() {
-        let oauth_flow = GitHubOAuthFlow::new();
+        // Set up test environment
+        std::env::set_var("GITHUB_CLIENT_ID", "test_client_id_12345");
+        std::env::set_var("GITHUB_CLIENT_SECRET", "test_secret_123456789012345");
+        
+        let oauth_flow = GitHubOAuthFlow::new().unwrap();
         let request = "GET /auth/github/callback?code=test_code_123&state=wrong_state HTTP/1.1\r\nHost: localhost:8080\r\n\r\n";
 
         let result = oauth_flow.extract_auth_code(request);
         assert!(result.is_err());
+        
+        // Clean up
+        std::env::remove_var("GITHUB_CLIENT_ID");
+        std::env::remove_var("GITHUB_CLIENT_SECRET");
     }
 
     #[test]
     fn test_auth_code_extraction_oauth_error() {
-        let oauth_flow = GitHubOAuthFlow::new();
+        // Set up test environment
+        std::env::set_var("GITHUB_CLIENT_ID", "test_client_id_12345");
+        std::env::set_var("GITHUB_CLIENT_SECRET", "test_secret_123456789012345");
+        
+        let oauth_flow = GitHubOAuthFlow::new().unwrap();
         let request = format!(
             "GET /auth/github/callback?error=access_denied&error_description=User%20denied%20access&state={} HTTP/1.1\r\nHost: localhost:8080\r\n\r\n",
-            oauth_flow.oauth_state
+            oauth_flow.oauth_state.as_str()
         );
 
         let result = oauth_flow.extract_auth_code(&request);
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
         assert!(error_msg.contains("access_denied"));
+        
+        // Clean up
+        std::env::remove_var("GITHUB_CLIENT_ID");
+        std::env::remove_var("GITHUB_CLIENT_SECRET");
     }
 }

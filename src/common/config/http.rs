@@ -17,7 +17,7 @@ pub struct HttpSettings {
 
     // TLS configuration
     pub tls_version: Option<String>,
-    pub impersonate_browser: String,
+    pub browser_type: String,
 }
 
 impl Default for HttpSettings {
@@ -30,7 +30,7 @@ impl Default for HttpSettings {
             global_max_concurrency: None,
             // HTTP/3 with HTTP/2 fallback is always enabled automatically
             tls_version: None,
-            impersonate_browser: "chrome".to_string(),
+            browser_type: "chrome".to_string(),
         }
     }
 }

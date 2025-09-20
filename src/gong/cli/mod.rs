@@ -1,7 +1,7 @@
 //! Gong CLI orchestration
 //!
 //! This module provides the CLI entry point and command routing for Gong.
-//! All extraction logic has been moved to the extractor module.
+//! All retrieval logic has been moved to the retriever module.
 
 pub mod tui_runner;
 
@@ -13,7 +13,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::gong::config::AppConfig;
-use crate::gong::extractor::TeamCallsExtractor;
+use crate::gong::retriever::TeamCallsRetriever;
 use crate::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, Shell};
@@ -58,6 +58,25 @@ fn config_file_path() -> PathBuf {
 /// Main entry point for the Gong CLI
 pub async fn run_cli() -> Result<()> {
     let args = CliArgs::parse();
+
+    // Handle reset flag first
+    if args.reset_sync {
+        println!("Clearing all stored authentication data...");
+
+        // Delete cookies from both keychain and gist storage
+        match crate::common::auth::hybrid_cookie_storage::delete_cookies_hybrid().await {
+            Ok(()) => {
+                println!("All authentication data has been cleared successfully");
+                println!("You will need to authenticate again on next run");
+                return Ok(());
+            }
+            Err(e) => {
+                eprintln!("Failed to clear authentication: {e}");
+                return Err(e);
+            }
+        }
+    }
+
     let command = args.parse_command()?;
     let app_config = AppConfig::from_env()?;
 
@@ -95,11 +114,11 @@ fn generate_completion(shell: Shell) {
 
 /// Execute command directly without TUI
 async fn execute_command_direct(command: ParsedCommand, app_config: AppConfig) -> Result<()> {
-    // Initialize extractor (with console output enabled)
-    let mut extractor = TeamCallsExtractor::new(app_config);
+    // Initialize retriever (with console output enabled)
+    let mut retriever = TeamCallsRetriever::new(app_config);
 
     // Setup components
-    extractor.setup().await?;
+    retriever.setup().await?;
 
     match command {
         ParsedCommand::Team {
@@ -112,12 +131,12 @@ async fn execute_command_direct(command: ParsedCommand, app_config: AppConfig) -
             })?;
 
             let days = days.unwrap_or(7);
-            let calls = extractor
-                .extract_team_calls(&stream_id, Some(days), None, None)
+            let calls = retriever
+                .retrieve_team_calls(&stream_id, Some(days), None, None)
                 .await?;
 
             if !calls.is_empty() {
-                let saved = extractor.save_calls_as_markdown_with_resolved_name(
+                let saved = retriever.save_calls_as_markdown_with_resolved_name(
                     &calls,
                     Some("Team"),
                     Some("Team"),
@@ -146,8 +165,8 @@ async fn execute_command_direct(command: ParsedCommand, app_config: AppConfig) -
         } => {
             let days = days.unwrap_or(90);
 
-            let (calls, emails, resolved_name) = extractor
-                .extract_customer_communications(
+            let (calls, emails, resolved_name) = retriever
+                .retrieve_customer_communications(
                     name,
                     days,
                     matches!(content_type, ContentType::Both | ContentType::Emails),
@@ -156,10 +175,10 @@ async fn execute_command_direct(command: ParsedCommand, app_config: AppConfig) -
                 )
                 .await?;
 
-            let mut saved_files = Vec::new();
+            let mut saved_files: Vec<PathBuf> = Vec::new();
 
             if !calls.is_empty() && !emails_only {
-                let files = extractor.save_calls_as_markdown_with_resolved_name(
+                let files = retriever.save_calls_as_markdown_with_resolved_name(
                     &calls,
                     Some(name),
                     Some(&resolved_name),
@@ -168,7 +187,7 @@ async fn execute_command_direct(command: ParsedCommand, app_config: AppConfig) -
             }
 
             if !emails.is_empty() {
-                let files = extractor.save_emails_as_markdown(&emails, name)?;
+                let files = retriever.save_emails_as_markdown(&emails, name)?;
                 saved_files.extend(files);
             }
 
@@ -192,8 +211,8 @@ async fn execute_command_direct(command: ParsedCommand, app_config: AppConfig) -
             for customer_name in names {
                 println!("\nProcessing customer: {customer_name}");
 
-                let (calls, emails, resolved_name) = extractor
-                    .extract_customer_communications(
+                let (calls, emails, resolved_name) = retriever
+                    .retrieve_customer_communications(
                         customer_name,
                         days,
                         matches!(content_type, ContentType::Both | ContentType::Emails),
@@ -203,7 +222,7 @@ async fn execute_command_direct(command: ParsedCommand, app_config: AppConfig) -
                     .await?;
 
                 if !calls.is_empty() && !emails_only {
-                    extractor.save_calls_as_markdown_with_resolved_name(
+                    retriever.save_calls_as_markdown_with_resolved_name(
                         &calls,
                         Some(customer_name),
                         Some(&resolved_name),
@@ -211,7 +230,7 @@ async fn execute_command_direct(command: ParsedCommand, app_config: AppConfig) -
                 }
 
                 if !emails.is_empty() {
-                    extractor.save_emails_as_markdown(&emails, customer_name)?;
+                    retriever.save_emails_as_markdown(&emails, customer_name)?;
                 }
             }
         }
@@ -219,7 +238,7 @@ async fn execute_command_direct(command: ParsedCommand, app_config: AppConfig) -
     }
 
     // Cleanup
-    extractor.cleanup().await;
+    retriever.cleanup().await;
 
     Ok(())
 }

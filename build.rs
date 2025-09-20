@@ -16,7 +16,7 @@ fn main() {
 
     // Read GitHub OAuth client ID from environment
     if let Ok(client_id) = env::var("GITHUB_CLIENT_ID") {
-        println!("cargo:rustc-env=GITHUB_CLIENT_ID={}", client_id);
+        println!("cargo:rustc-env=GITHUB_CLIENT_ID={client_id}");
     } else {
         // For development builds, provide a placeholder
         println!("cargo:rustc-env=GITHUB_CLIENT_ID=dev_placeholder_client_id");
@@ -25,7 +25,7 @@ fn main() {
 
     // Read GitHub OAuth client secret from environment
     if let Ok(client_secret) = env::var("GITHUB_CLIENT_SECRET") {
-        println!("cargo:rustc-env=GITHUB_CLIENT_SECRET={}", client_secret);
+        println!("cargo:rustc-env=GITHUB_CLIENT_SECRET={client_secret}");
     } else {
         // For development builds, provide a placeholder
         println!("cargo:rustc-env=GITHUB_CLIENT_SECRET=dev_placeholder_secret");
@@ -33,9 +33,8 @@ fn main() {
     }
 
     // Ensure build fails in release mode without proper credentials
-    if env::var("PROFILE").unwrap_or_default() == "release" {
-        if env::var("GITHUB_CLIENT_ID").is_err() || env::var("GITHUB_CLIENT_SECRET").is_err() {
+    if env::var("PROFILE").unwrap_or_default() == "release"
+        && (env::var("GITHUB_CLIENT_ID").is_err() || env::var("GITHUB_CLIENT_SECRET").is_err()) {
             panic!("GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET must be set for release builds");
         }
-    }
 }

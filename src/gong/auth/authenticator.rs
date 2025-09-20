@@ -1,6 +1,6 @@
 use super::CSRFManager;
 use crate::common::auth::hybrid_cookie_storage::{get_cookies_hybrid, has_cookies_hybrid};
-use crate::common::auth::{Cookie, CookieExtractor, GuidedAuth, PlatformType};
+use crate::common::auth::{Cookie, CookieRetriever, GuidedAuth, PlatformType};
 use crate::common::config::AuthSettings;
 use crate::common::http::HttpClient; // For trait methods
 use crate::gong::api::client::GongHttpClient;
@@ -17,41 +17,41 @@ pub struct GongCookies {
     /// Gong cell identifier (e.g., "us-14496")
     pub cell: String,
 
-    /// Session cookies extracted from browser
+    /// Your own session cookies from your authenticated browser
     pub session_cookies: HashMap<String, String>,
 
-    /// When cookies were extracted (Unix timestamp)
-    pub extracted_at: f64,
+    /// When cookies were retrieved (Unix timestamp)
+    pub retrieved_at: f64,
 
-    /// Which browser was used for extraction
+    /// Which browser was used for cookie retrieval
     pub browser: String,
 }
 
 /// Main authentication manager for Gong API with multi-browser support
 ///
-/// Orchestrates the complete authentication flow:
-/// - Multi-browser cookie extraction (Firefox, Chrome, Safari, Edge, Brave)
+/// Orchestrates the complete authentication flow using YOUR OWN authenticated sessions:
+/// - Multi-browser cookie access from your authenticated browser sessions (Firefox, Chrome, Safari, Edge, Brave)
 /// - CSRF token management with async caching
-/// - Workspace ID extraction from Gong home page
+/// - Workspace ID access from your Gong home page
 /// - Header generation for authenticated requests
 /// - Error handling and token refresh logic
 pub struct GongAuthenticator {
     /// HTTP client for API requests (using impit)
     http_client: Arc<GongHttpClient>,
 
-    /// Multi-browser cookie extractor using rookie
-    cookie_extractor: CookieExtractor,
+    /// Multi-browser cookie accessor using direct database access
+    cookie_retriever: CookieRetriever,
 
     /// CSRF token manager with async safety
     csrf_manager: CSRFManager,
 
-    /// Extracted Gong cookies and metadata
+    /// Retrieved Gong cookies and metadata
     gong_cookies: Option<GongCookies>,
 
     /// Base URL for API calls (e.g., "<https://us-14496.app.gong.io>")
     base_url: Option<String>,
 
-    /// Gong workspace ID extracted from home page
+    /// Gong workspace ID retrieved from home page
     workspace_id: Option<String>,
 }
 
@@ -63,17 +63,17 @@ impl GongAuthenticator {
         let http_config = HttpSettings::default();
         let http_client = Arc::new(GongHttpClient::new(http_config).await?);
 
-        // Set up cookie extractor for Gong domains (*.gong.io)
+        // Set up cookie retriever for Gong domains (*.gong.io)
         let domains = vec![
             "gong.io".to_string(),  // Exact domain
             ".gong.io".to_string(), // All subdomains (*.gong.io)
         ];
-        let cookie_extractor = CookieExtractor::new(domains);
+        let cookie_retriever = CookieRetriever::new(domains);
         let csrf_manager = CSRFManager::new(config, http_client.clone());
 
         Ok(Self {
             http_client,
-            cookie_extractor,
+            cookie_retriever,
             csrf_manager,
             gong_cookies: None,
             base_url: None,
@@ -85,12 +85,12 @@ impl GongAuthenticator {
     ///
     /// This is the main entry point that:
     /// 1. Checks hybrid storage (gist + local keychain) for stored cookies
-    /// 2. Extracts cookies from available browsers
+    /// 2. Retrieves cookies from available browsers
     /// 3. Validates cookies with server (tries multiple browsers if needed)
     /// 4. Determines Gong cell identifier
     /// 5. Sets up base URL and session cookies
     /// 6. Fetches initial CSRF token
-    /// 7. Extracts workspace ID
+    /// 7. Retrieves workspace ID
     ///
     /// # Returns
     /// true if authentication succeeds, false otherwise
@@ -108,10 +108,21 @@ impl GongAuthenticator {
 
         // Try Firefox cookies next (quick, no user interaction needed)
         info!("Checking for existing browser cookies...");
-        let firefox_cookies = match self.cookie_extractor.extract_firefox_cookies_ephemeral() {
-            Ok(cookies) => cookies,
+        let cookie_retriever = self.cookie_retriever.clone();
+        info!("Spawning blocking task for Firefox cookie retrieval...");
+        let firefox_cookies = match tokio::task::spawn_blocking(move || {
+            cookie_retriever.retrieve_firefox_cookies_ephemeral()
+        }).await {
+            Ok(Ok(cookies)) => {
+                info!("Firefox cookie retrieval completed successfully, found {} cookies", cookies.len());
+                cookies
+            },
+            Ok(Err(e)) => {
+                warn!("Firefox cookie retrieval failed: {}", e);
+                Vec::new()
+            },
             Err(e) => {
-                debug!("Firefox cookie extraction failed: {}", e);
+                warn!("Firefox cookie retrieval task failed: {}", e);
                 Vec::new()
             }
         };
@@ -139,9 +150,11 @@ impl GongAuthenticator {
                     cookies.len()
                 );
 
-                // Try to extract cell and test authentication
-                match self.extract_cell_from_cookies(&cookies) {
+                // Try to retrieve cell and test authentication
+                info!("Attempting to extract Gong cell identifier from {} cookies", browser_name);
+                match self.retrieve_cell_from_cookies(&cookies) {
                     Ok(cell) => {
+                        info!("Successfully extracted Gong cell: {}", cell);
                         // Build session cookies map
                         let mut session_cookies = HashMap::new();
                         for cookie in &cookies {
@@ -152,7 +165,7 @@ impl GongAuthenticator {
                         self.gong_cookies = Some(GongCookies {
                             cell: cell.clone(),
                             session_cookies: session_cookies.clone(),
-                            extracted_at: SystemTime::now()
+                            retrieved_at: SystemTime::now()
                                 .duration_since(UNIX_EPOCH)
                                 .unwrap()
                                 .as_secs_f64(),
@@ -162,11 +175,13 @@ impl GongAuthenticator {
                         self.base_url = Some(format!("https://{cell}.app.gong.io"));
 
                         // Set cookies on HTTP client
+                        info!("Setting cookies on HTTP client for validation...");
                         self.http_client
                             .set_cookies(session_cookies.clone())
                             .await?;
 
                         // Try to get CSRF token to validate the cookies (with short timeout)
+                        info!("Attempting CSRF token validation with 5-second timeout...");
                         match tokio::time::timeout(
                             std::time::Duration::from_secs(5),
                             self.csrf_manager.get_csrf_token(&cell, false),
@@ -189,7 +204,7 @@ impl GongAuthenticator {
                     }
                     Err(e) => {
                         debug!(
-                            "Could not extract cell from {} cookies: {}",
+                            "Could not retrieve cell from {} cookies: {}",
                             browser_name, e
                         );
                         continue;
@@ -214,12 +229,12 @@ impl GongAuthenticator {
 
                 // CSRF token was already validated above, no need to get it again
 
-                // Extract workspace ID from home page
-                if let Ok(Some(workspace_id)) = self.extract_workspace_id().await {
+                // Retrieve workspace ID from home page
+                if let Ok(Some(workspace_id)) = self.retrieve_workspace_id().await {
                     self.workspace_id = Some(workspace_id);
-                    info!(workspace_id = %self.workspace_id.as_ref().unwrap(), "Workspace ID extracted successfully");
+                    info!(workspace_id = %self.workspace_id.as_ref().unwrap(), "Workspace ID retrieved successfully");
                 } else {
-                    warn!("Could not extract workspace ID - some API calls may fail");
+                    warn!("Could not retrieve workspace ID - some API calls may fail");
                 }
 
                 info!(
@@ -278,7 +293,7 @@ impl GongAuthenticator {
             stored_cookies.len()
         );
 
-        // Extract Gong-specific cookies and convert to Cookie format
+        // Retrieve Gong-specific cookies and convert to Cookie format
         let mut gong_cookies = Vec::new();
         let mut session_cookies = HashMap::new();
         let mut cell_cookie_value = None;
@@ -286,7 +301,7 @@ impl GongAuthenticator {
         for (name, value) in &stored_cookies {
             // Check if this is a Gong cookie (prefixed with "gong_")
             if let Some(actual_name) = name.strip_prefix("gong_") {
-                // Create a Cookie struct for cell extraction
+                // Create a Cookie struct for cell retrieval
                 if actual_name == "cell" {
                     cell_cookie_value = Some(value.clone());
                     gong_cookies.push(Cookie {
@@ -315,7 +330,7 @@ impl GongAuthenticator {
             session_cookies.len()
         );
 
-        // Try to extract cell from the cookies
+        // Try to retrieve cell from the cookies
         let cell = if let Some(cell_value) = cell_cookie_value {
             match self.decode_cell_cookie(&cell_value) {
                 Ok(cell) => {
@@ -336,7 +351,7 @@ impl GongAuthenticator {
         self.gong_cookies = Some(GongCookies {
             cell: cell.clone(),
             session_cookies: session_cookies.clone(),
-            extracted_at: SystemTime::now()
+            retrieved_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_secs_f64(),
@@ -362,15 +377,15 @@ impl GongAuthenticator {
             Ok(Ok(Some(token))) => {
                 info!("Stored cookies are valid, CSRF token obtained: {}", token);
 
-                // Extract workspace ID
-                if let Ok(Some(workspace_id)) = self.extract_workspace_id().await {
+                // Retrieve workspace ID
+                if let Ok(Some(workspace_id)) = self.retrieve_workspace_id().await {
                     self.workspace_id = Some(workspace_id);
                     info!(
-                        "Workspace ID extracted: {}",
+                        "Workspace ID retrieved: {}",
                         self.workspace_id.as_ref().unwrap()
                     );
                 } else {
-                    warn!("Could not extract workspace ID - some API calls may fail");
+                    warn!("Could not retrieve workspace ID - some API calls may fail");
                 }
 
                 Ok(true)
@@ -385,13 +400,13 @@ impl GongAuthenticator {
         }
     }
 
-    /// Extract Gong cell identifier from cookies by decrypting the JWT "cell" cookie
-    fn extract_cell_from_cookies(&self, cookies: &[Cookie]) -> Result<String> {
+    /// Retrieve Gong cell identifier from cookies by decrypting the JWT "cell" cookie
+    fn retrieve_cell_from_cookies(&self, cookies: &[Cookie]) -> Result<String> {
         // Only strategy: Decode from JWT "cell" cookie
         for cookie in cookies {
             if cookie.name == "cell" {
                 if let Ok(cell) = self.decode_cell_cookie(&cookie.value) {
-                    debug!(cell = %cell, strategy = "jwt_decode", "Extracted cell from JWT cookie");
+                    debug!(cell = %cell, strategy = "jwt_decode", "Retrieved cell from JWT cookie");
                     return Ok(cell);
                 }
             }
@@ -563,14 +578,14 @@ impl GongAuthenticator {
         })
     }
 
-    /// Extract workspace ID from Gong home page
+    /// Retrieve workspace ID from Gong home page
     /// TODO: Implement in Phase 2 when HTTP client is available
-    pub async fn extract_workspace_id(&mut self) -> Result<Option<String>> {
+    pub async fn retrieve_workspace_id(&mut self) -> Result<Option<String>> {
         let base_url = self.base_url.as_ref().ok_or_else(|| {
-            CsCliError::Authentication("Cannot extract workspace ID without base URL".to_string())
+            CsCliError::Authentication("Cannot retrieve workspace ID without base URL".to_string())
         })?;
 
-        // Make actual HTTP request to extract workspace ID
+        // Make actual HTTP request to retrieve workspace ID
         let url = format!("{base_url}/home");
         let headers = self.get_read_headers()?;
 
@@ -581,7 +596,7 @@ impl GongAuthenticator {
         if !response.status().is_success() {
             warn!(
                 status = response.status().as_u16(),
-                "Failed to fetch home page for workspace ID extraction"
+                "Failed to fetch home page for workspace ID retrieval"
             );
             return Ok(None);
         }
@@ -591,7 +606,7 @@ impl GongAuthenticator {
             .await
             .map_err(|e| CsCliError::Generic(format!("Failed to read home page: {e}")))?;
 
-        debug!("Extracting workspace ID from home page HTML");
+        debug!("Retrieving workspace ID from home page HTML");
 
         // Use regex for workspace ID extraction (optimized with aho-corasick already in tree)
         let workspace_regex = Regex::new(r#"workspaceId:\s*"(\d+)""#)
@@ -604,7 +619,7 @@ impl GongAuthenticator {
 
                 info!(
                     workspace_id = %id,
-                    "Successfully extracted workspace ID"
+                    "Successfully retrieved workspace ID"
                 );
 
                 return Ok(Some(id));
@@ -623,8 +638,8 @@ impl GongAuthenticator {
 
                 info!(
                     workspace_id = %id,
-                    extraction_method = "alternative_pattern",
-                    "Successfully extracted workspace ID"
+                    retrieval_method = "alternative_pattern",
+                    "Successfully retrieved workspace ID"
                 );
 
                 return Ok(Some(id));
@@ -772,7 +787,7 @@ impl GongAuthenticator {
                                     self.gong_cookies = Some(GongCookies {
                                         cell: cell.clone(),
                                         session_cookies: session_cookies.clone(),
-                                        extracted_at: SystemTime::now()
+                                        retrieved_at: SystemTime::now()
                                             .duration_since(UNIX_EPOCH)
                                             .unwrap()
                                             .as_secs_f64(),
@@ -788,14 +803,14 @@ impl GongAuthenticator {
                                         warn!("Failed to set cookies on HTTP client: {}", e);
                                     }
 
-                                    // Extract workspace ID
+                                    // Retrieve workspace ID
                                     if let Ok(Some(workspace_id)) =
-                                        self.extract_workspace_id().await
+                                        self.retrieve_workspace_id().await
                                     {
                                         self.workspace_id = Some(workspace_id);
-                                        info!(workspace_id = %self.workspace_id.as_ref().unwrap(), "Workspace ID extracted from guided auth");
+                                        info!(workspace_id = %self.workspace_id.as_ref().unwrap(), "Workspace ID retrieved from guided auth");
                                     } else {
-                                        warn!("Could not extract workspace ID from guided auth");
+                                        warn!("Could not retrieve workspace ID from guided auth");
                                     }
 
                                     return Ok(true);

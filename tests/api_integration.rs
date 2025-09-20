@@ -6,12 +6,12 @@
 //! IMPORTANT: Requires valid Gong authentication and test customer data
 
 use cs_cli::common::config::{AuthSettings, HttpSettings};
-use cs_cli::common::models::time::ExtractionRange;
+use cs_cli::common::models::time::RetrievalRange;
 use cs_cli::gong::api::client::HttpClientPool;
-use cs_cli::gong::api::customer::GongCustomerSearchClient;
-use cs_cli::gong::api::email::EmailEnhancer;
-use cs_cli::gong::api::library::GongLibraryClient;
-use cs_cli::gong::api::timeline::TimelineExtractor;
+use cs_cli::gong::api::customer::GongCustomerSearchRetriever;
+use cs_cli::gong::api::email::EmailRetriever;
+use cs_cli::gong::api::library::GongLibraryRetriever;
+use cs_cli::gong::api::timeline::TimelineRetriever;
 use cs_cli::gong::auth::GongAuthenticator;
 use std::sync::Arc;
 
@@ -57,7 +57,7 @@ async fn test_customer_search_real_api() {
             .expect("Failed to create client pool"),
     );
 
-    let search_client = GongCustomerSearchClient::new(
+    let search_client = GongCustomerSearchRetriever::new(
         client_pool,
         Arc::new(authenticator),
         None, // Use default config
@@ -109,7 +109,7 @@ async fn test_timeline_extraction_real_api() {
     let auth_arc = Arc::new(authenticator);
 
     // First, find the customer
-    let search_client = GongCustomerSearchClient::new(
+    let search_client = GongCustomerSearchRetriever::new(
         client_pool.clone(),
         auth_arc.clone(),
         None, // Use default config
@@ -130,7 +130,7 @@ async fn test_timeline_extraction_real_api() {
     println!("Testing timeline for customer: {}", customer.name);
 
     // Extract timeline
-    let mut extractor = TimelineExtractor::new(
+    let mut extractor = TimelineRetriever::new(
         client_pool,
         auth_arc,
         None, // Use default config
@@ -145,7 +145,7 @@ async fn test_timeline_extraction_real_api() {
     let account_id = customer.id.as_deref().unwrap_or("test-account");
 
     let result = extractor
-        .extract_account_timeline(account_id, start_date, None)
+        .retrieve_account_timeline(account_id, start_date, None)
         .await;
 
     match result {
@@ -197,7 +197,7 @@ async fn test_email_enhancement_real_api() {
             .expect("Failed to create client pool"),
     );
 
-    let _enhancer = EmailEnhancer::new(
+    let _enhancer = EmailRetriever::new(
         client_pool,
         Arc::new(authenticator),
         None, // Use default config
@@ -229,7 +229,7 @@ async fn test_library_client_call_search() {
             .expect("Failed to create client pool"),
     );
 
-    let library_client = GongLibraryClient::new(
+    let library_client = GongLibraryRetriever::new(
         client_pool,
         Arc::new(authenticator),
         None, // Use default config
@@ -237,7 +237,7 @@ async fn test_library_client_call_search() {
 
     // Search for recent calls
     let _extraction_range =
-        ExtractionRange::last_days(7).expect("Failed to create extraction range");
+        RetrievalRange::last_days(7).expect("Failed to create extraction range");
 
     // Get library calls with date range parameters
     let result = library_client
@@ -295,7 +295,7 @@ async fn test_concurrent_api_calls_with_rate_limiting() {
         let customer = config.test_customer.clone();
 
         tasks.push(tokio::spawn(async move {
-            let search_client = GongCustomerSearchClient::new(pool, auth, None)
+            let search_client = GongCustomerSearchRetriever::new(pool, auth, None)
                 .expect("Failed to create search client");
             let start = std::time::Instant::now();
             let result = search_client.search_customers(&customer).await;
@@ -354,7 +354,7 @@ async fn test_retry_logic_on_transient_failures() {
             .expect("Failed to create client pool"),
     );
 
-    let search_client = GongCustomerSearchClient::new(
+    let search_client = GongCustomerSearchRetriever::new(
         client_pool,
         Arc::new(authenticator),
         None, // Use default config
@@ -398,7 +398,7 @@ async fn test_empty_results_handling() {
             .expect("Failed to create client pool"),
     );
 
-    let search_client = GongCustomerSearchClient::new(
+    let search_client = GongCustomerSearchRetriever::new(
         client_pool,
         Arc::new(authenticator),
         None, // Use default config
@@ -443,7 +443,7 @@ async fn test_large_dataset_pagination() {
             .expect("Failed to create client pool"),
     );
 
-    let mut extractor = TimelineExtractor::new(
+    let mut extractor = TimelineRetriever::new(
         client_pool,
         Arc::new(authenticator),
         None, // Use default config
@@ -459,7 +459,7 @@ async fn test_large_dataset_pagination() {
     let workspace_id = "test-workspace-with-lots-of-data";
 
     let result = extractor
-        .extract_account_timeline(workspace_id, start_date, None)
+        .retrieve_account_timeline(workspace_id, start_date, None)
         .await;
 
     match result {

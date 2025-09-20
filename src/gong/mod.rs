@@ -8,9 +8,10 @@ pub mod auth;
 pub mod cli;
 pub mod config;
 pub mod error;
-pub mod extractor;
+pub mod retriever;
 pub mod models;
 pub mod output;
 
 // Re-export commonly used types for convenience (from common module)
 pub use crate::common::{CsCliError, Result};
+pub use retriever::*;

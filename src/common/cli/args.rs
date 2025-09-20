@@ -7,16 +7,16 @@ use clap::{Args, Parser, Subcommand};
 use clap_complete::Shell;
 use std::fmt;
 
-/// CS-CLI: Customer Success Communication Extraction Tool
+/// CS-CLI: Customer Success Communication Retrieval Tool
 ///
-/// Extract customer communications from various platforms and save as markdown files.
+/// Retrieve customer communications from various platforms and save as markdown files.
 /// Run without arguments for interactive mode!
 #[derive(Parser, Debug, Clone)]
 #[command(
     name = "cs-cli",
     version,
-    about = "Extract customer communications from various platforms with cross-device session sync",
-    long_about = "Extract customer communications from various platforms and save as markdown files.
+    about = "Retrieve customer communications from various platforms with cross-device session sync",
+    long_about = "Retrieve customer communications from various platforms and save as markdown files.
 
 CROSS-DEVICE SYNC:
     Session data is securely synced across devices via encrypted GitHub gists.
@@ -47,7 +47,7 @@ pub struct CliArgs {
     pub debug: bool,
 
     /// macOS keychain password (optional, will prompt if needed)
-    #[arg(long, help = "macOS keychain password for browser cookie access")]
+    #[arg(long, help = "macOS keychain password for browser cookie retrieval")]
     pub keychain_password: Option<String>,
 
     /// Force disable cross-device sync (local-only mode)
@@ -73,9 +73,9 @@ pub struct CliArgs {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum Command {
-    /// Extract customer communications
+    /// Retrieve customer communications
     Customer(CustomerArgs),
-    /// Extract team calls from call stream
+    /// Retrieve team calls from call stream
     Team(TeamArgs),
     /// Generate shell completion scripts
     Completion(CompletionArgs),
@@ -110,16 +110,16 @@ pub struct CustomerArgs {
     #[arg(long = "to", help = "End date (YYYY-MM-DD format)")]
     pub to_date: Option<String>,
 
-    /// Content type to extract
-    #[arg(short = 'c', long = "content", value_enum, help = "What to extract")]
+    /// Content type to retrieve
+    #[arg(short = 'c', long = "content", value_enum, help = "What to retrieve")]
     pub content: Option<ContentType>,
 
-    /// Extract only emails
-    #[arg(long = "emails-only", help = "Extract only emails (no calls)")]
+    /// Retrieve only emails
+    #[arg(long = "emails-only", help = "Retrieve only emails (no calls)")]
     pub emails_only: bool,
 
-    /// Fetch full email body content
-    #[arg(long = "fetch-bodies", help = "Fetch full email body content")]
+    /// Retrieve full email body content
+    #[arg(long = "fetch-bodies", help = "Retrieve full email body content")]
     pub fetch_email_bodies: bool,
 }
 
@@ -146,14 +146,14 @@ pub struct TeamArgs {
     pub to_date: Option<String>,
 }
 
-/// Content type to extract
+/// Content type to retrieve
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum ContentType {
-    /// Extract only calls
+    /// Retrieve only calls
     Calls,
-    /// Extract only emails
+    /// Retrieve only emails
     Emails,
-    /// Extract both calls and emails
+    /// Retrieve both calls and emails
     Both,
 }
 
@@ -170,7 +170,7 @@ impl fmt::Display for ContentType {
 /// Parsed command with smart detection
 #[derive(Debug, Clone)]
 pub enum ParsedCommand {
-    /// Customer extraction mode
+    /// Customer retrieval mode
     Customer {
         name: String,
         days: Option<u32>,
@@ -180,7 +180,7 @@ pub enum ParsedCommand {
         emails_only: bool,
         fetch_email_bodies: bool,
     },
-    /// Multiple customers extraction mode
+    /// Multiple customers retrieval mode
     MultipleCustomers {
         names: Vec<String>,
         days: Option<u32>,
@@ -190,7 +190,7 @@ pub enum ParsedCommand {
         emails_only: bool,
         fetch_email_bodies: bool,
     },
-    /// Team extraction mode
+    /// Team retrieval mode
     Team {
         stream_id: Option<String>,
         days: Option<u32>,

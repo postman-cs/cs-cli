@@ -8,9 +8,7 @@ use tracing::{debug, error, info};
 use crate::gong::api::client::HttpClientPool;
 use crate::gong::auth::GongAuthenticator;
 use crate::gong::config::AppConfig;
-use crate::gong::models::{
-    Call, CallDirection, CallParticipant, Email, EmailDirection, EmailRecipient, ExtractionRange,
-};
+use crate::gong::models::{Call, CallDirection, CallParticipant, Email, EmailDirection, EmailRecipient, RetrievalRange};
 use crate::{CsCliError, Result};
 
 /// Type alias for complex email filtering result
@@ -87,19 +85,19 @@ pub struct FilteringStats {
     pub noise_filtered: usize,
 }
 
-/// Timeline extraction result
+/// Timeline retrieval result
 #[derive(Debug)]
 pub struct TimelineResult {
-    /// Extracted calls
+    /// Retrieved calls
     pub calls: Vec<Call>,
-    /// Extracted emails (after filtering)
+    /// Retrieved emails (after filtering)
     pub emails: Vec<Email>,
     /// Filtering statistics
     pub stats: FilteringStats,
 }
 
-/// Extract account timeline with sophisticated email filtering
-pub struct TimelineExtractor {
+/// Retrieve account timeline with sophisticated email filtering
+pub struct TimelineRetriever {
     /// HTTP client pool for making requests
     http_client: Arc<HttpClientPool>,
     /// Authentication manager
@@ -108,14 +106,14 @@ pub struct TimelineExtractor {
     _config: Option<AppConfig>,
     /// Chunk size in days for API requests
     chunk_days: i32,
-    /// Filtering statistics (reset per extraction batch)
+    /// Filtering statistics (reset per retrieval batch)
     filtered_stats: FilteringStats,
     /// Compiled regex patterns for performance
     regex_patterns: RegexPatterns,
 }
 
-impl TimelineExtractor {
-    /// Create a new timeline extractor
+impl TimelineRetriever {
+    /// Create a new timeline retriever
     pub fn new(
         http_client: Arc<HttpClientPool>,
         auth: Arc<GongAuthenticator>,
@@ -125,7 +123,7 @@ impl TimelineExtractor {
         let chunk_days = chunk_days.unwrap_or(30);
         let regex_patterns = RegexPatterns::new()?;
 
-        info!("Timeline extractor initialized with advanced filtering");
+        info!("Timeline retriever initialized with advanced filtering");
 
         Ok(Self {
             http_client,
@@ -137,16 +135,16 @@ impl TimelineExtractor {
         })
     }
 
-    /// Extract all communications for an account within date range
+    /// Retrieve all communications for an account within date range
     ///
     /// # Arguments
-    /// * `account_id` - Account ID to extract timeline for
-    /// * `start_date` - Start date for extraction
-    /// * `end_date` - End date for extraction (defaults to now)
+    /// * `account_id` - Account ID to retrieve timeline for
+    /// * `start_date` - Start date for retrieval
+    /// * `end_date` - End date for retrieval (defaults to now)
     ///
     /// # Returns
     /// Tuple of (calls, emails) with filtering applied
-    pub async fn extract_account_timeline(
+    pub async fn retrieve_account_timeline(
         &mut self,
         account_id: &str,
         start_date: Zoned,
@@ -158,11 +156,11 @@ impl TimelineExtractor {
             account_id = %account_id,
             start = %start_date,
             end = %end_date,
-            "Extracting timeline"
+            "Retrieving timeline"
         );
 
         // Create date range chunks
-        let date_range = ExtractionRange::new(start_date.date(), end_date.date(), self.chunk_days);
+        let date_range = RetrievalRange::new(start_date.date(), end_date.date(), self.chunk_days);
         let chunks = date_range.chunk_by_days();
 
         debug!(chunks = chunks.len(), "Timeline chunked");
@@ -170,7 +168,7 @@ impl TimelineExtractor {
         // Fetch all chunks concurrently
         let mut chunk_results = Vec::new();
         for (start, end) in chunks {
-            let chunk_range = ExtractionRange::new(start, end, self.chunk_days);
+            let chunk_range = RetrievalRange::new(start, end, self.chunk_days);
             let result = self.fetch_chunk(account_id, &chunk_range).await;
             chunk_results.push(result);
         }
@@ -200,7 +198,7 @@ impl TimelineExtractor {
             account_id = %account_id,
             calls = all_calls.len(),
             emails = all_emails.len(),
-            "Timeline extracted"
+            "Timeline retrieved"
         );
 
         Ok(TimelineResult {
@@ -221,7 +219,7 @@ impl TimelineExtractor {
     pub async fn fetch_chunk(
         &self,
         account_id: &str,
-        chunk: &ExtractionRange,
+        chunk: &RetrievalRange,
     ) -> Result<(Vec<Call>, Vec<Email>)> {
         let base_url = self.auth.get_base_url()?;
 
@@ -364,7 +362,7 @@ impl TimelineExtractor {
         // Group activities by sender for context-aware processing
         let mut sender_groups: HashMap<String, Vec<(Value, String)>> = HashMap::new();
         for (activity, account_id) in email_activities {
-            if let Some(sender_email) = self.extract_sender_email(&activity) {
+            if let Some(sender_email) = self.retrieve_sender_email(&activity) {
                 sender_groups
                     .entry(sender_email)
                     .or_default()
@@ -442,8 +440,8 @@ impl TimelineExtractor {
         Ok(all_emails)
     }
 
-    /// Extract sender email from activity data
-    pub fn extract_sender_email(&self, activity: &Value) -> Option<String> {
+    /// Retrieve sender email from activity data
+    pub fn retrieve_sender_email(&self, activity: &Value) -> Option<String> {
         let extended_data = activity.get("extendedData")?;
         let from_data = extended_data
             .get("from")
@@ -952,7 +950,7 @@ impl TimelineExtractor {
             epoch_time = ?activity_obj.get("epochTime"),
             effective_date = ?activity_obj.get("effectiveDateTime"),
             scheduled_start = ?scheduled_start,
-            "Timeline date extraction"
+            "Timeline date retrieval"
         );
 
         // Parse participants
@@ -1042,9 +1040,9 @@ impl TimelineExtractor {
 
         debug!(
             activity_id = ?activity_obj.get("id"),
-            extracted_call_id = %call_id,
+            retrieved_call_id = %call_id,
             activity_type = ?activity_obj.get("type"),
-            "Timeline call ID extraction"
+            "Timeline call ID retrieval"
         );
 
         if call_id.is_empty() {

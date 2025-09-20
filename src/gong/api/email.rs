@@ -16,7 +16,7 @@ use crate::{CsCliError, Result};
 pub type ProgressCallback = Box<dyn Fn(usize, usize) + Send + Sync>;
 
 /// Enhanced email content processor with body fetching
-pub struct EmailEnhancer {
+pub struct EmailRetriever {
     /// HTTP client pool for making requests
     http_client: Arc<HttpClientPool>,
     /// Authentication manager
@@ -29,15 +29,20 @@ pub struct EmailEnhancer {
     html_processor: HTMLProcessor,
 }
 
-impl EmailEnhancer {
-    /// Create a new email enhancer
+impl EmailRetriever {
+    /// Create a new email retriever
     pub fn new(
         http_client: Arc<HttpClientPool>,
         auth: Arc<GongAuthenticator>,
         config: Option<AppConfig>,
         batch_size: Option<usize>,
     ) -> Self {
-        let batch_size = batch_size.unwrap_or(50);
+        let batch_size = batch_size.unwrap_or_else(|| {
+            config
+                .as_ref()
+                .map(|c| c.max_concurrent_email_requests)
+                .unwrap_or(50)
+        });
         let html_processor = HTMLProcessor::new();
 
         Self {
@@ -49,16 +54,16 @@ impl EmailEnhancer {
         }
     }
 
-    /// Enhance emails with full body content
+    /// Retrieve emails with full body content
     ///
     /// # Arguments
-    /// * `emails` - List of emails to enhance
-    /// * `fetch_bodies` - Whether to fetch full email bodies
+    /// * `emails` - List of emails to retrieve
+    /// * `fetch_bodies` - Whether to retrieve full email bodies
     /// * `progress_callback` - Optional callback function to report progress (completed_count, total_count)
     ///
     /// # Returns
-    /// List of enhanced emails with body content
-    pub async fn enhance_emails_with_bodies(
+    /// List of retrieved emails with body content
+    pub async fn retrieve_emails_with_bodies(
         &self,
         emails: Vec<Email>,
         fetch_bodies: bool,
@@ -71,11 +76,11 @@ impl EmailEnhancer {
         info!(
             count = emails.len(),
             fetch_bodies = fetch_bodies,
-            "Starting email enhancement"
+            "Starting email retrieval"
         );
 
         // Filter emails that need enhancement (no body content) - collect indices to avoid borrowing issues
-        let enhancement_indices: Vec<usize> = emails
+        let retrieval_indices: Vec<usize> = emails
             .iter()
             .enumerate()
             .filter(|(_, email)| {
@@ -89,16 +94,16 @@ impl EmailEnhancer {
             .map(|(i, _)| i)
             .collect();
 
-        if enhancement_indices.is_empty() {
-            info!("No emails need body enhancement");
+        if retrieval_indices.is_empty() {
+            info!("No emails need body retrieval");
             return Ok(emails);
         }
 
-        info!(count = enhancement_indices.len(), "Emails to enhance");
+        info!(count = retrieval_indices.len(), "Emails to retrieve");
 
         // Create progress bar if no callback provided
         let progress_bar = if progress_callback.is_none() {
-            let pb = ProgressBar::new(enhancement_indices.len() as u64);
+            let pb = ProgressBar::new(retrieval_indices.len() as u64);
             pb.set_style(
                 ProgressStyle::default_bar()
                     .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}/{len:7} {msg}")
@@ -112,12 +117,12 @@ impl EmailEnhancer {
         };
 
         // Process in batches to control memory usage
-        let mut enhanced_emails = HashMap::new();
-        let total_batches = enhancement_indices.len().div_ceil(self.batch_size);
+        let mut retrieved_emails = HashMap::new();
+        let total_batches = retrieval_indices.len().div_ceil(self.batch_size);
 
-        for (batch_num, chunk) in enhancement_indices.chunks(self.batch_size).enumerate() {
+        for (batch_num, chunk) in retrieval_indices.chunks(self.batch_size).enumerate() {
             let batch_start = batch_num * self.batch_size;
-            let batch_end = std::cmp::min(batch_start + chunk.len(), enhancement_indices.len());
+            let batch_end = std::cmp::min(batch_start + chunk.len(), retrieval_indices.len());
 
             debug!(
                 batch_num = batch_num + 1,
@@ -129,7 +134,7 @@ impl EmailEnhancer {
             // Process batch concurrently
             let tasks: Vec<_> = chunk
                 .iter()
-                .map(|&idx| self.enhance_single_email(&emails[idx], fetch_bodies))
+                .map(|&idx| self.retrieve_single_email(&emails[idx], fetch_bodies))
                 .collect();
 
             let results = join_all(tasks).await;
@@ -138,22 +143,22 @@ impl EmailEnhancer {
             for (i, result) in results.into_iter().enumerate() {
                 let email_id = &emails[chunk[i]].id;
                 match result {
-                    Ok(Some(enhanced_email)) => {
-                        enhanced_emails.insert(email_id.clone(), enhanced_email);
+                    Ok(Some(retrieved_email)) => {
+                        retrieved_emails.insert(email_id.clone(), retrieved_email);
                     }
                     #[allow(non_snake_case)]
                     Ok(None) => {
-                        debug!(email_id = %email_id, "Email enhancement returned None");
+                        debug!(email_id = %email_id, "Email retrieval returned None");
                     }
                     Err(e) => {
-                        error!(email_id = %email_id, error = %e, "Email enhancement failed");
+                        error!(email_id = %email_id, error = %e, "Email retrieval failed");
                     }
                 }
             }
 
             // Update progress
             if let Some(callback) = &progress_callback {
-                callback(batch_end, enhancement_indices.len());
+                callback(batch_end, retrieval_indices.len());
             }
             if let Some(pb) = &progress_bar {
                 pb.set_position(batch_end as u64);
@@ -162,35 +167,35 @@ impl EmailEnhancer {
 
         // Finish progress bar
         if let Some(pb) = progress_bar {
-            pb.finish_with_message("Email enhancement complete");
+            pb.finish_with_message("Email retrieval complete");
         }
 
         // Update original emails list with enhanced data
         let mut result_emails = emails;
         for email in &mut result_emails {
-            if let Some(enhanced_email) = enhanced_emails.remove(&email.id) {
-                *email = enhanced_email;
+            if let Some(retrieved_email) = retrieved_emails.remove(&email.id) {
+                *email = retrieved_email;
             }
         }
 
         info!(
-            enhanced = enhanced_emails.len(),
-            total = enhancement_indices.len(),
-            "Email enhancement completed"
+            retrieved = retrieved_emails.len(),
+            total = retrieval_indices.len(),
+            "Email retrieval completed"
         );
 
         Ok(result_emails)
     }
 
-    /// Enhance a single email with full body content
+    /// Retrieve a single email with full body content
     ///
     /// # Arguments
-    /// * `email` - Email to enhance
-    /// * `fetch_body` - Whether to fetch full email body
+    /// * `email` - Email to retrieve
+    /// * `fetch_body` - Whether to retrieve full email body
     ///
     /// # Returns
-    /// Enhanced email or None if enhancement failed
-    pub async fn enhance_single_email(
+    /// Retrieved email or None if retrieval failed
+    pub async fn retrieve_single_email(
         &self,
         email: &Email,
         fetch_body: bool,
@@ -234,23 +239,23 @@ impl EmailEnhancer {
             // Fallback to snippet if available
             if let Some(snippet) = &email.snippet {
                 if !snippet.trim().is_empty() {
-                    let mut enhanced_email = email.clone();
-                    enhanced_email.body_text = Some(snippet.clone());
-                    enhanced_email.body_fetched = true;
+                    let mut retrieved_email = email.clone();
+                    retrieved_email.body_text = Some(snippet.clone());
+                    retrieved_email.body_retrieved = true;
 
                     info!(
                         email_id = %email.id,
                         status_code = status_code,
-                        "Using snippet fallback for email"
+                        "Using snippet fallback for email retrieval"
                     );
-                    return Ok(Some(enhanced_email));
+                    return Ok(Some(retrieved_email));
                 }
             }
 
             warn!(
                 email_id = %email.id,
                 status_code = status_code,
-                "Email enhancement failed - no fallback available"
+                "Email retrieval failed - no fallback available"
             );
 
             // Return the original email instead of None
@@ -282,7 +287,7 @@ impl EmailEnhancer {
                     Ok(converted_text) => {
                         if !converted_text.trim().is_empty() {
                             enhanced_email.body_text = Some(converted_text);
-                            enhanced_email.body_fetched = true;
+                            enhanced_email.body_retrieved = true;
                         }
                     }
                     Err(e) => {
@@ -292,7 +297,7 @@ impl EmailEnhancer {
                             "HTML processing failed, using raw HTML"
                         );
                         enhanced_email.body_text = Some(full_html_content);
-                        enhanced_email.body_fetched = true;
+                        enhanced_email.body_retrieved = true;
                     }
                 }
             } else {
@@ -300,11 +305,11 @@ impl EmailEnhancer {
                 if let Some(snippet) = &email.snippet {
                     if !snippet.trim().is_empty() {
                         enhanced_email.body_text = Some(snippet.clone());
-                        enhanced_email.body_fetched = true;
+                        enhanced_email.body_retrieved = true;
 
                         debug!(
                             email_id = %email.id,
-                            "Email has no body content, using snippet"
+                            "Email has no body content, using snippet for retrieval"
                         );
                     }
                 }
@@ -322,33 +327,33 @@ impl EmailEnhancer {
         Ok(Some(enhanced_email))
     }
 
-    /// Enhance emails with progress bar (convenience method)
+    /// Retrieve emails with progress bar (convenience method)
     ///
     /// # Arguments
-    /// * `emails` - List of emails to enhance
-    /// * `fetch_bodies` - Whether to fetch full email bodies
+    /// * `emails` - List of emails to retrieve
+    /// * `fetch_bodies` - Whether to retrieve full email bodies
     ///
     /// # Returns
-    /// List of enhanced emails with progress indication
-    pub async fn enhance_emails_with_progress(
+    /// List of retrieved emails with progress indication
+    pub async fn retrieve_emails_with_progress(
         &self,
         emails: Vec<Email>,
         fetch_bodies: bool,
     ) -> Result<Vec<Email>> {
-        self.enhance_emails_with_bodies(emails, fetch_bodies, None)
+        self.retrieve_emails_with_bodies(emails, fetch_bodies, None)
             .await
     }
 
-    /// Get enhancement statistics
+    /// Get retrieval statistics
     ///
     /// # Arguments
     /// * `emails` - List of emails to analyze
     ///
     /// # Returns
-    /// Statistics about how many emails need enhancement: (total, needs_enhancement, already_enhanced)
-    pub fn get_enhancement_stats(&self, emails: &[Email]) -> (usize, usize, usize) {
+    /// Statistics about how many emails need retrieval: (total, needs_retrieval, already_retrieved)
+    pub fn get_retrieval_stats(&self, emails: &[Email]) -> (usize, usize, usize) {
         let total = emails.len();
-        let needs_enhancement = emails
+        let needs_retrieval = emails
             .iter()
             .filter(|email| {
                 email.body_text.is_none()
@@ -359,19 +364,19 @@ impl EmailEnhancer {
                         .unwrap_or(true)
             })
             .count();
-        let already_enhanced = total - needs_enhancement;
+        let already_retrieved = total - needs_retrieval;
 
-        (total, needs_enhancement, already_enhanced)
+        (total, needs_retrieval, already_retrieved)
     }
 
-    /// Check if an email needs body enhancement
+    /// Check if an email needs body retrieval
     ///
     /// # Arguments
     /// * `email` - Email to check
     ///
     /// # Returns
-    /// True if email needs body content fetching
-    pub fn needs_enhancement(&self, email: &Email) -> bool {
+    /// True if email needs body content retrieval
+    pub fn needs_retrieval(&self, email: &Email) -> bool {
         email.body_text.is_none()
             || email
                 .body_text

@@ -48,7 +48,7 @@ impl AppConfig {
             global_max_concurrency: Some(2000),
             // HTTP/3 with HTTP/2 fallback is always enabled automatically
             tls_version: None,
-            impersonate_browser: "chrome".to_string(),
+            browser_type: "chrome".to_string(),
         };
         http.validate_and_fill_defaults();
 

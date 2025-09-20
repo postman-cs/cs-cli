@@ -34,7 +34,7 @@ pub struct CustomerSearchResult {
     pub raw_data: Value,
 }
 
-/// Call information extracted from customer search
+/// Call information retrieved from customer search
 #[derive(Debug, Clone)]
 pub struct CustomerCallInfo {
     /// Call ID
@@ -75,7 +75,7 @@ pub struct CustomerCallsResult {
 }
 
 /// Gong Customer Search API client for finding calls by customer name
-pub struct GongCustomerSearchClient {
+pub struct GongCustomerSearchRetriever {
     /// HTTP client pool for making requests
     http_client: Arc<HttpClientPool>,
     /// Authentication manager
@@ -86,7 +86,7 @@ pub struct GongCustomerSearchClient {
     workspace_id: String,
 }
 
-impl GongCustomerSearchClient {
+impl GongCustomerSearchRetriever {
     /// Create a new customer search client
     pub fn new(
         http_client: Arc<HttpClientPool>,
@@ -616,7 +616,7 @@ impl GongCustomerSearchClient {
                 .map_err(|e| CsCliError::ApiRequest(format!("Failed to parse JSON: {e}")))?;
 
             // Extract calls from response
-            let calls = self.extract_calls_from_response(&data)?;
+            let calls = self.retrieve_calls_from_response(&data)?;
 
             info!(
                 customer = %customer_name,
@@ -624,21 +624,21 @@ impl GongCustomerSearchClient {
                 "Successfully retrieved calls"
             );
 
-            // Extract unique account IDs from the calls we just retrieved
-            let mut extracted_account_ids = std::collections::HashSet::new();
+            // Retrieve unique account IDs from the calls we just retrieved
+            let mut retrieved_account_ids = std::collections::HashSet::new();
             for call in &calls {
                 if let Some(account_id) = &call.account_id {
-                    extracted_account_ids.insert(account_id.clone());
+                    retrieved_account_ids.insert(account_id.clone());
                 }
             }
 
-            // Use extracted account IDs if we found any, otherwise fall back to what we had
-            let final_account_ids = if !extracted_account_ids.is_empty() {
+            // Use retrieved account IDs if we found any, otherwise fall back to what we had
+            let final_account_ids = if !retrieved_account_ids.is_empty() {
                 info!(
-                    account_ids_extracted = extracted_account_ids.len(),
-                    "Extracted unique account IDs from calls"
+                    account_ids_retrieved = retrieved_account_ids.len(),
+                    "Retrieved unique account IDs from calls"
                 );
-                extracted_account_ids.into_iter().collect()
+                retrieved_account_ids.into_iter().collect()
             } else {
                 account_ids
             };
@@ -675,14 +675,14 @@ impl GongCustomerSearchClient {
         }
     }
 
-    /// Extract call data from the conversations API response
+    /// Retrieve call data from the conversations API response
     ///
     /// # Arguments
     /// * `api_response` - Raw API response data
     ///
     /// # Returns
     /// Vector of call info structures
-    pub fn extract_calls_from_response(
+    pub fn retrieve_calls_from_response(
         &self,
         api_response: &Value,
     ) -> Result<Vec<CustomerCallInfo>> {
@@ -871,8 +871,8 @@ impl GongCustomerSearchClient {
         }
 
         debug!(
-            extracted_calls = calls.len(),
-            "Extracted calls from customer search response"
+            retrieved_calls = calls.len(),
+            "Retrieved calls from customer search response"
         );
         Ok(calls)
     }

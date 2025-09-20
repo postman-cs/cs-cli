@@ -3,7 +3,7 @@
 //! Centralized configuration for Okta SSO URLs and platform endpoints.
 //! This allows easy modification of authentication parameters without changing core logic.
 
-use headless_chrome::protocol::cdp::Network::Cookie;
+use crate::common::auth::cookie_retriever::Cookie;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -149,7 +149,7 @@ impl DynamicCookieDomains {
     /// Returns unique domains found for the given platform
     pub fn discover_from_cookies(
         &mut self,
-        cookies: &[Cookie],
+        cookies: &[&Cookie],
         platform_name: &str,
     ) -> Vec<String> {
         let mut domains = HashSet::new();
@@ -181,7 +181,7 @@ impl DynamicCookieDomains {
         // Store discovered domains for this platform
         self.discovered_domains
             .entry(platform_name.to_string())
-            .or_insert_with(HashSet::new)
+            .or_default()
             .extend(domains.clone());
 
         domains.into_iter().collect()
@@ -220,7 +220,7 @@ impl DynamicCookieDomains {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
+    
 
     #[test]
     fn test_default_config() {
@@ -259,7 +259,7 @@ mod tests {
         // Manually populate discovered domains to test matching
         domains.discovered_domains
             .entry("gong".to_string())
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert("gong.io".to_string());
 
         // Test domain matching

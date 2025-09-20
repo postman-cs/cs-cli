@@ -71,8 +71,8 @@ pub struct CallAttendee {
     pub email: String,
 }
 
-/// Gong Library API client for extracting call data
-pub struct GongLibraryClient {
+/// Gong Library API client for retrieving call data
+pub struct GongLibraryRetriever {
     /// HTTP client pool for making requests
     http_client: Arc<HttpClientPool>,
     /// Authentication manager
@@ -81,8 +81,8 @@ pub struct GongLibraryClient {
     _config: Option<AppConfig>,
 }
 
-impl GongLibraryClient {
-    /// Create a new library client
+impl GongLibraryRetriever {
+    /// Create a new library retriever
     pub fn new(
         http_client: Arc<HttpClientPool>,
         auth: Arc<GongAuthenticator>,
@@ -188,11 +188,11 @@ impl GongLibraryClient {
             let data: Value = serde_json::from_str(&response_text)
                 .map_err(|e| CsCliError::ApiRequest(format!("Failed to parse JSON: {e}")))?;
 
-            // Extract calls from the response
-            let calls = self.extract_call_ids_and_metadata(&data)?;
+            // Retrieve calls from the response
+            let calls = self.retrieve_call_ids_and_metadata(&data)?;
 
             debug!(
-                calls_received = calls.len(),
+                retrieved_calls = calls.len(),
                 "Successfully received call stream data"
             );
 
@@ -216,14 +216,14 @@ impl GongLibraryClient {
         }
     }
 
-    /// Extract call IDs and basic metadata from the call stream API response
+    /// Retrieve call IDs and basic metadata from the call stream API response
     ///
     /// # Arguments
     /// * `api_response` - Raw API response data
     ///
     /// # Returns
     /// Vector of call info with IDs and basic metadata
-    pub fn extract_call_ids_and_metadata(
+    pub fn retrieve_call_ids_and_metadata(
         &self,
         api_response: &Value,
     ) -> Result<Vec<LibraryCallInfo>> {
@@ -306,8 +306,8 @@ impl GongLibraryClient {
         }
 
         debug!(
-            extracted_calls = calls.len(),
-            "Extracted call IDs from call stream response"
+            retrieved_calls = calls.len(),
+            "Retrieved call IDs from call stream response"
         );
         Ok(calls)
     }
@@ -427,7 +427,7 @@ impl GongLibraryClient {
 }
 
 /// Fetches detailed call information using existing pipeline tools
-pub struct CallDetailsFetcher {
+pub struct CallDetailsRetriever {
     /// HTTP client pool for making requests
     http_client: Arc<HttpClientPool>,
     /// Authentication manager
@@ -436,8 +436,8 @@ pub struct CallDetailsFetcher {
     _config: Option<AppConfig>,
 }
 
-impl CallDetailsFetcher {
-    /// Create a new call details fetcher
+impl CallDetailsRetriever {
+    /// Create a new call details retriever
     pub fn new(
         http_client: Arc<HttpClientPool>,
         auth: Arc<GongAuthenticator>,
@@ -493,7 +493,7 @@ impl CallDetailsFetcher {
             let data: Value = serde_json::from_str(&response_text)
                 .map_err(|e| CsCliError::ApiRequest(format!("Failed to parse JSON: {e}")))?;
 
-            let call_details = self.extract_call_details(&data, call_id)?;
+            let call_details = self.retrieve_call_details(&data, call_id)?;
             Ok(Some(call_details))
         } else {
             let status_code = response.status().as_u16();
@@ -506,7 +506,7 @@ impl CallDetailsFetcher {
         }
     }
 
-    /// Extract and structure call details from API response
+    /// Retrieve and structure call details from API response
     ///
     /// # Arguments
     /// * `api_response` - Raw API response data
@@ -514,7 +514,7 @@ impl CallDetailsFetcher {
     ///
     /// # Returns
     /// Structured call details
-    pub fn extract_call_details(
+    pub fn retrieve_call_details(
         &self,
         api_response: &Value,
         call_id: &str,
@@ -560,7 +560,7 @@ impl CallDetailsFetcher {
             generated_title = ?api_response.get("generatedTitle"),
             call_brief = ?api_response.get("callBrief"),
             extracted_title = %generated_title,
-            "Call title extraction"
+            "Call title retrieval"
         );
 
         // Extract customer name from callCustomers
@@ -590,7 +590,7 @@ impl CallDetailsFetcher {
 
         // Company participants (internal team)
         if let Some(company_participants) = api_response.get("companyParticipants") {
-            self.extract_participants_from_group(
+            self.retrieve_participants_from_group(
                 company_participants,
                 api_response
                     .get("callCompanyName")
@@ -602,7 +602,7 @@ impl CallDetailsFetcher {
 
         // Customer participants (client attendees)
         if let Some(customer_participants) = api_response.get("customerParticipants") {
-            self.extract_participants_from_group(customer_participants, "", &mut attendees);
+            self.retrieve_participants_from_group(customer_participants, "", &mut attendees);
         }
 
         // Unknown participants
@@ -610,7 +610,7 @@ impl CallDetailsFetcher {
             if let Some(unknown_array) = unknown_participants.as_array() {
                 for participant in unknown_array {
                     if let Some(participant_obj) = participant.as_object() {
-                        let name = self.extract_participant_name(participant_obj);
+                        let name = self.retrieve_participant_name(participant_obj);
                         if !name.is_empty() {
                             let attendee = CallAttendee {
                                 name,
@@ -728,8 +728,8 @@ impl CallDetailsFetcher {
         Ok(call_info)
     }
 
-    /// Extract participants from a participant group (company or customer)
-    fn extract_participants_from_group(
+    /// Retrieve participants from a participant group (company or customer)
+    fn retrieve_participants_from_group(
         &self,
         participants_data: &Value,
         default_company: &str,
@@ -742,7 +742,7 @@ impl CallDetailsFetcher {
                     if let Some(participants_array) = participants.as_array() {
                         for participant in participants_array {
                             if let Some(participant_obj) = participant.as_object() {
-                                let name = self.extract_participant_name(participant_obj);
+                                let name = self.retrieve_participant_name(participant_obj);
                                 if !name.is_empty() {
                                     let attendee = CallAttendee {
                                         name,
@@ -773,7 +773,7 @@ impl CallDetailsFetcher {
                 // Handle list structure
                 for participant in participants_array {
                     if let Some(participant_obj) = participant.as_object() {
-                        let name = self.extract_participant_name(participant_obj);
+                        let name = self.retrieve_participant_name(participant_obj);
                         if !name.is_empty() {
                             let attendee = CallAttendee {
                                 name,
@@ -804,14 +804,14 @@ impl CallDetailsFetcher {
         }
     }
 
-    /// Extract participant name from various possible name fields
+    /// Retrieve participant name from various possible name fields
     ///
     /// # Arguments
     /// * `participant` - Participant data object
     ///
     /// # Returns
     /// Full name string or empty string if no name found
-    pub fn extract_participant_name(&self, participant: &serde_json::Map<String, Value>) -> String {
+    pub fn retrieve_participant_name(&self, participant: &serde_json::Map<String, Value>) -> String {
         // Try different name field combinations
         let first_name = participant
             .get("firstName")

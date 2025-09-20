@@ -24,6 +24,14 @@ pub struct SessionEncryption {
     cipher: Aes256Gcm,
 }
 
+impl Clone for SessionEncryption {
+    fn clone(&self) -> Self {
+        // Recreate the cipher with the same key derivation
+        // This is safe because we're using the same keychain-stored master key
+        Self::new().expect("Failed to clone SessionEncryption")
+    }
+}
+
 impl SessionEncryption {
     /// Initialize encryption with keychain-stored master key
     pub fn new() -> Result<Self> {

@@ -350,12 +350,34 @@ impl TuiApp {
                     if !status.starts_with("Failed") && !status.starts_with("Error") {
                         self.auth_steps_completed.push(self.auth_status.clone());
                     }
+                    
+                    // For better UX, when we jump multiple steps (existing session),
+                    // fill in intermediate steps to show smooth progress
+                    if step_progress > self.auth_current_step + 1 {
+                        // Fill intermediate steps for smoother visual progression
+                        for intermediate_step in (self.auth_current_step + 1)..step_progress {
+                            let intermediate_status = self.get_step_description(intermediate_step);
+                            self.auth_steps_completed.push(format!("✓ {intermediate_status}"));
+                        }
+                    }
+                    
                     self.auth_current_step = step_progress;
                 }
 
-                // Calculate overall progress based on steps
-                self.auth_progress =
-                    (self.auth_current_step as f64) / (self.auth_total_steps as f64);
+                // Calculate overall progress based on steps, but with smoother interpolation
+                // when we're using existing session (rapid step progression)
+                let target_progress = (self.auth_current_step as f64) / (self.auth_total_steps as f64);
+                
+                // If we're jumping steps rapidly (existing session), smooth the animation
+                let progress_diff = (target_progress - self.auth_progress).abs();
+                if progress_diff > 0.3 && self.auth_start_time.map(|t| t.elapsed().as_millis() < 2000).unwrap_or(false) {
+                    // Large jump detected within first 2 seconds = existing session
+                    // Smooth the progress update to avoid jarring jumps
+                    self.auth_progress = self.auth_progress + (target_progress - self.auth_progress) * 0.6;
+                } else {
+                    self.auth_progress = target_progress;
+                }
+                
                 self.auth_status = status;
             }
             RetrievalMessage::AuthSuccess => {
@@ -799,6 +821,22 @@ impl TuiApp {
             .unwrap_or(self.auth_current_step) // Keep current step if no pattern matches
     }
 
+    /// Get friendly step description for intermediate step filling
+    fn get_step_description(&self, step: usize) -> &'static str {
+        match step {
+            0 => "Initializing authentication",
+            1 => "Preparing synchronization",
+            2 => "Checking stored credentials", 
+            3 => "Launching browser",
+            4 => "Connecting to authentication service",
+            5 => "Setting up verification",
+            6 => "Verifying authentication",
+            7 => "Loading platform access",
+            8 => "Storing credentials",
+            _ => "Processing authentication",
+        }
+    }
+
     /// Update animations with smooth timing
     pub fn update_animations(&mut self) -> bool {
         let now = Instant::now();
@@ -822,19 +860,32 @@ impl TuiApp {
             self.animation_dirty = true;
         }
         
-        // Update authentication animation progress
+        // Update authentication animation progress with smoother interpolation
         if matches!(self.state, AppState::Authenticating) {
-            let current_progress = if let Some(start_time) = self.auth_start_time {
-                let elapsed = start_time.elapsed().as_millis() as f64;
-                (elapsed / 3000.0).min(1.0) // 3 second animation
-            } else {
-                0.0
-            };
+            // Always mark as dirty during authentication for smooth progress updates
+            self.animation_dirty = true;
             
-            // Only mark dirty if progress changed significantly (avoid micro-updates)
-            if (current_progress - self.last_animation_progress).abs() > 0.001 {
-                self.last_animation_progress = current_progress;
-                self.animation_dirty = true;
+            // If we have a large progress jump (existing session detected), 
+            // animate towards the target progress more smoothly
+            let target_progress = self.auth_progress;
+            if (target_progress - self.last_animation_progress).abs() > 0.01 {
+                // Smooth interpolation towards target progress
+                let lerp_factor = if target_progress > self.last_animation_progress + 0.3 {
+                    // Large jump detected - use slower animation for existing sessions
+                    dt * 3.0 // Animate over ~300ms for large jumps
+                } else {
+                    dt * 6.0 // Normal animation speed for regular steps
+                };
+                
+                self.last_animation_progress = self.last_animation_progress + 
+                    (target_progress - self.last_animation_progress) * lerp_factor.min(1.0);
+                    
+                // Clamp to prevent overshoot
+                if self.last_animation_progress > target_progress {
+                    self.last_animation_progress = target_progress;
+                }
+            } else {
+                self.last_animation_progress = target_progress;
             }
         }
         
@@ -1660,11 +1711,11 @@ const POSTMAN_LOGO_RAW: &str = r#"
 
 /// Draw authentication UI with progress and overlay auth choice buttons
 fn draw_authentication_ui(f: &mut Frame, app: &mut TuiApp) {
-    // Calculate logo animation progress (3 second linear animation)
+    // Calculate logo animation progress (1.5 second linear animation for better UX)
     let logo_progress = if let Some(start_time) = app.auth_start_time {
         let elapsed = start_time.elapsed().as_millis() as f64;
-         // 3 second animation
-        (elapsed / 3000.0).min(1.0) // Use linear progress
+         // 1.5 second animation - faster and more responsive
+        (elapsed / 1500.0).min(1.0) // Use linear progress
     } else {
         0.0
     };
@@ -1704,10 +1755,14 @@ fn draw_authentication_ui(f: &mut Frame, app: &mut TuiApp) {
         "Not Synced"
     };
 
+    // Use smoothed animation progress for better UX display
+    let display_progress = app.last_animation_progress.max(0.0).min(1.0);
+    
     // Combine all header text into one line with separators
+    let progress_percent = (display_progress * 100.0) as u8;
     let header_text = format!(
-        "{} | CS-CLI: Authenticating | Step {}/{}: {}",
-        sync_status, app.auth_current_step, app.auth_total_steps, app.auth_status
+        "{} | CS-CLI: Authenticating | Step {}/{} ({}%): {}",
+        sync_status, app.auth_current_step, app.auth_total_steps, progress_percent, app.auth_status
     );
 
     // Create full-width span that fills the entire header area
@@ -1730,7 +1785,7 @@ fn draw_authentication_ui(f: &mut Frame, app: &mut TuiApp) {
     // Custom progress bar that preserves logo colors underneath
     let progress_area = chunks[3];
     let progress_width = progress_area.width as f64;
-    let filled_width = (progress_width * app.auth_progress) as u16;
+    let filled_width = (progress_width * display_progress) as u16;
 
     // Only draw white blocks over the filled portion
     if filled_width > 0 {

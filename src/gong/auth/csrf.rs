@@ -151,18 +151,22 @@ impl CSRFManager {
 
                     // Wait before retry with exponential backoff
                     if attempt < self.max_refresh_attempts - 1 {
-                        let backoff_base: f64 = 2.0; // From Python: self.config.retry_backoff_base
-                        let base_delay: f64 = 1.0; // From Python: self.config.retry_backoff_seconds
-                        let backoff_delay = base_delay * backoff_base.powi(attempt as i32);
+                        let config = crate::common::retry::PlatformRetryConfigs::auth();
+                        let delay = crate::common::retry::calculate_backoff_delay(
+                            attempt,
+                            config.base_delay_ms,
+                            config.max_delay_ms,
+                            config.backoff_multiplier,
+                            config.jitter_factor,
+                        );
 
                         debug!(
-                            delay_seconds = backoff_delay,
+                            delay_seconds = delay.as_secs_f64(),
                             attempt = attempt + 1,
                             "Waiting before CSRF token retry"
                         );
 
-                        tokio::time::sleep(tokio::time::Duration::from_secs_f64(backoff_delay))
-                            .await;
+                        tokio::time::sleep(delay).await;
                     }
                 }
             }

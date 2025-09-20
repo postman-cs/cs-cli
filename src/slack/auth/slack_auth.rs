@@ -121,27 +121,12 @@ impl SlackAuth {
 
         info!("Fetching xoxc token from Slack auth API...");
 
-        // Create HTTP client for auth request - match the browser we got cookies from
-        let browser_type = self.detected_browser.as_deref().unwrap_or("firefox");
-
-        let http_config = HttpSettings {
-            pool_size: 1,
-            max_concurrency_per_client: 1,
-            timeout_seconds: 30.0,
-            max_clients: Some(1),
-            global_max_concurrency: Some(1),
-            enable_http3: true, // Use HTTP/3 for better performance and browser matching
-            force_http3: false, // Allow fallback to HTTP/2 if needed
-            tls_version: None,
-            browser_type: browser_type.to_string(),
-        };
-
-        info!(
-            "Creating HTTP client with browser type: {}",
-            browser_type
-        );
-
-        let client = BrowserHttpClient::new(http_config).await?;
+        // Create HTTP client using common platform configuration
+        let browser_type = self.detected_browser.as_deref();
+        let client = crate::common::http::PlatformConfigs::slack(browser_type)
+            .with_concurrency(1)
+            .build_client()
+            .await?;
 
         // Set cookies for the request
         client.set_cookies(cookies.clone()).await?;

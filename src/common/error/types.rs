@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CsCliError {
     Authentication(String),
     ApiRequest(String),
@@ -47,6 +47,12 @@ impl std::error::Error for CsCliError {}
 impl From<std::io::Error> for CsCliError {
     fn from(err: std::io::Error) -> Self {
         CsCliError::FileIo(err.to_string())
+    }
+}
+
+impl From<anyhow::Error> for CsCliError {
+    fn from(err: anyhow::Error) -> Self {
+        CsCliError::Generic(err.to_string())
     }
 }
 

@@ -1,8 +1,4 @@
 use crate::{CsCliError, Result};
-use figment::{
-    providers::{Env, Format, Toml},
-    Figment,
-};
 use serde::{Deserialize, Serialize};
 
 // HttpSettings and AuthSettings are now imported from common::config
@@ -74,44 +70,26 @@ impl AppConfig {
     pub fn from_env() -> Result<Self> {
         let mut config = Self::create_default();
 
-        // Check debug flag
-        if let Ok(debug_val) = std::env::var("GONG_DEBUG") {
-            match debug_val.to_lowercase().as_str() {
-                "true" | "1" | "yes" => config.debug = true,
-                _ => {}
-            }
-        }
+        // Check debug flag using common utilities
+        config.debug = crate::common::env::is_gong_debug_enabled();
 
-        // Handle HTTP concurrency override
-        if let Ok(concurrency_val) = std::env::var("GONG_HTTP_CONCURRENCY") {
-            if let Ok(total_concurrency) = concurrency_val.parse::<usize>() {
-                config.http.global_max_concurrency = Some(std::cmp::max(1, total_concurrency));
-                let per_client = std::cmp::max(
-                    1,
-                    total_concurrency / std::cmp::max(1, config.http.pool_size),
-                );
-                config.http.max_concurrency_per_client = per_client;
-            } else {
-                tracing::warn!("Invalid GONG_HTTP_CONCURRENCY value: {}", concurrency_val);
-            }
+        // Handle HTTP concurrency override using common utilities
+        if let Some(total_concurrency) = crate::common::env::get_gong_http_concurrency() {
+            config.http.global_max_concurrency = Some(std::cmp::max(1, total_concurrency));
+            let per_client = std::cmp::max(
+                1,
+                total_concurrency / std::cmp::max(1, config.http.pool_size),
+            );
+            config.http.max_concurrency_per_client = per_client;
         }
 
         config.validate()?;
         Ok(config)
     }
 
-    /// Load configuration from multiple sources with precedence:
-    /// 1. Environment variables (highest priority)
-    /// 2. Config file (cs-cli.toml)
-    /// 3. Defaults (lowest priority)
+    /// Load configuration from multiple sources using common loader
     pub fn load() -> Result<Self> {
-        let config = Figment::new()
-            .merge(Toml::file("cs-cli.toml")) // Optional config file
-            .merge(Env::prefixed("CS_CLI_")) // Environment variables
-            .extract()
-            .map_err(|e| CsCliError::Configuration(format!("Configuration error: {e}")))?;
-
-        Ok(config)
+        crate::common::config::load_config()
     }
 
     /// Validate configuration matching Python validate()

@@ -880,39 +880,40 @@ impl TuiApp {
             }
         }
     }
+
 }
 
 /// Helper function to draw auth mode button (used across multiple UI screens)
-fn draw_auth_mode_button(f: &mut Frame, app: &mut TuiApp, area: Rect) {
+fn draw_auth_mode_button(f: &mut Frame, app: &mut TuiApp, header_area: Rect) {
     let button_text = app.get_auth_mode_button_text();
+    let button_text_len = button_text.len() as u16;
+    
+    // Position button as overlay on the right side of the header
+    let button_area = Rect {
+        x: header_area.x + header_area.width.saturating_sub(button_text_len + 2),
+        y: header_area.y,
+        width: button_text_len + 2,
+        height: 1,
+    };
+    
     let button_widget = Paragraph::new(button_text)
         .style(
             Style::default()
-                .fg(THEME.button_bg)
-                .bg(THEME.surface),
+                .fg(THEME.text_secondary)
+                .bg(THEME.background),
         )
-        .alignment(Alignment::Center)
+        .alignment(Alignment::Right)
         .block(
             Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(THEME.border)),
+                .borders(Borders::NONE)
+                .style(Style::default().bg(THEME.background)),
         );
 
     // Store button area for mouse click detection
-    app.auth_mode_button_area = Some(area);
-    f.render_widget(button_widget, area);
+    app.auth_mode_button_area = Some(button_area);
+    f.render_widget(button_widget, button_area);
 }
 
-/// Helper function to create standard header layout with auth button
-fn create_header_layout(area: Rect) -> std::rc::Rc<[Rect]> {
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Min(0),     // Main title area
-            Constraint::Length(35), // Auth mode button area
-        ])
-        .split(area)
-}
 
 /// Helper functions for consistent string formatting with reduced allocations
 fn format_header_title(title: &str, sync_indicator: &str) -> String {
@@ -1002,10 +1003,7 @@ fn draw_selection_ui(f: &mut Frame, app: &mut TuiApp) {
         _ => "",
     };
 
-    // Create header with authentication mode button
-    let header_chunks = create_header_layout(chunks[0]);
-
-    // Main title
+    // Main title (now using full header width for proper centering)
     let header_title = format_header_title(
         "CS-CLI: Customer Success Deep Research Tool",
         app.get_sync_indicator()
@@ -1024,10 +1022,10 @@ fn draw_selection_ui(f: &mut Frame, app: &mut TuiApp) {
     ])
     .alignment(Alignment::Center)
     .block(Block::default().borders(Borders::BOTTOM));
-    f.render_widget(header, header_chunks[0]);
+    f.render_widget(header, chunks[0]);
 
-    // Authentication mode button
-    draw_auth_mode_button(f, app, header_chunks[1]);
+    // Authentication mode button (overlay on the right)
+    draw_auth_mode_button(f, app, chunks[0]);
 
     // Draw main content based on state
     match app.state {
@@ -1347,9 +1345,6 @@ fn draw_retrieval_ui(f: &mut Frame, app: &mut TuiApp) {
         ])
         .split(f.area());
 
-    // Header with authentication mode button
-    let header_chunks = create_header_layout(chunks[0]);
-
     // Main title
     let retrieval_title = format_header_title("CS-CLI: Retrieval in Progress", app.get_sync_indicator());
     let header = Paragraph::new(vec![
@@ -1366,10 +1361,10 @@ fn draw_retrieval_ui(f: &mut Frame, app: &mut TuiApp) {
     ])
     .alignment(Alignment::Center)
     .block(Block::default().borders(Borders::BOTTOM));
-    f.render_widget(header, header_chunks[0]);
+    f.render_widget(header, chunks[0]);
 
-    // Authentication mode button
-    draw_auth_mode_button(f, app, header_chunks[1]);
+    // Authentication mode button (overlay on the right)
+    draw_auth_mode_button(f, app, chunks[0]);
 
     // Progress bar
     let progress_chunks = Layout::default()
@@ -1452,9 +1447,6 @@ fn draw_results_ui(f: &mut Frame, app: &mut TuiApp) {
         ])
         .split(f.area());
 
-    // Header with authentication mode button
-    let header_chunks = create_header_layout(chunks[0]);
-
     // Main title
     let complete_title = format_header_title("CS-CLI: Retrieval Complete!", app.get_sync_indicator());
     let header = Paragraph::new(vec![Line::from(vec![Span::styled(
@@ -1465,10 +1457,10 @@ fn draw_results_ui(f: &mut Frame, app: &mut TuiApp) {
     )])])
     .alignment(Alignment::Center)
     .block(Block::default().borders(Borders::BOTTOM));
-    f.render_widget(header, header_chunks[0]);
+    f.render_widget(header, chunks[0]);
 
-    // Authentication mode button
-    draw_auth_mode_button(f, app, header_chunks[1]);
+    // Authentication mode button (overlay on the right)
+    draw_auth_mode_button(f, app, chunks[0]);
 
     // Results
     if let Some(ref results) = app.results {
@@ -1664,6 +1656,8 @@ const POSTMAN_LOGO_RAW: &str = r#"
                                  ****#########################***#*                                 
                                        **#**#**********#***#**#                                     
 "#;
+
+
 /// Draw authentication UI with progress and overlay auth choice buttons
 fn draw_authentication_ui(f: &mut Frame, app: &mut TuiApp) {
     // Calculate logo animation progress (3 second linear animation)
@@ -1855,6 +1849,7 @@ fn draw_authentication_ui(f: &mut Frame, app: &mut TuiApp) {
 }
 
 /// Pre-computed logo data for optimal performance
+#[derive(Debug)]
 struct LogoCache {
     lines: Vec<String>,
     max_width: usize,

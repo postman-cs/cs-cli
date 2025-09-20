@@ -267,3 +267,60 @@ async fn test_rate_limit_handling_during_auth() {
     // Should handle rate limits gracefully
 }
 */
+
+#[tokio::test]
+async fn test_safari_cookie_extraction() {
+    // Test Safari cookie extraction specifically
+    use cs_cli::common::auth::CookieRetriever;
+
+    println!("Testing Safari cookie extraction for Gong domains...");
+
+    let domains = vec!["gong.io".to_string(), ".gong.io".to_string()];
+    let cookie_retriever = CookieRetriever::new(domains);
+
+    // Test Safari cookie extraction
+    let safari_cookies_result = cookie_retriever.retrieve_safari_cookies_ephemeral();
+
+    match safari_cookies_result {
+        Ok(cookies) => {
+            println!("✓ Safari cookie extraction successful!");
+            println!("Found {} Safari cookies for Gong domains", cookies.len());
+
+            // Print some details about found cookies (but not values for security)
+            for cookie in &cookies {
+                println!("  - Cookie '{}' for domain '{}' ({})",
+                         cookie.name,
+                         cookie.domain,
+                         if cookie.secure { "secure" } else { "non-secure" });
+            }
+
+            // Look for key Gong authentication cookies
+            let has_cell = cookies.iter().any(|c| c.name == "cell");
+            let has_cf_clearance = cookies.iter().any(|c| c.name == "cf_clearance");
+            let has_aws_alb = cookies.iter().any(|c| c.name.starts_with("AWSALB"));
+
+            if has_cell {
+                println!("✓ Found 'cell' cookie - Gong session is present");
+            }
+            if has_cf_clearance {
+                println!("✓ Found 'cf_clearance' cookie - Cloudflare clearance present");
+            }
+            if has_aws_alb {
+                println!("✓ Found AWS load balancer cookies - Infrastructure cookies present");
+            }
+
+            if !cookies.is_empty() {
+                println!("✓ Safari cookie extraction working properly!");
+            } else {
+                println!("⚠ No Safari cookies found - user may not be logged into Gong via Safari");
+            }
+        }
+        Err(e) => {
+            println!("Safari cookie extraction failed: {}", e);
+            println!("This is expected if:");
+            println!("  - User is not logged into Gong via Safari");
+            println!("  - Safari has no cookies for Gong domains");
+            println!("  - Safari binary cookies file doesn't exist");
+        }
+    }
+}

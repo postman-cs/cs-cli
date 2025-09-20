@@ -1,178 +1,142 @@
-use anyhow::{Context, Result};
+use crate::common::output::MarkdownGenerator;
+use crate::gong::models::{Call, Email};
+use crate::Result;
+use anyhow::Context;
 use jiff::Zoned;
 use regex::Regex;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{error, info};
 
-use crate::gong::models::{Call, Email};
-
 /// Renderer for generating markdown reports from team calls and emails
 pub struct CallMarkdownRenderer {
-    /// Output directory for markdown files
-    output_dir: PathBuf,
+    /// Common markdown generator
+    generator: MarkdownGenerator,
 }
 
 impl CallMarkdownRenderer {
     /// Create a new markdown renderer
     pub fn new(output_dir: Option<PathBuf>) -> Self {
-        let output_dir = output_dir.unwrap_or_else(|| {
-            // Default to desktop for easy access
-            let home = dirs::home_dir().expect("Could not find home directory");
-            home.join("Desktop").join("team-calls-output")
-        });
-
-        Self { output_dir }
+        Self {
+            generator: MarkdownGenerator::new(output_dir),
+        }
     }
 
-    /// Format a single call into markdown content
+    /// Format a single call into markdown content using common utilities
     pub fn format_call_to_markdown(&self, call: &Call) -> String {
-        // Extract call information
         let title = &call.title;
         let customer = call.customer_name.as_deref().unwrap_or("Unknown Customer");
         let date = &call.scheduled_start;
         let attendees = &call.participants;
-        let transcript = call
-            .transcript
-            .as_deref()
-            .unwrap_or("No transcript available");
+        let transcript = call.transcript.as_deref().unwrap_or("No transcript available");
         let call_id = &call.id;
         let call_url = call.recording_url.as_deref().unwrap_or("");
-
-        // Format date as ISO string to match Python
-        let formatted_date = date.strftime("%Y-%m-%dT%H:%M:%S").to_string();
-
-        // Build markdown content - use title as header to match Python
-        let mut markdown_content = format!(
-            "# {title}\n\n**Customer:** {customer}\n**Date:** {formatted_date}\n**Call ID:** `{call_id}`"
-        );
-
-        // Add call URL if available
+        
+        // Create metadata for the call
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("Customer".to_string(), customer.to_string());
+        metadata.insert("Call ID".to_string(), call_id.clone());
         if !call_url.is_empty() {
-            markdown_content.push_str(&format!("\n**Call Link:** {call_url}"));
+            metadata.insert("Recording URL".to_string(), call_url.to_string());
         }
-
-        markdown_content.push_str("\n\n## Attendees\n\n");
-
-        // Add attendees section
-        if !attendees.is_empty() {
-            for attendee in attendees {
-                let name = &attendee.name;
-                let title = attendee.title.as_deref().unwrap_or("");
-                let company = attendee.company.as_deref().unwrap_or("");
-                let email = attendee.email.as_deref().unwrap_or("");
-
-                markdown_content.push_str(&format!("- **{name}**"));
-                if !title.is_empty() {
-                    markdown_content.push_str(&format!(" - {title}"));
-                }
-                if !company.is_empty() {
-                    markdown_content.push_str(&format!(" ({company})"));
-                }
-                if !email.is_empty() {
-                    markdown_content.push_str(&format!(" - {email}"));
-                }
-                markdown_content.push('\n');
-            }
-        } else {
-            markdown_content.push_str("No attendee information available.\n");
+        
+        // Format participants
+        let participant_names: Vec<String> = attendees
+            .iter()
+            .map(|p| p.name.clone())
+            .collect();
+        
+        // Create metadata header using common utility
+        let header = self.generator.create_metadata_header(
+            title,
+            "Gong",
+            &date.strftime("%Y-%m-%dT%H:%M:%S").to_string(),
+            Some(&participant_names),
+            Some(&metadata),
+        );
+        
+        // Format call-specific content
+        let mut content = String::new();
+        
+        // Add call details
+        if !call_url.is_empty() {
+            content.push_str(&format!("**Recording:** [Listen to Call]({})\n\n", call_url));
         }
-
-        // Add transcript section
-        let cleaned_transcript = self.clean_transcript(transcript);
-        let generated_time = Zoned::now().strftime("%Y-%m-%d %H:%M:%S").to_string();
-
-        markdown_content.push_str(&format!(
-            "\n\n## Transcript\n\n{cleaned_transcript}\n\n---\n*Generated on {generated_time}*\n"
-        ));
-
-        markdown_content
+        
+        // Add transcript
+        content.push_str("## Transcript\n\n");
+        content.push_str(&self.generator.clean_text_content(transcript));
+        content.push_str("\n\n");
+        
+        // Add call summary if available
+        if let Some(summary) = &call.summary {
+            content.push_str("## Summary\n\n");
+            content.push_str(&self.generator.clean_text_content(summary));
+            content.push_str("\n\n");
+        }
+        
+        // Combine header and content
+        format!("{}{}", header, content)
     }
 
-    /// Save a call as a markdown file with proper naming
+    /// Save a call as a markdown file using common utilities
     pub fn save_call_markdown(&self, call: &Call) -> Result<PathBuf> {
-        // Extract info for filename
+        // Generate filename using common utilities
         let date = &call.scheduled_start;
-
-        // Format date for filename
-        let file_date = self.format_date_for_filename(date);
-
-        // Create filename - prefer generatedTitle, fallback to customer_name or extracted customer
+        let file_date = self.generator.format_date_for_filename(&date.strftime("%Y-%m-%dT%H:%M:%S").to_string());
+        
         let call_id_suffix = if call.id.len() >= 8 {
             format!("-{}", &call.id[..8])
         } else {
             format!("-{}", call.id)
         };
-
-        // Use generated_title if available, otherwise customer_name, otherwise extract from title
+        
         let filename_base = if let Some(generated_title) = &call.generated_title {
             if !generated_title.trim().is_empty() {
-                self.sanitize_filename(generated_title)
+                self.generator.sanitize_filename(generated_title)
             } else if let Some(customer_name) = &call.customer_name {
-                self.sanitize_filename(customer_name)
+                self.generator.sanitize_filename(customer_name)
             } else {
-                let customer = self.extract_customer_name(call);
-                self.sanitize_filename(&customer)
+                self.generator.sanitize_filename(&self.extract_customer_name(call))
             }
         } else if let Some(customer_name) = &call.customer_name {
-            self.sanitize_filename(customer_name)
+            self.generator.sanitize_filename(customer_name)
         } else {
-            let customer = self.extract_customer_name(call);
-            self.sanitize_filename(&customer)
+            self.generator.sanitize_filename(&self.extract_customer_name(call))
         };
 
-        let filename = format!("{filename_base}-{file_date}{call_id_suffix}.md");
-        let filepath = self.output_dir.join(filename);
-
+        let filename = format!("{}-{}{}.md", filename_base, file_date, call_id_suffix);
+        let filepath = self.generator.output_dir().join(filename);
+        
         // Generate markdown content
         let markdown_content = self.format_call_to_markdown(call);
-
-        // Ensure output directory exists
-        fs::create_dir_all(&self.output_dir).context("Failed to create output directory")?;
-
-        // Write file
-        fs::write(&filepath, markdown_content)
-            .with_context(|| format!("Failed to write markdown file: {}", filepath.display()))?;
-
+        
+        // Save using common utility
+        self.generator.save_content_to_file(&filepath, &markdown_content)?;
+        
         info!("Saved call markdown to {}", filepath.display());
         Ok(filepath)
     }
 
-    /// Save multiple calls as markdown files
+    /// Save multiple calls as markdown files using common utilities
     pub fn save_multiple_calls(
         &self,
         calls: &[Call],
         custom_dir_name: Option<&str>,
     ) -> Result<Vec<PathBuf>> {
+        if calls.is_empty() {
+            info!("No calls to save");
+            return Ok(Vec::new());
+        }
+        
+        // Create customer-specific directory using common utility
+        let customer_name = custom_dir_name.unwrap_or("team-calls");
+        let customer_dir = self.generator.create_customer_dir(customer_name)?;
+        
+        // Create temporary renderer for the customer directory
+        let temp_renderer = CallMarkdownRenderer::new(Some(customer_dir.clone()));
+        
         let mut saved_files = Vec::new();
-
-        // Determine output directory - respect configured output_dir or use Desktop for CLI
-        let output_dir = {
-            // Check if we're using the default Desktop path (CLI behavior)
-            let home = dirs::home_dir().expect("Could not find home directory");
-            let default_desktop_path = home.join("Desktop").join("team-calls-output");
-
-            if self.output_dir == default_desktop_path {
-                // CLI mode: use Desktop with custom/dated subdirectory
-                let desktop_path = home.join("Desktop");
-                if let Some(custom_name) = custom_dir_name {
-                    let sanitized_name = self.sanitize_filename(custom_name);
-                    desktop_path.join(format!("ct_{sanitized_name}"))
-                } else {
-                    let today = Zoned::now().strftime("%Y-%m-%d").to_string();
-                    desktop_path.join(format!("team-calls-{today}"))
-                }
-            } else {
-                // Test mode: use configured output_dir directly
-                self.output_dir.clone()
-            }
-        };
-
-        fs::create_dir_all(&output_dir).context("Failed to create output directory")?;
-
-        // Use output directory for saving files
-        let temp_renderer = CallMarkdownRenderer::new(Some(output_dir.clone()));
-
         for call in calls {
             match temp_renderer.save_call_markdown(call) {
                 Ok(filepath) => saved_files.push(filepath),
@@ -182,11 +146,11 @@ impl CallMarkdownRenderer {
                 }
             }
         }
-
+        
         info!(
             "Saved {} call markdown files to {}",
             saved_files.len(),
-            output_dir.display()
+            customer_dir.display()
         );
 
         Ok(saved_files)
@@ -237,94 +201,8 @@ impl CallMarkdownRenderer {
         date.strftime("%B %d, %Y at %I:%M %p").to_string()
     }
 
-    /// Format date for use in filename (includes time for uniqueness)
-    fn format_date_for_filename(&self, date: &Zoned) -> String {
-        // Format as YYYY-MM-DDtHHMMSS to match Python implementation
-        date.strftime("%Y-%m-%dt%H%M%S").to_string()
-    }
 
-    /// Sanitize a string for use as a filename
-    fn sanitize_filename(&self, filename: &str) -> String {
-        if filename.is_empty() {
-            return "unnamed".to_string();
-        }
 
-        // Step 1: Keep only letters, numbers, spaces, and basic punctuation
-        let regex1 = Regex::new(r"[^a-zA-Z0-9\s\-._()]").unwrap();
-        let sanitized = regex1.replace_all(filename, "");
-
-        // Step 2: Replace whitespace and parentheses with hyphens
-        let regex2 = Regex::new(r"[\s()]+").unwrap();
-        let sanitized = regex2.replace_all(&sanitized, "-");
-
-        // Step 3: Remove dots and underscores (keep only letters, numbers, hyphens)
-        let regex3 = Regex::new(r"[._]+").unwrap();
-        let sanitized = regex3.replace_all(&sanitized, "-");
-
-        // Step 4: Collapse multiple consecutive hyphens into single hyphens
-        let regex4 = Regex::new(r"-+").unwrap();
-        let sanitized = regex4.replace_all(&sanitized, "-");
-
-        // Step 5: Clean up and format
-        let sanitized = sanitized.trim_matches(&['-', '.'][..]).to_lowercase();
-
-        // Step 6: Limit length
-        let sanitized = if sanitized.len() > 50 {
-            sanitized[..50].trim_end_matches(&['-', '.'][..])
-        } else {
-            &sanitized
-        };
-
-        if sanitized.is_empty() {
-            "unnamed".to_string()
-        } else {
-            sanitized.to_string()
-        }
-    }
-
-    /// Clean and format transcript text for markdown
-    fn clean_transcript(&self, transcript: &str) -> String {
-        if transcript.is_empty() {
-            return "No transcript available.".to_string();
-        }
-
-        let cleaned = transcript.trim();
-
-        // Check if transcript is already properly formatted (contains **Speaker:** patterns)
-        if cleaned.contains("**") && cleaned.contains(":**") {
-            // Already formatted by the API client, just return with minimal cleaning
-            // Remove excessive blank lines (more than 2 consecutive)
-            let regex = Regex::new(r"\n\n\n+").unwrap();
-            return regex.replace_all(cleaned, "\n\n").to_string();
-        }
-
-        // Legacy formatting for unformatted transcripts
-        let lines: Vec<&str> = cleaned.lines().collect();
-        let mut formatted_lines = Vec::new();
-
-        for line in lines {
-            let line = line.trim();
-            if line.is_empty() {
-                continue; // Skip empty lines, let natural spacing handle it
-            }
-
-            // Check if line starts with a speaker name pattern
-            if line.contains(':') && line.split(':').next().unwrap_or("").len() < 50 {
-                let parts: Vec<&str> = line.splitn(2, ':').collect();
-                if parts.len() == 2 {
-                    let speaker = parts[0].trim();
-                    let text = parts[1].trim();
-                    formatted_lines.push(format!("**{speaker}:** {text}"));
-                } else {
-                    formatted_lines.push(line.to_string());
-                }
-            } else {
-                formatted_lines.push(line.to_string());
-            }
-        }
-
-        formatted_lines.join("\n\n")
-    }
 }
 
 /// Email formatting methods
@@ -494,27 +372,9 @@ impl CallMarkdownRenderer {
             return Ok(Vec::new());
         }
 
-        // Determine output directory - respect configured output_dir or use Desktop for CLI
-        let output_dir = {
-            // Check if we're using the default Desktop path (CLI behavior)
-            let home = dirs::home_dir().expect("Could not find home directory");
-            let default_desktop_path = home.join("Desktop").join("team-calls-output");
-
-            if self.output_dir == default_desktop_path {
-                // CLI mode: use Desktop with custom subdirectory
-                let desktop_path = home.join("Desktop");
-                if let Some(custom_name) = custom_dir_name {
-                    let sanitized_name = self.sanitize_filename(custom_name);
-                    desktop_path.join(format!("ct_{sanitized_name}"))
-                } else {
-                    let sanitized_name = self.sanitize_filename(customer_name);
-                    desktop_path.join(format!("ct_{sanitized_name}"))
-                }
-            } else {
-                // Test mode: use configured output_dir directly
-                self.output_dir.clone()
-            }
-        };
+        // Create customer-specific directory using common utility
+        let dir_name = custom_dir_name.unwrap_or(customer_name);
+        let output_dir = self.generator.create_customer_dir(dir_name)?;
 
         fs::create_dir_all(&output_dir).context("Failed to create output directory for emails")?;
 
@@ -559,7 +419,7 @@ impl CallMarkdownRenderer {
             };
 
             // Create filename with specified pattern: [customer]-emls-[opening range mm-dd]-[closing range mm-dd]
-            let clean_customer = self.sanitize_filename(customer_name);
+            let clean_customer = self.generator.sanitize_filename(customer_name);
             let mut filename = format!("{clean_customer}-emls-{opening_range}-{closing_range}.md");
 
             // Handle duplicate filenames by adding batch number

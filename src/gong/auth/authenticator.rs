@@ -37,31 +37,32 @@ pub struct GongCookies {
 /// - Error handling and token refresh logic
 pub struct GongAuthenticator {
     /// HTTP client for API requests (using impit)
-    http_client: Arc<GongHttpClient>,
+    pub http_client: Arc<GongHttpClient>,
 
     /// Multi-browser cookie accessor using direct database access
-    cookie_retriever: CookieRetriever,
+    pub cookie_retriever: CookieRetriever,
 
     /// CSRF token manager with async safety
-    csrf_manager: CSRFManager,
+    pub csrf_manager: CSRFManager,
 
     /// Retrieved Gong cookies and metadata
-    gong_cookies: Option<GongCookies>,
+    pub gong_cookies: Option<GongCookies>,
 
     /// Base URL for API calls (e.g., "<https://us-14496.app.gong.io>")
-    base_url: Option<String>,
+    pub base_url: Option<String>,
 
     /// Gong workspace ID retrieved from home page
-    workspace_id: Option<String>,
+    pub workspace_id: Option<String>,
 }
 
 impl GongAuthenticator {
     /// Create a new Gong authenticator with production configuration
     pub async fn new(config: AuthSettings) -> Result<Self> {
-        // Create HTTP client for API requests with intelligent HTTP/3 -> HTTP/2 fallback
-        use crate::common::config::HttpSettings;
-        let http_config = HttpSettings::default();
-        let http_client = Arc::new(GongHttpClient::new(http_config).await?);
+        // Create HTTP client using common platform configuration
+        let http_client = Arc::new(GongHttpClient::new(
+            crate::common::http::PlatformConfigs::gong(None)
+                .build_settings()
+        ).await?);
 
         // Set up cookie retriever for Gong domains (*.gong.io)
         let domains = vec![
@@ -81,193 +82,11 @@ impl GongAuthenticator {
         })
     }
 
-    /// Perform complete authentication flow
-    ///
-    /// This is the main entry point that:
-    /// 1. Checks hybrid storage (gist + local keychain) for stored cookies
-    /// 2. Retrieves cookies from available browsers
-    /// 3. Validates cookies with server (tries multiple browsers if needed)
-    /// 4. Determines Gong cell identifier
-    /// 5. Sets up base URL and session cookies
-    /// 6. Fetches initial CSRF token
-    /// 7. Retrieves workspace ID
-    ///
-    /// # Returns
-    /// true if authentication succeeds, false otherwise
-    pub async fn authenticate(&mut self) -> Result<bool> {
-        info!("Starting Gong authentication");
-
-        // First check hybrid storage (gist + local keychain) for stored cookies
-        info!("Checking for stored session data from previous authentication...");
-        if let Ok(authenticated) = self.try_hybrid_storage_authentication().await {
-            if authenticated {
-                info!("Successfully authenticated using stored session data");
-                return Ok(true);
-            }
-        }
-
-        // Try Firefox cookies next (quick, no user interaction needed)
-        info!("Checking for existing browser cookies...");
-        let cookie_retriever = self.cookie_retriever.clone();
-        info!("Spawning blocking task for Firefox cookie retrieval...");
-        let firefox_cookies = match tokio::task::spawn_blocking(move || {
-            cookie_retriever.retrieve_firefox_cookies_ephemeral()
-        }).await {
-            Ok(Ok(cookies)) => {
-                info!("Firefox cookie retrieval completed successfully, found {} cookies", cookies.len());
-                cookies
-            },
-            Ok(Err(e)) => {
-                warn!("Firefox cookie retrieval failed: {}", e);
-                Vec::new()
-            },
-            Err(e) => {
-                warn!("Firefox cookie retrieval task failed: {}", e);
-                Vec::new()
-            }
-        };
-
-        // If we have cookies, try to use them
-        if !firefox_cookies.is_empty() {
-            info!(
-                "Found {} Firefox cookies, validating...",
-                firefox_cookies.len()
-            );
-
-            let all_browser_cookies = vec![(firefox_cookies, "Firefox".to_string())];
-
-            // Try each browser's cookies until we find working ones
-            let mut working_cookies: Option<(Vec<Cookie>, String)> = None;
-
-            for (cookies, browser_name) in all_browser_cookies {
-                if cookies.is_empty() {
-                    continue;
-                }
-
-                info!(
-                    "Testing cookies from {} ({} cookies)",
-                    browser_name,
-                    cookies.len()
-                );
-
-                // Try to retrieve cell and test authentication
-                info!("Attempting to extract Gong cell identifier from {} cookies", browser_name);
-                match self.retrieve_cell_from_cookies(&cookies) {
-                    Ok(cell) => {
-                        info!("Successfully extracted Gong cell: {}", cell);
-                        // Build session cookies map
-                        let mut session_cookies = HashMap::new();
-                        for cookie in &cookies {
-                            session_cookies.insert(cookie.name.clone(), cookie.value.clone());
-                        }
-
-                        // Store authentication state temporarily
-                        self.gong_cookies = Some(GongCookies {
-                            cell: cell.clone(),
-                            session_cookies: session_cookies.clone(),
-                            retrieved_at: SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap()
-                                .as_secs_f64(),
-                            browser: browser_name.clone(),
-                        });
-
-                        self.base_url = Some(format!("https://{cell}.app.gong.io"));
-
-                        // Set cookies on HTTP client
-                        info!("Setting cookies on HTTP client for validation...");
-                        self.http_client
-                            .set_cookies(session_cookies.clone())
-                            .await?;
-
-                        // Try to get CSRF token to validate the cookies (with short timeout)
-                        info!("Attempting CSRF token validation with 5-second timeout...");
-                        match tokio::time::timeout(
-                            std::time::Duration::from_secs(5),
-                            self.csrf_manager.get_csrf_token(&cell, false),
-                        )
-                        .await
-                        {
-                            Ok(Ok(Some(_token))) => {
-                                info!("Successfully authenticated with {} cookies", browser_name);
-                                working_cookies = Some((cookies, browser_name));
-                                break;
-                            }
-                            Ok(Ok(None)) | Ok(Err(_)) | Err(_) => {
-                                warn!("{} cookies are expired or invalid", browser_name);
-                                // Clear the failed state
-                                self.gong_cookies = None;
-                                self.base_url = None;
-                                continue;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        debug!(
-                            "Could not retrieve cell from {} cookies: {}",
-                            browser_name, e
-                        );
-                        continue;
-                    }
-                }
-            }
-
-            // Check if we found working cookies
-            if let Some((cookies, browser_source)) = working_cookies {
-                info!(
-                    cookies_found = cookies.len(),
-                    browser_used = %browser_source,
-                    "Successfully authenticated with existing cookies"
-                );
-
-                // Continue with the rest of the authentication flow
-                let (cookies, browser_source) = (cookies, browser_source);
-
-                // The authentication state is already set up from the successful attempt above
-                // Just need to get the cell for logging
-                let cell = self.gong_cookies.as_ref().unwrap().cell.clone();
-
-                // CSRF token was already validated above, no need to get it again
-
-                // Retrieve workspace ID from home page
-                if let Ok(Some(workspace_id)) = self.retrieve_workspace_id().await {
-                    self.workspace_id = Some(workspace_id);
-                    info!(workspace_id = %self.workspace_id.as_ref().unwrap(), "Workspace ID retrieved successfully");
-                } else {
-                    warn!("Could not retrieve workspace ID - some API calls may fail");
-                }
-
-                info!(
-                    cell = %cell,
-                    browser = %browser_source,
-                    cookies_count = cookies.len(),
-                    "Authentication flow completed successfully"
-                );
-
-                return Ok(true);
-            }
-        }
-
-        // No working cookies found - try guided authentication
-        info!("No valid browser cookies found, attempting guided authentication...");
-        match self.try_guided_authentication().await {
-            Ok(true) => {
-                info!("Guided authentication successful");
-                Ok(true)
-            }
-            Ok(false) => {
-                error!("Authentication failed: User declined guided authentication");
-                Ok(false)
-            }
-            Err(e) => {
-                error!("Guided authentication failed: {}", e);
-                Ok(false)
-            }
-        }
-    }
+    // Note: The authenticate() method has been moved to authentication_flow.rs
+    // to eliminate DRY violations and improve code organization.
 
     /// Try to authenticate using cookies from hybrid storage (gist + local keychain)
-    async fn try_hybrid_storage_authentication(&mut self) -> Result<bool> {
+    pub async fn try_hybrid_storage_authentication(&mut self) -> Result<bool> {
         // Check if we have cookies in hybrid storage
         if !has_cookies_hybrid().await {
             debug!("No cookies found in hybrid storage");
@@ -401,7 +220,7 @@ impl GongAuthenticator {
     }
 
     /// Retrieve Gong cell identifier from cookies by decrypting the JWT "cell" cookie
-    fn retrieve_cell_from_cookies(&self, cookies: &[Cookie]) -> Result<String> {
+    pub fn retrieve_cell_from_cookies(&self, cookies: &[Cookie]) -> Result<String> {
         // Only strategy: Decode from JWT "cell" cookie
         for cookie in cookies {
             if cookie.name == "cell" {
@@ -707,7 +526,7 @@ impl GongAuthenticator {
     /// Returns Ok(true) if guided auth was attempted and completed successfully,
     /// Ok(false) if guided auth was not attempted (user declined),
     /// Err if guided auth failed with errors.
-    async fn try_guided_authentication(&mut self) -> Result<bool> {
+    pub async fn try_guided_authentication(&mut self) -> Result<bool> {
         info!("Checking if guided authentication is available...");
 
         // Only attempt guided auth on macOS where we can detect/launch Okta Verify

@@ -27,15 +27,11 @@ pub struct TestConfig {
 }
 
 impl TestConfig {
-    /// Create test configuration from environment
+    /// Create test configuration from environment using common utilities
     pub fn from_env() -> Self {
         Self {
-            customer_name: env::var("TEST_CUSTOMER_NAME")
-                .unwrap_or_else(|_| "TestCustomer".to_string()),
-            days_back: env::var("TEST_DAYS_BACK")
-                .unwrap_or_else(|_| "30".to_string())
-                .parse()
-                .unwrap_or(30),
+            customer_name: cs_cli::common::env::get_test_customer_name(),
+            days_back: cs_cli::common::env::get_test_days_back(),
             use_real_api: true, // Always use real API for production-ready tests
             fixtures_dir: PathBuf::from("tests/fixtures"),
             temp_dir: None,
@@ -354,19 +350,152 @@ pub mod fs_helpers {
     }
 }
 
-/// Environment setup for tests
+/// Environment setup for tests using common utilities
 pub fn setup_test_env() {
-    // Set up test environment variables if needed
-    if env::var("RUST_LOG").is_err() {
-        env::set_var("RUST_LOG", "cs_cli=debug");
-    }
+    // Use common environment utilities for test setup
+    cs_cli::common::env::setup_test_env();
+    
+    // Use common logging utilities for test setup
+    let _ = cs_cli::common::logging::init_test_logging();
+}
 
-    // Initialize tracing for tests (ignore if already initialized)
-    use std::sync::Once;
-    static INIT: Once = Once::new();
-    INIT.call_once(|| {
-        let _ = tracing_subscriber::fmt::try_init();
-    });
+/// Common test assertions
+pub mod assertions {
+    use super::*;
+    
+    /// Assert that a file exists
+    pub fn assert_file_exists(path: &Path) {
+        assert!(path.exists(), "File should exist: {}", path.display());
+        assert!(path.is_file(), "Path should be a file: {}", path.display());
+    }
+    
+    /// Assert that a directory exists
+    pub fn assert_dir_exists(path: &Path) {
+        assert!(path.exists(), "Directory should exist: {}", path.display());
+        assert!(path.is_dir(), "Path should be a directory: {}", path.display());
+    }
+    
+    /// Assert that a file contains expected content
+    pub fn assert_file_contains(path: &Path, expected_content: &str) {
+        assert_file_exists(path);
+        let content = fs::read_to_string(path)
+            .expect("Failed to read file");
+        assert!(content.contains(expected_content), 
+                "File {} should contain '{}'", path.display(), expected_content);
+    }
+    
+    /// Assert that a directory is not empty
+    pub fn assert_dir_not_empty(path: &Path) {
+        assert_dir_exists(path);
+        let entries: Vec<_> = fs::read_dir(path)
+            .expect("Failed to read directory")
+            .collect();
+        assert!(!entries.is_empty(), "Directory should not be empty: {}", path.display());
+    }
+}
+
+/// Common test fixtures
+pub mod fixtures {
+    use super::*;
+    
+    /// Create a test customer directory structure
+    pub fn create_test_customer_dir(base: &Path, customer: &str) -> PathBuf {
+        let customer_dir = base.join(format!("ct_{}", customer));
+        fs::create_dir_all(&customer_dir).expect("Failed to create customer directory");
+        customer_dir
+    }
+    
+    /// Create test markdown files
+    pub fn create_test_markdown_files(customer_dir: &Path, count: usize) -> Vec<PathBuf> {
+        let mut files = Vec::new();
+        for i in 1..=count {
+            let filename = format!("test_call_{}.md", i);
+            let filepath = customer_dir.join(filename);
+            let content = format!("# Test Call {}\n\nThis is test content for call {}", i, i);
+            fs::write(&filepath, content).expect("Failed to write test file");
+            files.push(filepath);
+        }
+        files
+    }
+    
+    /// Create test configuration
+    pub fn create_test_config() -> cs_cli::gong::config::AppConfig {
+        cs_cli::gong::config::AppConfig::create_default()
+    }
+    
+    /// Create test HTTP settings
+    pub fn create_test_http_settings() -> HttpSettings {
+        HttpSettings {
+            pool_size: 1,
+            max_concurrency_per_client: 1,
+            timeout_seconds: 5.0,
+            max_clients: Some(1),
+            global_max_concurrency: Some(1),
+            tls_version: None,
+            browser_type: "chrome".to_string(),
+        }
+    }
+    
+    /// Create test auth settings
+    pub fn create_test_auth_settings() -> AuthSettings {
+        AuthSettings::default()
+    }
+}
+
+/// Common test helpers
+pub mod helpers {
+    use super::*;
+    
+    /// Wait for a condition to be true with timeout
+    pub async fn wait_for_condition<F>(mut condition: F, timeout_ms: u64) -> bool
+    where
+        F: FnMut() -> bool,
+    {
+        let start = std::time::Instant::now();
+        while start.elapsed().as_millis() < timeout_ms as u128 {
+            if condition() {
+                return true;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        }
+        false
+    }
+    
+    /// Retry an operation with exponential backoff
+    pub async fn retry_operation<F, Fut, T>(mut operation: F, max_retries: u32) -> Result<T, String>
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = Result<T, String>>,
+    {
+        let mut attempt = 0;
+        let mut delay_ms = 100;
+        
+        loop {
+            match operation().await {
+                Ok(result) => return Ok(result),
+                Err(error) if attempt < max_retries => {
+                    attempt += 1;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+                    delay_ms *= 2; // Exponential backoff
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+    
+    /// Generate test data
+    pub fn generate_test_data(size: usize) -> Vec<String> {
+        (1..=size).map(|i| format!("test_data_{}", i)).collect()
+    }
+    
+    /// Create temporary test file
+    pub fn create_temp_test_file(content: &str) -> PathBuf {
+        let temp_dir = std::env::temp_dir();
+        let filename = format!("test_{}.txt", std::process::id());
+        let filepath = temp_dir.join(filename);
+        fs::write(&filepath, content).expect("Failed to write temp file");
+        filepath
+    }
 }
 
 /// Run test with timeout

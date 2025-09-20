@@ -13,7 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 # HTTP client with TLS fingerprinting and browser impersonation
-impit = { git = "https://github.com/apify/impit.git", branch = "master" }
+impit = { path = "vendor/impit/impit" }
 reqwest = { version = "0.12", features = ["json", "cookies", "gzip", "http3", "blocking"] }
 
 # Async runtime - optimized features for our use case
@@ -34,16 +34,13 @@ clap_complete = "4.5"       # Shell completion (bash/zsh/fish/powershell)
 # JSON handling
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"         # JSON serialization and macros
+rusqlite = { version = "0.31", features = ["bundled"] }  # SQLite for browser profile access
 
-# Multi-browser cookie extraction (Firefox, Chrome, Safari, etc.)
-rookie = "0.5.6"
-rusqlite = { version = "0.31", features = ["bundled"] }  # SQLite for direct browser profile access (match rookie version)
-
-# Date/time handling - modern alternative to chrono
+# Date/time handling
 jiff = { version = "0.2", features = ["serde"] }
 
 # HTML processing
-htmd = "0.2"                # Better HTML to markdown conversion
+htmd = "0.2"               # HTML to markdown conversion
 
 # Error handling
 anyhow = "1.0"             # Generic error handling
@@ -53,35 +50,30 @@ async-trait = "0.1"        # Async traits for common interfaces
 futures = "0.3"            # Future utilities for concurrent operations
 rand = "0.8"               # Random number generation for retry jitter
 
-# Logging - with monitoring
-tracing = "0.1"
-
 # Logging
+tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
-
-# Concurrency control
 
 # Terminal UI
 console = "0.15"           # Basic terminal functionality
 owo-colors = "4"           # Zero-allocation terminal colors and styling
 inquire = "0.9.1"          # Interactive prompts with autocomplete
 indicatif = "0.17"         # Progress bars and spinners
-rpassword = "7.3"          # Secure password input for keychain unlock
 ratatui = "0.28"           # Rich terminal UI framework for custom widgets
 crossterm = "0.28"         # Cross-platform terminal control
 
 # Guided authentication with headless browser
-headless_chrome = "1.0"    # Chrome browser automation with CDP support
+# Browser automation
+fantoccini = { version = "0.22", default-features = false, features = ["rustls-tls"] }
+zstd = { version = "0.13", features = ["zstdmt"] }  # Compressed driver extraction
 
-# Configuration - figment for production-grade config management
+# Configuration
 figment = { version = "0.10", features = ["env", "json", "toml", "yaml"] }
 
-# Regular expressions - testing superior alternatives
-regex = "1.10"              # Keep as primary
+# Regular expressions
+regex = "1.10"
 
-# Random number generation for retry jitter
-
-# Base64 encoding/decoding - SIMD optimized
+# Base64 encoding/decoding
 base64-simd = "0.8"
 
 # URL encoding for query parameters
@@ -90,6 +82,17 @@ urlencoding = "2.1"
 # Directory handling
 dirs = "5.0"                # Cross-platform directory paths
 
+# GitHub API client
+octocrab = "0.39"           # GitHub API client
+
+# Encryption for session data
+aes-gcm = "0.10"             # Authenticated encryption (AES-256-GCM)
+hkdf = "0.12"               # HKDF key derivation function  
+zeroize = { version = "1.7", features = ["zeroize_derive"] } # Secure memory clearing
+sha2 = "0.10"               # SHA-256 for key derivation
+
+# Time handling for session metadata
+chrono = { version = "0.4", features = ["serde"] }
 
 [features]
 default = []
@@ -97,7 +100,7 @@ slack = []                  # Slack integration feature flag
 
 [dev-dependencies]
 tokio-test = "0.4"
-criterion = "0.5"           # Professional benchmarking
+criterion = "0.5"           # Benchmarking
 proptest = "1.6"            # Property-based testing
 tempfile = "3.8"            # Temporary directories for test output
 mockito = "1.2"             # HTTP mocking for API tests
@@ -153,4 +156,5 @@ libc = "0.2"               # System calls for process detection
 rustls = { git = "https://github.com/apify/rustls.git" }
 h2 = { git = "https://github.com/apify/h2.git" }
 
-
+[build-dependencies]
+dotenvy = "0.15"

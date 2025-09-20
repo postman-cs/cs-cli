@@ -3,6 +3,7 @@
 //! This module integrates the common TUI app with Gong-specific extraction logic,
 //! providing a seamless experience from customer selection to results display.
 
+use crate::common::auth::hybrid_cookie_storage::set_sync_preference;
 use crate::common::cli::args::{ContentType, ParsedCommand};
 use crate::common::cli::tui_app::{draw_tui, ExtractionMessage, ExtractionResults, TuiApp};
 use crate::gong::api::client::HttpClientPool;
@@ -23,6 +24,7 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tracing::{info, warn};
 
 /// Type alias for customer suggestion provider function
 type SuggestionProvider = Box<dyn Fn(&str) -> Vec<String> + Send>;
@@ -36,21 +38,25 @@ pub async fn run_gong_tui(config: AppConfig) -> Result<ParsedCommand> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Initialize app state - starts in Authenticating state
+    // Initialize app state - check if this is first run for sync choice
     let mut app = TuiApp::new();
     let mut last_input = String::new();
     let mut suggestion_provider: Option<SuggestionProvider> = None;
-    let mut auth_task_running = true; // Track if authentication task is running
+    let mut auth_task_running = false; // Start as false, will be set when auth starts
 
     // Channel for extraction progress and authentication
     let (extraction_tx, mut extraction_rx) = mpsc::unbounded_channel::<ExtractionMessage>();
 
-    // Start authentication process
-    let auth_tx = extraction_tx.clone();
-    let auth_config = config.clone();
-    tokio::spawn(async move {
-        run_authentication(auth_config, auth_tx).await;
-    });
+    // Always show the authentication choice screen first
+    // This allows users to choose storage method and ensures proper authentication flow
+    // Even if cookies exist, they might be expired/invalid, so let the user choose
+    app.state = crate::common::cli::tui_app::AppState::Authenticating;
+
+    // Load existing sync preference as default
+    app.sync_enabled = get_current_sync_preference().await;
+
+    // Don't start authentication automatically - wait for user choice
+    // Authentication will start when user clicks storage option in TUI
 
     // Main event loop
     let result = loop {
@@ -82,6 +88,36 @@ pub async fn run_gong_tui(config: AppConfig) -> Result<ParsedCommand> {
             app.handle_extraction_message(msg);
         }
 
+        // Handle sync choice completion OR retry after failure
+        if app.state == crate::common::cli::tui_app::AppState::Authenticating
+            && app.sync_choice_made
+            && !auth_task_running
+        {
+            // User made sync choice, save preference and start authentication
+            if let Err(e) = set_sync_preference(app.sync_enabled).await {
+                eprintln!("Failed to save sync preference: {e}");
+            }
+
+            // Clear any invalid stored session data before retrying
+            if let Err(e) = clear_invalid_session_data().await {
+                eprintln!("Failed to clear invalid session data: {e}");
+            }
+
+            auth_task_running = true;
+            let auth_tx = extraction_tx.clone();
+            let auth_config = config.clone();
+            tokio::spawn(async move {
+                run_authentication(auth_config, auth_tx).await;
+            });
+        }
+
+        // Handle authentication mode toggle (save preference when user changes it)
+        if app.sync_enabled != get_current_sync_preference().await {
+            if let Err(e) = set_sync_preference(app.sync_enabled).await {
+                eprintln!("Failed to save sync preference: {e}");
+            }
+        }
+
         // Update suggestions if in customer selection
         if app.state == crate::common::cli::tui_app::AppState::CustomerSelection {
             if let Some(ref provider) = suggestion_provider {
@@ -110,11 +146,20 @@ pub async fn run_gong_tui(config: AppConfig) -> Result<ParsedCommand> {
             });
         }
 
-        // Draw UI
-        terminal.draw(|f| draw_tui(f, &mut app))?;
+        // Update animations before drawing
+        app.update_animations();
 
-        // Handle input
-        if event::poll(Duration::from_millis(100))? {
+        // Only redraw if animation is dirty or we have other state changes
+        if app.animation_dirty || app.state != crate::common::cli::tui_app::AppState::Authenticating {
+            terminal.draw(|f| draw_tui(f, &mut app))?;
+            app.animation_dirty = false; // Reset dirty flag after drawing
+        }
+
+        // Handle input with proper frame timing for smooth animations
+        // Target 60 FPS = ~16.67ms per frame
+        let frame_duration = Duration::from_millis(16);
+        
+        if event::poll(frame_duration)? {
             match event::read()? {
                 Event::Key(key) => {
                     if key.kind == KeyEventKind::Press {
@@ -237,6 +282,136 @@ async fn run_authentication(config: AppConfig, tx: mpsc::UnboundedSender<Extract
     ))
     .ok();
 
+    // Check if GitHub sync is enabled and perform OAuth first if needed
+    if get_current_sync_preference().await {
+        tx.send(ExtractionMessage::AuthProgress(
+            0.2,
+            "Checking GitHub sync status...".to_string(),
+        ))
+        .ok();
+
+        // First check if we already have a valid GitHub token
+        use std::process::Command;
+        let token_check = Command::new("security")
+            .args([
+                "find-generic-password",
+                "-s",
+                "com.postman.cs-cli.github-token",
+                "-a",
+                "oauth-access-token",
+                "-w", // Return password only
+            ])
+            .output();
+
+        let needs_oauth = match token_check {
+            Ok(output) if output.status.success() => {
+                let token = String::from_utf8(output.stdout)
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default();
+
+                if token.is_empty() {
+                    true // Empty token, need OAuth
+                } else {
+                    // We have a token, verify it's still valid by trying to create a client
+                    use octocrab::Octocrab;
+                    match Octocrab::builder().personal_token(token.clone()).build() {
+                        Ok(client) => {
+                            // Try a simple API call to verify token validity
+                            match client.current().user().await {
+                                Ok(_) => {
+                                    tx.send(ExtractionMessage::AuthProgress(
+                                        0.3,
+                                        "GitHub sync already configured, continuing...".to_string(),
+                                    ))
+                                    .ok();
+                                    tracing::info!(
+                                        "Valid GitHub token found in keychain, skipping OAuth"
+                                    );
+                                    false // Token is valid, no OAuth needed
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "GitHub token validation failed: {}, will re-authenticate",
+                                        e
+                                    );
+                                    true // Token is invalid, need OAuth
+                                }
+                            }
+                        }
+                        Err(_) => true, // Failed to create client, need OAuth
+                    }
+                }
+            }
+            _ => true, // No token found or error, need OAuth
+        };
+
+        if needs_oauth {
+            tx.send(ExtractionMessage::AuthProgress(
+                0.2,
+                "Setting up GitHub sync...".to_string(),
+            ))
+            .ok();
+
+            // Initialize GitHub OAuth flow and get token
+            use crate::common::auth::github_oauth_flow::GitHubOAuthFlow;
+
+            let mut oauth_flow = GitHubOAuthFlow::new();
+            match oauth_flow.authenticate().await {
+                Ok(access_token) => {
+                    tx.send(ExtractionMessage::AuthProgress(
+                        0.3,
+                        "GitHub authorization successful, storing token...".to_string(),
+                    ))
+                    .ok();
+
+                    // Store the GitHub token in keychain for later use
+                    use std::process::Command;
+                    let output = Command::new("security")
+                        .args([
+                            "add-generic-password",
+                            "-s",
+                            "com.postman.cs-cli.github-token",
+                            "-a",
+                            "oauth-access-token",
+                            "-w",
+                            &access_token,
+                            "-U", // Update if exists
+                        ])
+                        .output();
+
+                    match output {
+                        Ok(out) if out.status.success() => {
+                            tracing::info!("GitHub token stored successfully in keychain");
+                            tx.send(ExtractionMessage::AuthProgress(
+                                0.4,
+                                "GitHub sync ready, continuing with authentication...".to_string(),
+                            ))
+                            .ok();
+                        }
+                        Ok(out) => {
+                            let stderr = String::from_utf8_lossy(&out.stderr);
+                            tracing::warn!("Failed to store GitHub token: {}", stderr);
+                            // Continue anyway - token storage failure is not fatal
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to run security command: {}", e);
+                            // Continue anyway - token storage failure is not fatal
+                        }
+                    }
+                }
+                Err(e) => {
+                    tx.send(ExtractionMessage::AuthFailed(format!(
+                        "GitHub authorization failed: {}. Continuing with local storage only.",
+                        e
+                    )))
+                    .ok();
+                    // Continue with authentication even if GitHub OAuth fails
+                    // User can still use local storage
+                }
+            }
+        }
+    }
+
     // Initialize Gong authenticator
     let mut auth = match GongAuthenticator::new(config.auth.clone()).await {
         Ok(auth) => auth,
@@ -248,24 +423,6 @@ async fn run_authentication(config: AppConfig, tx: mpsc::UnboundedSender<Extract
             return;
         }
     };
-
-    tx.send(ExtractionMessage::AuthProgress(
-        0.3,
-        "Checking keychain access...".to_string(),
-    ))
-    .ok();
-
-    // Ensure keychain access (this may prompt for password)
-    use crate::common::auth::smart_keychain::SmartKeychainManager;
-    if let Ok(keychain_manager) = SmartKeychainManager::new() {
-        if let Err(e) = keychain_manager.ensure_keychain_access() {
-            tx.send(ExtractionMessage::AuthFailed(format!(
-                "Keychain access failed: {e}"
-            )))
-            .ok();
-            return;
-        }
-    }
 
     tx.send(ExtractionMessage::AuthProgress(
         0.5,
@@ -724,4 +881,39 @@ async fn setup_extractor_without_auth(
     extractor.setup_with_auth(http_arc, auth_arc).await?;
 
     Ok(())
+}
+/// Get current sync preference
+async fn get_current_sync_preference() -> bool {
+    use dirs;
+
+    let config_dir = match dirs::config_dir() {
+        Some(dir) => dir.join("cs-cli"),
+        None => return false,
+    };
+
+    let preference_path = config_dir.join("sync-preference");
+    if preference_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(preference_path) {
+            return content.trim() == "enabled";
+        }
+    }
+    false
+}
+
+/// Clear invalid session data to force fresh authentication
+async fn clear_invalid_session_data() -> Result<()> {
+    use crate::common::auth::hybrid_cookie_storage::delete_cookies_hybrid;
+
+    info!("Clearing invalid session data before retry...");
+    match delete_cookies_hybrid().await {
+        Ok(()) => {
+            info!("Successfully cleared invalid session data");
+            Ok(())
+        }
+        Err(e) => {
+            warn!("Failed to clear session data: {}", e);
+            // Non-fatal - continue with retry anyway
+            Ok(())
+        }
+    }
 }

@@ -15,8 +15,12 @@ use std::fmt;
 #[command(
     name = "cs-cli",
     version,
-    about = "Extract customer communications from various platforms",
+    about = "Extract customer communications from various platforms with cross-device session sync",
     long_about = "Extract customer communications from various platforms and save as markdown files.
+
+CROSS-DEVICE SYNC:
+    Session data is securely synced across devices via encrypted GitHub gists.
+    You'll only need to authenticate once across all your devices.
 
 EXAMPLES:
     cs-cli                              Interactive mode
@@ -26,6 +30,11 @@ EXAMPLES:
     cs-cli customer \"Fortune 500\" 30 calls emails    Get calls and emails
     cs-cli team                         Get last 7 days of team calls
     cs-cli team 30                      Get last 30 days of team calls
+    
+SYNC MANAGEMENT:
+    cs-cli --sync-status                Show current sync status
+    cs-cli --reset-sync                 Reset sync and re-authenticate
+    cs-cli --local-only                 Disable sync for this run
 
 KEYCHAIN (macOS):
     cs-cli --keychain-password=yourpass customer Postman    Provide password via CLI
@@ -40,6 +49,18 @@ pub struct CliArgs {
     /// macOS keychain password (optional, will prompt if needed)
     #[arg(long, help = "macOS keychain password for browser cookie access")]
     pub keychain_password: Option<String>,
+
+    /// Force disable cross-device sync (local-only mode)
+    #[arg(long, help = "Disable cross-device sync and use local storage only")]
+    pub local_only: bool,
+
+    /// Reset sync configuration and re-authenticate with GitHub
+    #[arg(long, help = "Reset cross-device sync and re-authenticate")]
+    pub reset_sync: bool,
+
+    /// Show current sync status
+    #[arg(long, help = "Display current cross-device sync status")]
+    pub sync_status: bool,
 
     /// Subcommand or flexible arguments
     #[command(subcommand)]

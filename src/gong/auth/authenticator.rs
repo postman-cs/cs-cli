@@ -1,5 +1,6 @@
 use super::CSRFManager;
-use crate::common::auth::{Cookie, CookieExtractor, GuidedAuth};
+use crate::common::auth::hybrid_cookie_storage::{get_cookies_hybrid, has_cookies_hybrid};
+use crate::common::auth::{Cookie, CookieExtractor, GuidedAuth, PlatformType};
 use crate::common::config::AuthSettings;
 use crate::common::http::HttpClient; // For trait methods
 use crate::gong::api::client::GongHttpClient;
@@ -83,174 +84,305 @@ impl GongAuthenticator {
     /// Perform complete authentication flow
     ///
     /// This is the main entry point that:
-    /// 1. Extracts cookies from available browsers
-    /// 2. Validates cookies with server (tries multiple browsers if needed)
-    /// 3. Determines Gong cell identifier
-    /// 4. Sets up base URL and session cookies
-    /// 5. Fetches initial CSRF token
-    /// 6. Extracts workspace ID
+    /// 1. Checks hybrid storage (gist + local keychain) for stored cookies
+    /// 2. Extracts cookies from available browsers
+    /// 3. Validates cookies with server (tries multiple browsers if needed)
+    /// 4. Determines Gong cell identifier
+    /// 5. Sets up base URL and session cookies
+    /// 6. Fetches initial CSRF token
+    /// 7. Extracts workspace ID
     ///
     /// # Returns
     /// true if authentication succeeds, false otherwise
     pub async fn authenticate(&mut self) -> Result<bool> {
-        info!("Starting Gong authentication with multi-browser support");
+        info!("Starting Gong authentication");
 
-        // Ensure keychain access for browser cookies (macOS-only)
-        use crate::common::auth::smart_keychain::SmartKeychainManager;
-        let keychain_manager = SmartKeychainManager::new()?;
-        keychain_manager.ensure_keychain_access()?;
-
-        // Extract cookies from ALL available browsers for validation
-        let all_browser_cookies = self.cookie_extractor.extract_all_browsers_cookies();
-
-        if all_browser_cookies.is_empty() {
-            error!("No cookies found in any supported browser");
-            info!("Make sure you're logged into Gong in any supported browser: Firefox, Chrome, Edge, Arc, Brave, Chromium, LibreWolf, Opera, Opera GX, Vivaldi, Zen, Safari, or Cachy");
-            return Ok(false);
-        }
-
-        // Try each browser's cookies until we find working ones
-        let mut working_cookies: Option<(Vec<Cookie>, String)> = None;
-
-        for (cookies, browser_name) in all_browser_cookies {
-            if cookies.is_empty() {
-                continue;
-            }
-
-            info!(
-                "Testing cookies from {} ({} cookies)",
-                browser_name,
-                cookies.len()
-            );
-
-            // Try to extract cell and test authentication
-            match self.extract_cell_from_cookies(&cookies) {
-                Ok(cell) => {
-                    // Build session cookies map
-                    let mut session_cookies = HashMap::new();
-                    for cookie in &cookies {
-                        session_cookies.insert(cookie.name.clone(), cookie.value.clone());
-                    }
-
-                    // Store authentication state temporarily
-                    self.gong_cookies = Some(GongCookies {
-                        cell: cell.clone(),
-                        session_cookies: session_cookies.clone(),
-                        extracted_at: SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs_f64(),
-                        browser: browser_name.clone(),
-                    });
-
-                    self.base_url = Some(format!("https://{cell}.app.gong.io"));
-
-                    // Set cookies on HTTP client
-                    self.http_client
-                        .set_cookies(session_cookies.clone())
-                        .await?;
-
-                    // Try to get CSRF token to validate the cookies
-                    match self.csrf_manager.get_csrf_token(&cell, false).await {
-                        Ok(Some(_token)) => {
-                            info!("Successfully authenticated with {} cookies", browser_name);
-                            working_cookies = Some((cookies, browser_name));
-                            break;
-                        }
-                        Ok(None) | Err(_) => {
-                            warn!(
-                                "{} cookies are expired or invalid, trying next browser",
-                                browser_name
-                            );
-                            // Clear the failed state
-                            self.gong_cookies = None;
-                            self.base_url = None;
-                            continue;
-                        }
-                    }
-                }
-                Err(e) => {
-                    debug!(
-                        "Could not extract cell from {} cookies: {}",
-                        browser_name, e
-                    );
-                    continue;
-                }
+        // First check hybrid storage (gist + local keychain) for stored cookies
+        info!("Checking for stored session data from previous authentication...");
+        if let Ok(authenticated) = self.try_hybrid_storage_authentication().await {
+            if authenticated {
+                info!("Successfully authenticated using stored session data");
+                return Ok(true);
             }
         }
 
-        // Check if we found working cookies
-        let (cookies, browser_source) = match working_cookies {
-            Some(result) => result,
-            None => {
-                error!("All browser cookies are expired or invalid");
-
-                // Try guided authentication as fallback
-                info!("Attempting guided authentication via Okta SSO...");
-                match self.try_guided_authentication().await {
-                    Ok(true) => {
-                        info!("Guided authentication successful, retrying cookie extraction...");
-                        // Give the browser session a moment to establish
-                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-                        // Retry cookie extraction after guided auth
-                        let retry_cookies = self.cookie_extractor.extract_all_browsers_cookies();
-                        if let Some((cookies, browser)) = retry_cookies.into_iter().next() {
-                            if !cookies.is_empty() {
-                                info!("Found fresh cookies after guided authentication");
-                                (cookies, browser)
-                            } else {
-                                error!("Guided authentication completed but no cookies found");
-                                return Ok(false);
-                            }
-                        } else {
-                            error!("Guided authentication completed but no cookies found");
-                            return Ok(false);
-                        }
-                    }
-                    Ok(false) => {
-                        info!("Guided authentication was not attempted");
-                        info!("Please log into Gong in any browser and try again");
-                        return Ok(false);
-                    }
-                    Err(e) => {
-                        warn!("Guided authentication failed: {}", e);
-                        info!("Please log into Gong in any browser and try again");
-                        return Ok(false);
-                    }
-                }
+        // Try Firefox cookies next (quick, no user interaction needed)
+        info!("Checking for existing browser cookies...");
+        let firefox_cookies = match self.cookie_extractor.extract_firefox_cookies_ephemeral() {
+            Ok(cookies) => cookies,
+            Err(e) => {
+                debug!("Firefox cookie extraction failed: {}", e);
+                Vec::new()
             }
         };
 
-        info!(
-            cookies_found = cookies.len(),
-            browser_used = %browser_source,
-            browsers_supported = "Firefox, Chrome, Edge, Arc, Brave, Chromium, LibreWolf, Opera, Opera GX, Vivaldi, Zen, Safari, Cachy",
-            "Successfully authenticated"
-        );
+        // If we have cookies, try to use them
+        if !firefox_cookies.is_empty() {
+            info!(
+                "Found {} Firefox cookies, validating...",
+                firefox_cookies.len()
+            );
 
-        // The authentication state is already set up from the successful attempt above
-        // Just need to get the cell for logging
-        let cell = self.gong_cookies.as_ref().unwrap().cell.clone();
+            let all_browser_cookies = vec![(firefox_cookies, "Firefox".to_string())];
 
-        // CSRF token was already validated above, no need to get it again
+            // Try each browser's cookies until we find working ones
+            let mut working_cookies: Option<(Vec<Cookie>, String)> = None;
 
-        // Extract workspace ID from home page
-        if let Ok(Some(workspace_id)) = self.extract_workspace_id().await {
-            self.workspace_id = Some(workspace_id);
-            info!(workspace_id = %self.workspace_id.as_ref().unwrap(), "Workspace ID extracted successfully");
-        } else {
-            warn!("Could not extract workspace ID - some API calls may fail");
+            for (cookies, browser_name) in all_browser_cookies {
+                if cookies.is_empty() {
+                    continue;
+                }
+
+                info!(
+                    "Testing cookies from {} ({} cookies)",
+                    browser_name,
+                    cookies.len()
+                );
+
+                // Try to extract cell and test authentication
+                match self.extract_cell_from_cookies(&cookies) {
+                    Ok(cell) => {
+                        // Build session cookies map
+                        let mut session_cookies = HashMap::new();
+                        for cookie in &cookies {
+                            session_cookies.insert(cookie.name.clone(), cookie.value.clone());
+                        }
+
+                        // Store authentication state temporarily
+                        self.gong_cookies = Some(GongCookies {
+                            cell: cell.clone(),
+                            session_cookies: session_cookies.clone(),
+                            extracted_at: SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs_f64(),
+                            browser: browser_name.clone(),
+                        });
+
+                        self.base_url = Some(format!("https://{cell}.app.gong.io"));
+
+                        // Set cookies on HTTP client
+                        self.http_client
+                            .set_cookies(session_cookies.clone())
+                            .await?;
+
+                        // Try to get CSRF token to validate the cookies (with short timeout)
+                        match tokio::time::timeout(
+                            std::time::Duration::from_secs(5),
+                            self.csrf_manager.get_csrf_token(&cell, false),
+                        )
+                        .await
+                        {
+                            Ok(Ok(Some(_token))) => {
+                                info!("Successfully authenticated with {} cookies", browser_name);
+                                working_cookies = Some((cookies, browser_name));
+                                break;
+                            }
+                            Ok(Ok(None)) | Ok(Err(_)) | Err(_) => {
+                                warn!("{} cookies are expired or invalid", browser_name);
+                                // Clear the failed state
+                                self.gong_cookies = None;
+                                self.base_url = None;
+                                continue;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        debug!(
+                            "Could not extract cell from {} cookies: {}",
+                            browser_name, e
+                        );
+                        continue;
+                    }
+                }
+            }
+
+            // Check if we found working cookies
+            if let Some((cookies, browser_source)) = working_cookies {
+                info!(
+                    cookies_found = cookies.len(),
+                    browser_used = %browser_source,
+                    "Successfully authenticated with existing cookies"
+                );
+
+                // Continue with the rest of the authentication flow
+                let (cookies, browser_source) = (cookies, browser_source);
+
+                // The authentication state is already set up from the successful attempt above
+                // Just need to get the cell for logging
+                let cell = self.gong_cookies.as_ref().unwrap().cell.clone();
+
+                // CSRF token was already validated above, no need to get it again
+
+                // Extract workspace ID from home page
+                if let Ok(Some(workspace_id)) = self.extract_workspace_id().await {
+                    self.workspace_id = Some(workspace_id);
+                    info!(workspace_id = %self.workspace_id.as_ref().unwrap(), "Workspace ID extracted successfully");
+                } else {
+                    warn!("Could not extract workspace ID - some API calls may fail");
+                }
+
+                info!(
+                    cell = %cell,
+                    browser = %browser_source,
+                    cookies_count = cookies.len(),
+                    "Authentication flow completed successfully"
+                );
+
+                return Ok(true);
+            }
+        }
+
+        // No working cookies found - try guided authentication
+        info!("No valid browser cookies found, attempting guided authentication...");
+        match self.try_guided_authentication().await {
+            Ok(true) => {
+                info!("Guided authentication successful");
+                Ok(true)
+            }
+            Ok(false) => {
+                error!("Authentication failed: User declined guided authentication");
+                Ok(false)
+            }
+            Err(e) => {
+                error!("Guided authentication failed: {}", e);
+                Ok(false)
+            }
+        }
+    }
+
+    /// Try to authenticate using cookies from hybrid storage (gist + local keychain)
+    async fn try_hybrid_storage_authentication(&mut self) -> Result<bool> {
+        // Check if we have cookies in hybrid storage
+        if !has_cookies_hybrid().await {
+            debug!("No cookies found in hybrid storage");
+            return Ok(false);
+        }
+
+        // Get cookies from hybrid storage
+        let stored_cookies = match get_cookies_hybrid().await {
+            Ok(cookies) => cookies,
+            Err(e) => {
+                debug!("Failed to retrieve cookies from hybrid storage: {}", e);
+                return Ok(false);
+            }
+        };
+
+        if stored_cookies.is_empty() {
+            debug!("Retrieved empty cookie collection from hybrid storage");
+            return Ok(false);
         }
 
         info!(
-            cell = %cell,
-            browser = %browser_source,
-            cookies_count = cookies.len(),
-            "Authentication flow completed successfully"
+            "Found {} cookies in hybrid storage, processing Gong cookies...",
+            stored_cookies.len()
         );
 
-        Ok(true)
+        // Extract Gong-specific cookies and convert to Cookie format
+        let mut gong_cookies = Vec::new();
+        let mut session_cookies = HashMap::new();
+        let mut cell_cookie_value = None;
+
+        for (name, value) in &stored_cookies {
+            // Check if this is a Gong cookie (prefixed with "gong_")
+            if let Some(actual_name) = name.strip_prefix("gong_") {
+                // Create a Cookie struct for cell extraction
+                if actual_name == "cell" {
+                    cell_cookie_value = Some(value.clone());
+                    gong_cookies.push(Cookie {
+                        name: actual_name.to_string(),
+                        value: value.clone(),
+                        domain: ".gong.io".to_string(),
+                        path: "/".to_string(),
+                        secure: true,
+                        http_only: true,
+                        expires: None,
+                    });
+                }
+
+                // Store in session cookies map
+                session_cookies.insert(actual_name.to_string(), value.clone());
+            }
+        }
+
+        if session_cookies.is_empty() {
+            debug!("No Gong cookies found in stored data");
+            return Ok(false);
+        }
+
+        info!(
+            "Found {} Gong cookies in stored data",
+            session_cookies.len()
+        );
+
+        // Try to extract cell from the cookies
+        let cell = if let Some(cell_value) = cell_cookie_value {
+            match self.decode_cell_cookie(&cell_value) {
+                Ok(cell) => {
+                    info!("Successfully decoded cell from stored cookies: {}", cell);
+                    cell
+                }
+                Err(e) => {
+                    warn!("Failed to decode cell cookie from stored data: {}", e);
+                    return Ok(false);
+                }
+            }
+        } else {
+            warn!("No cell cookie found in stored data");
+            return Ok(false);
+        };
+
+        // Set up authentication state
+        self.gong_cookies = Some(GongCookies {
+            cell: cell.clone(),
+            session_cookies: session_cookies.clone(),
+            extracted_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs_f64(),
+            browser: "Hybrid Storage".to_string(),
+        });
+
+        self.base_url = Some(format!("https://{cell}.app.gong.io"));
+
+        // Set cookies on HTTP client
+        if let Err(e) = self.http_client.set_cookies(session_cookies.clone()).await {
+            warn!("Failed to set cookies on HTTP client: {}", e);
+            return Ok(false);
+        }
+
+        // Validate cookies by trying to get CSRF token
+        info!("Validating stored cookies with CSRF token check...");
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            self.csrf_manager.get_csrf_token(&cell, false),
+        )
+        .await
+        {
+            Ok(Ok(Some(token))) => {
+                info!("Stored cookies are valid, CSRF token obtained: {}", token);
+
+                // Extract workspace ID
+                if let Ok(Some(workspace_id)) = self.extract_workspace_id().await {
+                    self.workspace_id = Some(workspace_id);
+                    info!(
+                        "Workspace ID extracted: {}",
+                        self.workspace_id.as_ref().unwrap()
+                    );
+                } else {
+                    warn!("Could not extract workspace ID - some API calls may fail");
+                }
+
+                Ok(true)
+            }
+            Ok(Ok(None)) | Ok(Err(_)) | Err(_) => {
+                warn!("Stored cookies are invalid or expired, clearing state");
+                // Clear the failed state
+                self.gong_cookies = None;
+                self.base_url = None;
+                Ok(false)
+            }
+        }
     }
 
     /// Extract Gong cell identifier from cookies by decrypting the JWT "cell" cookie
@@ -560,7 +692,7 @@ impl GongAuthenticator {
     /// Returns Ok(true) if guided auth was attempted and completed successfully,
     /// Ok(false) if guided auth was not attempted (user declined),
     /// Err if guided auth failed with errors.
-    async fn try_guided_authentication(&self) -> Result<bool> {
+    async fn try_guided_authentication(&mut self) -> Result<bool> {
         info!("Checking if guided authentication is available...");
 
         // Only attempt guided auth on macOS where we can detect/launch Okta Verify
@@ -572,32 +704,26 @@ impl GongAuthenticator {
 
         #[cfg(target_os = "macos")]
         {
-            use inquire::Confirm;
-
-            // Ask user if they want to try guided authentication
-            let should_attempt = match Confirm::new(
-                "No valid browser cookies found. Would you like to try guided Okta authentication?",
-            )
-            .with_default(true)
-            .with_help_message("This will open a headless browser to authenticate via Okta SSO")
-            .prompt()
-            {
-                Ok(choice) => choice,
-                Err(_) => {
-                    debug!("User declined guided authentication prompt");
-                    return Ok(false);
-                }
-            };
-
-            if !should_attempt {
-                info!("User declined guided authentication");
-                return Ok(false);
-            }
+            // Guided authentication is mandatory - no user choice to decline
+            // This will automatically proceed with Okta SSO authentication
+            info!("Starting mandatory guided Okta authentication...");
 
             info!("Starting guided Okta authentication...");
 
-            // Create guided auth instance and attempt authentication
-            let mut guided_auth = GuidedAuth::new();
+            // Create guided auth instance with work profile preference for Gong
+            let mut guided_auth = match GuidedAuth::with_platform_preference(PlatformType::Gong) {
+                Ok(auth) => {
+                    if let Some(profile) = auth.get_selected_profile() {
+                        info!("Using browser profile for Gong authentication: {}", profile.description());
+                    }
+                    auth
+                }
+                Err(e) => {
+                    warn!("Failed to initialize profile-specific authentication: {}", e);
+                    info!("Falling back to default authentication method");
+                    GuidedAuth::new()
+                }
+            };
 
             match guided_auth.authenticate().await {
                 Ok(collected_cookies) => {
@@ -607,18 +733,92 @@ impl GongAuthenticator {
                         collected_cookies.len()
                     );
 
-                    // Log which platforms got cookies (without showing actual cookie values)
-                    for (platform, cookie_str) in &collected_cookies {
-                        info!(
-                            "Platform {}: {} characters of cookie data",
-                            platform,
-                            cookie_str.len()
-                        );
+                    // Process the collected cookies to set up authenticator state
+                    // Guided auth returns a flat HashMap with platform-prefixed cookie names
+                    // e.g., "gong_cell" -> "value", "gong_session" -> "value"
+
+                    // Extract Gong-specific cookies
+                    let mut session_cookies = HashMap::new();
+                    let mut cell_value = None;
+
+                    for (cookie_name, cookie_value) in &collected_cookies {
+                        // Check if this is a Gong cookie
+                        if cookie_name.starts_with("gong_") {
+                            // Remove the "gong_" prefix to get the actual cookie name
+                            let actual_name =
+                                cookie_name.strip_prefix("gong_").unwrap_or(cookie_name);
+                            session_cookies.insert(actual_name.to_string(), cookie_value.clone());
+
+                            // Check specifically for the cell cookie
+                            if actual_name == "cell" {
+                                cell_value = Some(cookie_value.clone());
+                            }
+                        }
                     }
 
-                    // The cookies should now be available in the browser for extraction
-                    // Return success and let the caller retry cookie extraction
-                    Ok(true)
+                    if !session_cookies.is_empty() {
+                        info!(
+                            "Found {} Gong cookies from guided authentication",
+                            session_cookies.len()
+                        );
+
+                        // If we found a cell cookie, extract the cell value and set up state
+                        if let Some(cell_cookie_value) = cell_value {
+                            match self.decode_cell_cookie(&cell_cookie_value) {
+                                Ok(cell) => {
+                                    info!("Successfully extracted cell from guided auth: {}", cell);
+
+                                    // Set up authenticator state
+                                    self.gong_cookies = Some(GongCookies {
+                                        cell: cell.clone(),
+                                        session_cookies: session_cookies.clone(),
+                                        extracted_at: SystemTime::now()
+                                            .duration_since(UNIX_EPOCH)
+                                            .unwrap()
+                                            .as_secs_f64(),
+                                        browser: "Guided Authentication".to_string(),
+                                    });
+
+                                    self.base_url = Some(format!("https://{cell}.app.gong.io"));
+
+                                    // Set cookies on HTTP client
+                                    if let Err(e) =
+                                        self.http_client.set_cookies(session_cookies).await
+                                    {
+                                        warn!("Failed to set cookies on HTTP client: {}", e);
+                                    }
+
+                                    // Extract workspace ID
+                                    if let Ok(Some(workspace_id)) =
+                                        self.extract_workspace_id().await
+                                    {
+                                        self.workspace_id = Some(workspace_id);
+                                        info!(workspace_id = %self.workspace_id.as_ref().unwrap(), "Workspace ID extracted from guided auth");
+                                    } else {
+                                        warn!("Could not extract workspace ID from guided auth");
+                                    }
+
+                                    return Ok(true);
+                                }
+                                Err(e) => {
+                                    warn!("Failed to decode cell cookie from guided auth: {}", e);
+                                }
+                            }
+                        } else {
+                            warn!("No cell cookie found in guided authentication cookies");
+                        }
+                    }
+
+                    // If we get here, we didn't find valid Gong cookies
+                    warn!("No valid Gong cookies found in guided authentication results");
+                    warn!(
+                        "Available cookies: {:?}",
+                        collected_cookies
+                            .keys()
+                            .filter(|k| k.starts_with("gong_"))
+                            .collect::<Vec<_>>()
+                    );
+                    Ok(false)
                 }
                 Err(e) => {
                     error!("Guided authentication failed: {}", e);

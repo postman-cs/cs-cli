@@ -47,7 +47,7 @@ impl BrowserSessionExtractor {
         }
 
         // Try Firefox first (most reliable for our use cases)
-        if let Ok(cookies) = self.cookie_extractor.extract_firefox_cookies() {
+        if let Ok(cookies) = self.cookie_extractor.extract_firefox_cookies_ephemeral() {
             let domain_cookies: Vec<Cookie> = cookies
                 .into_iter()
                 .filter(|cookie| cookie.domain.contains(domain))
@@ -58,15 +58,7 @@ impl BrowserSessionExtractor {
             }
         }
 
-        // Fallback to Chrome
-        if let Ok(cookies) = self.cookie_extractor.extract_chrome_cookies() {
-            let domain_cookies: Vec<Cookie> = cookies
-                .into_iter()
-                .filter(|cookie| cookie.domain.contains(domain))
-                .collect();
-
-            return Ok(domain_cookies);
-        }
+        // Chrome extraction not implemented - using Firefox only
 
         Err(CsCliError::CookieExtraction(format!(
             "No cookies found for domain: {domain}"

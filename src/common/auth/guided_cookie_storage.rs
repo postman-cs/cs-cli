@@ -23,9 +23,8 @@ pub fn store_cookies(cookies: &HashMap<String, String>) -> Result<()> {
     info!("Storing {} platform cookies in keychain...", cookies.len());
 
     // Serialize cookies to JSON
-    let cookies_json = serde_json::to_string(cookies).map_err(|e| {
-        CsCliError::Authentication(format!("Failed to serialize cookies: {e}"))
-    })?;
+    let cookies_json = serde_json::to_string(cookies)
+        .map_err(|e| CsCliError::Authentication(format!("Failed to serialize cookies: {e}")))?;
 
     // Get current executable path for ACL
     let current_exe = std::env::current_exe().map_err(|e| {
@@ -53,9 +52,13 @@ pub fn store_cookies(cookies: &HashMap<String, String>) -> Result<()> {
             KEYCHAIN_SERVICE_NAME,
             "-w",
             &cookies_json,
-            "-A",  // Allow access without user interaction for trusted apps
+            "-A", // Allow access without user interaction for trusted apps
             "-T",
             current_exe.to_str().unwrap_or(""),
+            "-T",
+            "/usr/local/bin/cs-cli", // Allow installed binary access
+            "-T",
+            "/Applications/Postman CS-CLI.app/Contents/MacOS/cs-cli", // Allow app bundle access
             "-T",
             "/usr/bin/security", // Allow security command access
         ])
@@ -78,7 +81,7 @@ pub fn store_cookies(cookies: &HashMap<String, String>) -> Result<()> {
 /// Retrieve platform cookies from keychain
 pub fn get_stored_cookies() -> Result<HashMap<String, String>> {
     use std::process::Stdio;
-    
+
     debug!("Attempting to retrieve stored cookies from keychain");
 
     let output = Command::new("security")
@@ -98,13 +101,13 @@ pub fn get_stored_cookies() -> Result<HashMap<String, String>> {
         let cookies_json = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !cookies_json.is_empty() {
             debug!("Successfully retrieved stored cookies from keychain");
-            
+
             // Deserialize cookies from JSON
-            let cookies: HashMap<String, String> = serde_json::from_str(&cookies_json)
-                .map_err(|e| {
+            let cookies: HashMap<String, String> =
+                serde_json::from_str(&cookies_json).map_err(|e| {
                     CsCliError::Authentication(format!("Failed to deserialize cookies: {e}"))
                 })?;
-            
+
             info!("Retrieved {} platform cookies from keychain", cookies.len());
             Ok(cookies)
         } else {
@@ -124,9 +127,9 @@ pub fn get_stored_cookies() -> Result<HashMap<String, String>> {
 /// Check if stored cookies exist in keychain
 pub fn has_stored_cookies() -> bool {
     use std::process::Stdio;
-    
+
     debug!("Checking if stored cookies exist in keychain...");
-    
+
     // Use a more lenient approach that doesn't block
     let result = std::process::Command::new("security")
         .args([
@@ -140,7 +143,7 @@ pub fn has_stored_cookies() -> bool {
         .stdout(Stdio::null()) // Don't capture output
         .stderr(Stdio::null()) // Don't capture errors
         .status(); // Just get exit status
-        
+
     match result {
         Ok(status) => {
             let exists = status.success();
@@ -194,7 +197,7 @@ pub fn are_cookies_expired(cookies: &HashMap<String, String>) -> bool {
             }
         }
     }
-    
+
     // For now, assume cookies are valid
     // In a real implementation, we'd check actual expiration times or test with API calls
     false
@@ -217,9 +220,9 @@ mod tests {
         let mut cookies = HashMap::new();
         cookies.insert("valid_session".to_string(), "abc123def456".to_string());
         cookies.insert("user_id".to_string(), "12345".to_string());
-        
+
         assert!(!are_cookies_expired(&cookies));
-        
+
         // Add an expired-looking cookie
         cookies.insert("session_token".to_string(), "expired".to_string());
         assert!(are_cookies_expired(&cookies));

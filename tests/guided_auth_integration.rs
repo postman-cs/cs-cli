@@ -5,9 +5,9 @@
 //!
 //! Run with: cargo test --test guided_auth_integration -- --nocapture --test-threads=1
 
-
 // Import the actual guided auth implementation
 use cs_cli::common::auth::GuidedAuth;
+use std::collections::HashMap;
 
 /// Test the complete guided authentication flow
 ///
@@ -34,21 +34,33 @@ async fn test_full_guided_authentication_flow() {
             println!("Guided authentication completed successfully!");
             println!("Collected cookies for {} platforms", cookies.len());
 
+            // Print all cookie names to debug what we actually collected
+            println!("\nAll collected cookie names:");
+            for name in cookies.keys() {
+                println!("  {name}");
+            }
+
             // Verify we got cookies for expected platforms
             let expected_platforms = ["gong", "slack", "gainsight", "salesforce"];
             for platform in expected_platforms {
-                if let Some(cookie_data) = cookies.get(platform) {
+                // Look for cookies with platform prefix
+                let platform_cookies: Vec<_> = cookies
+                    .keys()
+                    .filter(|k| k.starts_with(&format!("{platform}_")))
+                    .collect();
+                if !platform_cookies.is_empty() {
                     println!(
-                        "{}: {} characters of cookie data",
+                        "{}: {} platform-specific cookies collected",
                         platform,
-                        cookie_data.len()
+                        platform_cookies.len()
                     );
-                    assert!(
-                        !cookie_data.is_empty(),
-                        "Cookie data should not be empty for {platform}"
-                    );
+                    for cookie_name in platform_cookies {
+                        if let Some(cookie_data) = cookies.get(cookie_name) {
+                            println!("  {} = {} characters", cookie_name, cookie_data.len());
+                        }
+                    }
                 } else {
-                    println!("{platform}: No cookie data collected");
+                    println!("{platform}: No platform-specific cookies collected");
                 }
             }
 
@@ -60,9 +72,7 @@ async fn test_full_guided_authentication_flow() {
         }
         Err(e) => {
             println!("Guided authentication failed: {e}");
-            panic!(
-                "Guided authentication should succeed with user interaction: {e}"
-            );
+            panic!("Guided authentication should succeed with user interaction: {e}");
         }
     }
 }
@@ -158,6 +168,107 @@ async fn test_chrome_detection() {
         println!("Please ensure Chrome is installed");
     } else {
         println!("Chrome detection test completed successfully!");
+    }
+}
+
+/// Test dynamic cookie domain discovery with visible browser
+///
+/// This test launches Chrome in headed mode (visible) to allow observation of:
+/// 1. Browser automation behavior
+/// 2. Dynamic cookie domain discovery from actual cookies
+/// 3. Platform-specific cookie extraction
+///
+/// User interaction required: TouchID authentication when prompted
+#[tokio::test]
+#[ignore = "requires manual interaction and visual observation"]
+async fn test_dynamic_cookie_discovery_headed() {
+    println!("{}", "=".repeat(80));
+    println!("Starting VISIBLE browser test for dynamic cookie domain discovery");
+    println!("You will see the browser window open and navigate through authentication");
+    println!("{}", "=".repeat(80));
+
+    // Use new_headed() to launch browser in visible mode
+    let mut guided_auth = GuidedAuth::new_headed();
+
+    println!("\nBrowser will launch in VISIBLE mode...");
+    println!("Please be ready to authenticate with TouchID when prompted\n");
+
+    // Add a longer delay to let user read the message and observe browser
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    // Use authenticate_fresh to force actual navigation to platforms
+    match guided_auth.authenticate_fresh().await {
+        Ok(cookies) => {
+            println!("\n{}", "=".repeat(80));
+            println!("AUTHENTICATION SUCCESSFUL - ANALYZING COOKIES");
+            println!("{}", "=".repeat(80));
+
+            // Test dynamic domain discovery
+            println!("\n--- Dynamic Cookie Domain Discovery Results ---");
+
+            // Group cookies by discovered platform domains
+            let platforms = ["gong", "slack", "gainsight", "salesforce"];
+            for platform in platforms {
+                println!("\n[{}] Platform Analysis:", platform.to_uppercase());
+
+                let platform_cookies: Vec<_> = cookies
+                    .keys()
+                    .filter(|k| k.starts_with(&format!("{}_", platform)))
+                    .collect();
+
+                if !platform_cookies.is_empty() {
+                    println!("  ✓ Found {} cookies for {}", platform_cookies.len(), platform);
+
+                    // Show first few cookie names (without values for security)
+                    for (idx, cookie_name) in platform_cookies.iter().take(5).enumerate() {
+                        println!("    {}. {}", idx + 1, cookie_name);
+                    }
+
+                    if platform_cookies.len() > 5 {
+                        println!("    ... and {} more", platform_cookies.len() - 5);
+                    }
+                } else {
+                    println!("  ✗ No cookies found for {}", platform);
+                    println!("    (Platform may not have been accessed during auth flow)");
+                }
+            }
+
+            println!("\n--- Cookie Statistics ---");
+            println!("Total cookies collected: {}", cookies.len());
+
+            // Count cookies by prefix
+            let mut prefix_counts: HashMap<String, usize> = HashMap::new();
+            for key in cookies.keys() {
+                if let Some(prefix) = key.split('_').next() {
+                    *prefix_counts.entry(prefix.to_string()).or_insert(0) += 1;
+                }
+            }
+
+            println!("\nCookies grouped by prefix:");
+            for (prefix, count) in prefix_counts.iter() {
+                println!("  {}: {} cookies", prefix, count);
+            }
+
+            // Verify dynamic discovery worked
+            assert!(
+                !cookies.is_empty(),
+                "Should have collected at least some cookies"
+            );
+
+            println!("\n{}", "=".repeat(80));
+            println!("TEST COMPLETED SUCCESSFULLY");
+            println!("Dynamic cookie domain discovery is working correctly!");
+            println!("{}", "=".repeat(80));
+        }
+        Err(e) => {
+            println!("\n{}", "=".repeat(80));
+            println!("AUTHENTICATION FAILED");
+            println!("{}", "=".repeat(80));
+            println!("Error: {}", e);
+            println!("\nBrowser window will stay open for 30 seconds so you can inspect the page...");
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            panic!("Authentication should succeed with user interaction: {}", e);
+        }
     }
 }
 

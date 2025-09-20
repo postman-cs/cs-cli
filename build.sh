@@ -29,6 +29,20 @@ else
     echo "  Create .env from .env.example for custom settings."
 fi
 
+# Check for GitHub OAuth credentials for cross-device sync feature
+if [ -z "${GITHUB_CLIENT_ID:-}" ] && [ -z "${GITHUB_CLIENT_SECRET:-}" ]; then
+    echo "ℹ GitHub OAuth credentials not set"
+    echo "  Cross-device sync will be disabled at runtime"
+    echo "  Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET environment variables for full functionality"
+    echo "  Binary will build successfully - OAuth credentials are loaded at runtime"
+elif [ -z "${GITHUB_CLIENT_ID:-}" ]; then
+    echo "⚠ GITHUB_CLIENT_ID not set - OAuth will not work at runtime"
+elif [ -z "${GITHUB_CLIENT_SECRET:-}" ]; then
+    echo "⚠ GITHUB_CLIENT_SECRET not set - OAuth will not work at runtime"
+else
+    echo "✓ GitHub OAuth credentials configured for cross-device sync"
+fi
+
 # --- Configuration ---
 BINARY_NAME="cs-cli"
 APP_NAME="Postman CS-CLI"
@@ -43,6 +57,7 @@ TARGETS_ALL="aarch64-apple-darwin"
 SELECTED_TARGETS=""
 DO_PKG_BUILD=false
 DO_SIGN_DEBUG=false
+DO_INSTALL=false
 
 # --- Helper Functions ---
 log() {
@@ -70,6 +85,7 @@ usage() {
     echo "Options:"
     echo "  --pkg                         Build PKG installer for macOS"
     echo "  --sign-debug                  Sign debug binary for 'cargo run' (development)"
+    echo "  --install                     Install binary to ~/.local/bin/cs-cli after build"
     echo "  --help                        Show this help"
     echo ""
     echo "Default target: $TARGETS_DEFAULT (Apple Silicon macOS)"
@@ -97,6 +113,10 @@ parse_args() {
                 ;;
             --sign-debug)
                 DO_SIGN_DEBUG=true
+                shift
+                ;;
+            --install)
+                DO_INSTALL=true
                 shift
                 ;;
             --help)
@@ -507,6 +527,41 @@ EOF
     rm -rf "$pkg_build_dir" "$component_pkg" "$distribution_file"
 }
 
+install_binary() {
+    log STEP "Installing binary to user path..."
+    
+    local macos_bin="dist/binaries/${BINARY_NAME}-macos"
+    local install_dir="$HOME/.local/bin"
+    local install_path="$install_dir/${BINARY_NAME}"
+    
+    if [ ! -f "$macos_bin" ]; then
+        log ERROR "macOS binary not found at $macos_bin. Cannot install."
+    fi
+    
+    # Create install directory if it doesn't exist
+    mkdir -p "$install_dir"
+    
+    # Copy binary
+    cp "$macos_bin" "$install_path"
+    chmod +x "$install_path"
+    
+    log SUCCESS "Installed cs-cli to $install_path"
+    
+    # Check if ~/.local/bin is in PATH
+    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+        log WARN "~/.local/bin is not in your PATH"
+        log INFO "Add this to your shell profile: export PATH=\"\$HOME/.local/bin:\$PATH\""
+    fi
+    
+    # Verify installation
+    if command -v cs-cli >/dev/null 2>&1; then
+        local installed_version=$(cs-cli --version 2>/dev/null || echo "unknown")
+        log SUCCESS "cs-cli is now available: $installed_version"
+    else
+        log WARN "cs-cli not found in PATH after installation"
+    fi
+}
+
 # --- Main Execution ---
 main() {
     parse_args "$@"
@@ -546,6 +601,11 @@ main() {
     fi
 
     package_releases
+
+    # Auto-install if requested
+    if $DO_INSTALL; then
+        install_binary
+    fi
 
     log STEP "Build Complete!"
     log INFO "Output directory: dist/"

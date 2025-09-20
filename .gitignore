@@ -62,4 +62,4 @@ postinstall.sh
 
 # Commenting out github actions for now
 .cu*
-.github/workflows/
+.github/workflows/test_gist.rs

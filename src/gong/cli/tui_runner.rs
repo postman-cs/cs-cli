@@ -368,7 +368,17 @@ async fn run_authentication(config: AppConfig, tx: mpsc::UnboundedSender<Retriev
             // Initialize GitHub OAuth flow and get token
             use crate::common::auth::github_oauth_flow::GitHubOAuthFlow;
 
-            let mut oauth_flow = GitHubOAuthFlow::new();
+            let mut oauth_flow = match GitHubOAuthFlow::new() {
+                Ok(flow) => flow,
+                Err(e) => {
+                    tx.send(RetrievalMessage::AuthProgress(
+                        0.0,
+                        format!("Failed to initialize GitHub OAuth: {}", e),
+                    ))
+                    .ok();
+                    return;
+                }
+            };
             match oauth_flow.authenticate().await {
                 Ok(access_token) => {
                     tx.send(RetrievalMessage::AuthProgress(

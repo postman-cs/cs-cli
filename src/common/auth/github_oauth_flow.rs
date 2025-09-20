@@ -226,9 +226,9 @@ Content-Type: text/html; charset=utf-8
             .header("Accept", "application/json")
             .header("User-Agent", "cs-cli/1.0.0")
             .form(&[
-                ("client_id", &client_id),
-                ("client_secret", &client_secret),
-                ("code", &auth_code.to_string()),
+                ("client_id", client_id),
+                ("client_secret", client_secret),
+                ("code", auth_code),
                 ("redirect_uri", &self.config.callback_url),
             ])
             .send()

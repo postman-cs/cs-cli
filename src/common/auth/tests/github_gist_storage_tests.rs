@@ -3,7 +3,7 @@
 //! Includes unit tests, integration tests, and mock-based tests
 //! for the enhanced GitHub Gist storage functionality.
 
-use super::super::github_gist_storage_v2::GitHubGistStorage;
+use super::super::github_gist_storage::GitHubGistStorage;
 use super::super::github_gist_errors::{GistStorageError, RetryConfig};
 use super::super::session_metadata::{SessionData, SessionMetadata};
 use super::super::gist_config_manager::GistConfig;

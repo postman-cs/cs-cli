@@ -109,7 +109,7 @@ pub async fn encrypt_session(&self, session_data: &SessionData) -> Result<Vec<u8
 - Backup and restore functionality
 - Configuration validation
 
-#### **Storage Module**: `src/common/auth/github_gist_storage_v2.rs`
+#### **Storage Module**: `src/common/auth/github_gist_storage.rs`
 - Main storage operations
 - Retry logic integration
 - Session data management
@@ -203,8 +203,8 @@ pub struct GitHubClientPool {
 
 ```
 src/common/auth/
-├── github_gist_storage.rs          # Original implementation
-├── github_gist_storage_v2.rs       # Enhanced implementation
+├── github_gist_storage_old.rs      # Original implementation (backup)
+├── github_gist_storage.rs          # Enhanced implementation
 ├── github_gist_errors.rs           # Structured error handling
 ├── github_authenticator.rs         # Authentication management
 ├── github_client_pool.rs           # Connection pooling
@@ -254,13 +254,10 @@ let client = authenticator.authenticate(token).await?;
 
 ### **From Original to Enhanced**:
 
-1. **Replace Import**:
+1. **Import Path** (unchanged):
    ```rust
-   // Old
+   // Same import path - enhanced implementation is now the default
    use crate::common::auth::github_gist_storage::GitHubGistStorage;
-   
-   // New
-   use crate::common::auth::github_gist_storage_v2::GitHubGistStorage;
    ```
 
 2. **Error Handling**:

@@ -14,7 +14,6 @@ pub mod temp_profile_manager;
 
 // GitHub OAuth and gist storage modules
 pub mod github_gist_storage;
-pub mod github_gist_storage_v2;
 pub mod github_gist_errors;
 pub mod github_authenticator;
 pub mod github_client_pool;
@@ -42,7 +41,6 @@ pub use temp_profile_manager::*;
 
 // GitHub OAuth and gist storage exports
 pub use github_gist_storage::*;
-pub use github_gist_storage_v2::*;
 pub use github_gist_errors::*;
 pub use github_authenticator::*;
 pub use github_client_pool::*;

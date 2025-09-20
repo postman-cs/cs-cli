@@ -8,10 +8,19 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{error, info};
 
+<<<<<<< HEAD
 /// Renderer for generating markdown reports from team calls and emails
 pub struct CallMarkdownRenderer {
     /// Common markdown generator
     generator: MarkdownGenerator,
+=======
+use crate::gong::models::{Call, Email};
+
+/// Renderer for generating markdown reports from team calls and emails
+pub struct CallMarkdownRenderer {
+    /// Output directory for markdown files
+    output_dir: PathBuf,
+>>>>>>> 30887b9 (github auth improvements)
 }
 
 impl CallMarkdownRenderer {
@@ -137,6 +146,37 @@ impl CallMarkdownRenderer {
         let temp_renderer = CallMarkdownRenderer::new(Some(customer_dir.clone()));
         
         let mut saved_files = Vec::new();
+<<<<<<< HEAD
+=======
+
+        // Determine output directory - respect configured output_dir or use Desktop for CLI
+        let output_dir = {
+            // Check if we're using the default Desktop path (CLI behavior)
+            let home = dirs::home_dir().expect("Could not find home directory");
+            let default_desktop_path = home.join("Desktop").join("team-calls-output");
+
+            if self.output_dir == default_desktop_path {
+                // CLI mode: use Desktop with custom/dated subdirectory
+                let desktop_path = home.join("Desktop");
+                if let Some(custom_name) = custom_dir_name {
+                    let sanitized_name = self.sanitize_filename(custom_name);
+                    desktop_path.join(format!("ct_{sanitized_name}"))
+                } else {
+                    let today = Zoned::now().strftime("%Y-%m-%d").to_string();
+                    desktop_path.join(format!("team-calls-{today}"))
+                }
+            } else {
+                // Test mode: use configured output_dir directly
+                self.output_dir.clone()
+            }
+        };
+
+        fs::create_dir_all(&output_dir).context("Failed to create output directory")?;
+
+        // Use output directory for saving files
+        let temp_renderer = CallMarkdownRenderer::new(Some(output_dir.clone()));
+
+>>>>>>> 30887b9 (github auth improvements)
         for call in calls {
             match temp_renderer.save_call_markdown(call) {
                 Ok(filepath) => saved_files.push(filepath),

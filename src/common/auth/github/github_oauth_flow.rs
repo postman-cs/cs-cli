@@ -65,7 +65,11 @@ impl GitHubOAuthFlow {
         let dynamic_callback_url = format!("http://localhost:{}/auth/github/callback", port);
 
         // Navigate to GitHub OAuth authorization page
+<<<<<<< HEAD:src/common/auth/github/github_oauth_flow.rs
         let oauth_url = build_oauth_url(&self.config, self.oauth_state.as_str(), Some(&dynamic_callback_url))?;
+=======
+        let oauth_url = build_oauth_url(&self.config, self.oauth_state.as_str())?;
+>>>>>>> 30887b9 (github auth improvements):src/common/auth/github_oauth_flow.rs
         info!("Opening GitHub authorization page in your browser...");
         self.open_browser(&oauth_url)?;
 
@@ -199,6 +203,12 @@ impl GitHubOAuthFlow {
             scope: String,
         }
 
+<<<<<<< HEAD:src/common/auth/github/github_oauth_flow.rs
+=======
+        let client_id = &self.config.client_id;
+        let client_secret = &self.config.client_secret;
+
+>>>>>>> 30887b9 (github auth improvements):src/common/auth/github_oauth_flow.rs
         let client = reqwest::Client::new();
         let response = client
             .post(&self.config.token_url)
@@ -208,7 +218,11 @@ impl GitHubOAuthFlow {
                 ("client_id", &self.config.client_id),
                 ("client_secret", &self.config.client_secret),
                 ("code", &auth_code.to_string()),
+<<<<<<< HEAD:src/common/auth/github/github_oauth_flow.rs
                 ("redirect_uri", &callback_url.to_string()),
+=======
+                ("redirect_uri", &self.config.callback_url),
+>>>>>>> 30887b9 (github auth improvements):src/common/auth/github_oauth_flow.rs
             ])
             .send()
             .await
@@ -258,11 +272,19 @@ mod tests {
     fn test_oauth_url_generation() {
         // Set up test environment
         std::env::set_var("GITHUB_CLIENT_ID", "test_client_id_12345");
+<<<<<<< HEAD:src/common/auth/github/github_oauth_flow.rs
         std::env::set_var("GITHUB_CLIENT_SECRET", "fake_test_secret_not_real_123456");
         
         let config = GitHubOAuthConfig::from_env().unwrap();
         let state = "test_state_123456789012345";
         let url = build_oauth_url(&config, state, None).unwrap();
+=======
+        std::env::set_var("GITHUB_CLIENT_SECRET", "test_secret_123456789012345");
+        
+        let config = GitHubOAuthConfig::from_env().unwrap();
+        let state = "test_state_123456789012345";
+        let url = build_oauth_url(&config, state).unwrap();
+>>>>>>> 30887b9 (github auth improvements):src/common/auth/github_oauth_flow.rs
 
         assert!(url.contains("client_id="));
         assert!(url.contains("scope=gist"));
@@ -278,7 +300,11 @@ mod tests {
     fn test_query_param_parsing() {
         // Set up test environment
         std::env::set_var("GITHUB_CLIENT_ID", "test_client_id_12345");
+<<<<<<< HEAD:src/common/auth/github/github_oauth_flow.rs
         std::env::set_var("GITHUB_CLIENT_SECRET", "fake_test_secret_not_real_123456");
+=======
+        std::env::set_var("GITHUB_CLIENT_SECRET", "test_secret_123456789012345");
+>>>>>>> 30887b9 (github auth improvements):src/common/auth/github_oauth_flow.rs
         
         let oauth_flow = GitHubOAuthFlow::new().unwrap();
         let query = "code=abc123&state=xyz789&scope=gist";
@@ -297,7 +323,11 @@ mod tests {
     fn test_auth_code_extraction_success() {
         // Set up test environment
         std::env::set_var("GITHUB_CLIENT_ID", "test_client_id_12345");
+<<<<<<< HEAD:src/common/auth/github/github_oauth_flow.rs
         std::env::set_var("GITHUB_CLIENT_SECRET", "fake_test_secret_not_real_123456");
+=======
+        std::env::set_var("GITHUB_CLIENT_SECRET", "test_secret_123456789012345");
+>>>>>>> 30887b9 (github auth improvements):src/common/auth/github_oauth_flow.rs
         
         let oauth_flow = GitHubOAuthFlow::new().unwrap();
         let request = format!(
@@ -318,7 +348,11 @@ mod tests {
     fn test_auth_code_extraction_state_mismatch() {
         // Set up test environment
         std::env::set_var("GITHUB_CLIENT_ID", "test_client_id_12345");
+<<<<<<< HEAD:src/common/auth/github/github_oauth_flow.rs
         std::env::set_var("GITHUB_CLIENT_SECRET", "fake_test_secret_not_real_123456");
+=======
+        std::env::set_var("GITHUB_CLIENT_SECRET", "test_secret_123456789012345");
+>>>>>>> 30887b9 (github auth improvements):src/common/auth/github_oauth_flow.rs
         
         let oauth_flow = GitHubOAuthFlow::new().unwrap();
         let request = "GET /auth/github/callback?code=test_code_123&state=wrong_state HTTP/1.1\r\nHost: localhost:8080\r\n\r\n";
@@ -335,7 +369,11 @@ mod tests {
     fn test_auth_code_extraction_oauth_error() {
         // Set up test environment
         std::env::set_var("GITHUB_CLIENT_ID", "test_client_id_12345");
+<<<<<<< HEAD:src/common/auth/github/github_oauth_flow.rs
         std::env::set_var("GITHUB_CLIENT_SECRET", "fake_test_secret_not_real_123456");
+=======
+        std::env::set_var("GITHUB_CLIENT_SECRET", "test_secret_123456789012345");
+>>>>>>> 30887b9 (github auth improvements):src/common/auth/github_oauth_flow.rs
         
         let oauth_flow = GitHubOAuthFlow::new().unwrap();
         let request = format!(

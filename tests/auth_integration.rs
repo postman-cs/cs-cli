@@ -267,6 +267,7 @@ async fn test_rate_limit_handling_during_auth() {
     // Should handle rate limits gracefully
 }
 */
+<<<<<<< HEAD
 
 #[tokio::test]
 async fn test_safari_cookie_extraction() {
@@ -324,3 +325,5 @@ async fn test_safari_cookie_extraction() {
         }
     }
 }
+=======
+>>>>>>> 30887b9 (github auth improvements)

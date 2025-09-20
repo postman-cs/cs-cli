@@ -359,6 +359,7 @@ pub fn setup_test_env() {
     let _ = cs_cli::common::logging::init_test_logging();
 }
 
+<<<<<<< HEAD
 /// Common test assertions
 pub mod assertions {
     use super::*;
@@ -496,6 +497,14 @@ pub mod helpers {
         fs::write(&filepath, content).expect("Failed to write temp file");
         filepath
     }
+=======
+    // Initialize tracing for tests (ignore if already initialized)
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let _ = tracing_subscriber::fmt::try_init();
+    });
+>>>>>>> 30887b9 (github auth improvements)
 }
 
 /// Run test with timeout

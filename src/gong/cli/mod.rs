@@ -63,8 +63,13 @@ pub async fn run_cli() -> Result<()> {
     if args.reset_sync {
         println!("Clearing all stored authentication data...");
 
+<<<<<<< HEAD
         // Delete all authentication data including GitHub tokens
         match crate::common::auth::hybrid_cookie_storage::delete_all_authentication_hybrid().await {
+=======
+        // Delete cookies from both keychain and gist storage
+        match crate::common::auth::hybrid_cookie_storage::delete_cookies_hybrid().await {
+>>>>>>> 30887b9 (github auth improvements)
             Ok(()) => {
                 println!("All authentication data has been cleared successfully");
                 println!("You will need to authenticate again on next run");

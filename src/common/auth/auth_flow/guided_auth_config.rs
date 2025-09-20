@@ -3,7 +3,11 @@
 //! Centralized configuration for Okta SSO URLs and platform endpoints.
 //! This allows easy modification of authentication parameters without changing core logic.
 
+<<<<<<< HEAD:src/common/auth/auth_flow/guided_auth_config.rs
 use crate::common::auth::cookies::Cookie;
+=======
+use crate::common::auth::cookie_retriever::Cookie;
+>>>>>>> 30887b9 (github auth improvements):src/common/auth/guided_auth_config.rs
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 

@@ -35,11 +35,32 @@ impl SlackClient {
         // Authenticate using Firefox session
         self.auth.authenticate().await?;
 
+<<<<<<< HEAD
         // Create HTTP client using common platform configuration
         let browser_type = self.auth.detected_browser.as_deref();
         let client = crate::common::http::PlatformConfigs::slack(browser_type)
             .build_client()
             .await?;
+=======
+        // Create HTTP client with browser compatibility - match detected browser
+        let browser_type = self.auth.detected_browser.as_deref().unwrap_or("firefox");
+
+        let http_config = HttpSettings {
+            pool_size: 1,
+            max_concurrency_per_client: 5,
+            timeout_seconds: 30.0,
+            max_clients: Some(1),
+            global_max_concurrency: Some(5),
+            enable_http3: true, // Use HTTP/3 for better performance
+            force_http3: false, // Allow fallback to HTTP/2
+            tls_version: None,
+            browser_type: browser_type.to_string(),
+        };
+
+        info!("Client HTTP using browser type: {}", browser_type);
+
+        let client = BrowserHttpClient::new(http_config).await?;
+>>>>>>> 30887b9 (github auth improvements)
 
         // Set authentication data
         if let Some(session) = self.auth.get_session_data() {

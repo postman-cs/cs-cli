@@ -107,6 +107,7 @@ impl BrowserHttpClient {
             .await
             .map_err(|e| mapper.map_semaphore_error(e))?;
 
+<<<<<<< HEAD
         // Use common retry utilities
         let config = crate::common::retry::PlatformRetryConfigs::http();
         let operation_name = format!("{} {}", method, url);
@@ -116,6 +117,68 @@ impl BrowserHttpClient {
             config,
             &operation_name,
         ).await
+=======
+        for attempt in 0..MAX_RETRIES {
+            info!("Making HTTP request: {} {} (attempt {})", method, url, attempt + 1);
+            match self.make_request(method, url, body).await {
+                Ok(response) => {
+                    let status = response.status().as_u16();
+                    info!("HTTP request completed: {} {} -> {}", method, url, status);
+
+                    // Handle rate limiting (429) - honor Retry-After header
+                    if status == 429 {
+                        let sleep_duration = self.calculate_retry_delay(&response, attempt).await;
+                        warn!(
+                            "Rate limited: url={}, attempt={}, retry_after={:.1}s",
+                            url,
+                            attempt,
+                            sleep_duration.as_secs_f64()
+                        );
+                        tokio::time::sleep(sleep_duration).await;
+                        continue;
+                    }
+
+                    // Handle server errors (5xx)
+                    if status >= 500 {
+                        if attempt < MAX_RETRIES - 1 {
+                            let sleep_duration = self.exponential_backoff_delay(attempt);
+                            warn!(
+                                "Server error - will retry: url={}, status={}, attempt={}",
+                                url, status, attempt
+                            );
+                            tokio::time::sleep(sleep_duration).await;
+                            continue;
+                        } else {
+                            warn!(
+                                "Server error - not retrying: url={}, status={}, attempt={}",
+                                url, status, attempt
+                            );
+                        }
+                    }
+
+                    // Handle client errors (4xx) - don't retry except for 429
+                    if (400..500).contains(&status) && status != 429 {
+                        warn!(
+                            "Client error - not retrying: url={}, status={}, attempt={}",
+                            url, status, attempt
+                        );
+                    }
+
+                    return Ok(response);
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                    if attempt < MAX_RETRIES - 1 {
+                        let sleep_duration = self.exponential_backoff_delay(attempt);
+                        tokio::time::sleep(sleep_duration).await;
+                    }
+                }
+            }
+        }
+
+        Err(last_error
+            .unwrap_or_else(|| CsCliError::ApiRequest("Request failed after retries".to_string())))
+>>>>>>> 30887b9 (github auth improvements)
     }
 
 

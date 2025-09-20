@@ -3,15 +3,24 @@
 //! Includes unit tests, integration tests, and mock-based tests
 //! for the enhanced GitHub Gist storage functionality.
 
+<<<<<<< HEAD
 use super::super::github_gist_storage::GitHubGistStorage;
 use super::super::github_gist_errors::{GistStorageError, RetryConfig};
 use super::super::session_metadata::{SessionData, SessionMetadata};
 use super::super::gist_config_manager::GistConfig;
 use crate::{CsCliError, Result};
+=======
+use super::super::github_gist_storage_v2::GitHubGistStorage;
+use super::super::github_gist_errors::{GistStorageError, RetryConfig};
+use super::super::session_metadata::{SessionData, SessionMetadata};
+use super::super::gist_config_manager::GistConfig;
+use crate::Result;
+>>>>>>> 30887b9 (github auth improvements)
 use mockall::predicate::*;
 use mockall::mock;
 use std::collections::HashMap;
 use tempfile::TempDir;
+<<<<<<< HEAD
 use async_trait::async_trait;
 
 // Mock trait for GitHub API operations
@@ -23,6 +32,9 @@ pub trait GitHubApi {
     async fn delete_gist(&self, gist_id: &str) -> Result<()>;
     async fn get_current_user(&self) -> Result<String>;
 }
+=======
+use tokio_test;
+>>>>>>> 30887b9 (github auth improvements)
 
 // Mock for GitHub API operations
 mock! {
@@ -30,11 +42,19 @@ mock! {
     
     #[async_trait]
     impl GitHubApi for GitHubApi {
+<<<<<<< HEAD
         async fn create_gist(&self, description: &str, filename: &str, content: &str) -> Result<String>;
         async fn update_gist(&self, gist_id: &str, filename: &str, content: &str) -> Result<()>;
         async fn get_gist(&self, gist_id: &str) -> Result<String>;
         async fn delete_gist(&self, gist_id: &str) -> Result<()>;
         async fn get_current_user(&self) -> Result<String>;
+=======
+        async fn create_gist(&self, description: &str, filename: &str, content: &str) -> Result<String, GistStorageError>;
+        async fn update_gist(&self, gist_id: &str, filename: &str, content: &str) -> Result<(), GistStorageError>;
+        async fn get_gist(&self, gist_id: &str) -> Result<String, GistStorageError>;
+        async fn delete_gist(&self, gist_id: &str) -> Result<(), GistStorageError>;
+        async fn get_current_user(&self) -> Result<String, GistStorageError>;
+>>>>>>> 30887b9 (github auth improvements)
     }
 }
 
@@ -179,7 +199,11 @@ mod integration_tests {
 
     #[tokio::test]
     async fn test_async_encryption_roundtrip() {
+<<<<<<< HEAD
         use crate::common::auth::session::async_session_encryption::AsyncSessionEncryption;
+=======
+        use super::super::async_session_encryption::AsyncSessionEncryption;
+>>>>>>> 30887b9 (github auth improvements)
         
         let encryption = AsyncSessionEncryption::new().unwrap();
         
@@ -198,7 +222,11 @@ mod integration_tests {
 
     #[tokio::test]
     async fn test_session_data_encryption_roundtrip() {
+<<<<<<< HEAD
         use crate::common::auth::session::async_session_encryption::AsyncSessionEncryption;
+=======
+        use super::super::async_session_encryption::AsyncSessionEncryption;
+>>>>>>> 30887b9 (github auth improvements)
         
         let encryption = AsyncSessionEncryption::new().unwrap();
         
@@ -221,7 +249,11 @@ mod integration_tests {
 
     #[tokio::test]
     async fn test_tampered_data_fails() {
+<<<<<<< HEAD
         use crate::common::auth::session::async_session_encryption::AsyncSessionEncryption;
+=======
+        use super::super::async_session_encryption::AsyncSessionEncryption;
+>>>>>>> 30887b9 (github auth improvements)
         
         let encryption = AsyncSessionEncryption::new().unwrap();
         
@@ -255,7 +287,11 @@ mod mock_tests {
             .with(
                 eq("CS-CLI encrypted session data"),
                 eq("cs-cli-session-data.enc"),
+<<<<<<< HEAD
                 function(|_: &str| true)
+=======
+                any()
+>>>>>>> 30887b9 (github auth improvements)
             )
             .times(1)
             .returning(|_, _, _| Ok("test-gist-id".to_string()));
@@ -279,7 +315,11 @@ mod mock_tests {
             .with(
                 eq("test-gist-id"),
                 eq("cs-cli-session-data.enc"),
+<<<<<<< HEAD
                 function(|_: &str| true)
+=======
+                any()
+>>>>>>> 30887b9 (github auth improvements)
             )
             .times(1)
             .returning(|_, _, _| Ok(()));
@@ -346,11 +386,19 @@ mod mock_tests {
         mock_api
             .expect_create_gist()
             .times(1)
+<<<<<<< HEAD
             .returning(|_, _, _| Err(CsCliError::GistStorageStructured(GistStorageError::ApiRequestFailed {
                 operation: "create_gist".to_string(),
                 status: 500,
                 details: Some("Internal server error".to_string()),
             })));
+=======
+            .returning(|_, _, _| Err(GistStorageError::ApiRequestFailed {
+                operation: "create_gist".to_string(),
+                status: 500,
+                details: Some("Internal server error".to_string()),
+            }));
+>>>>>>> 30887b9 (github auth improvements)
 
         let result = mock_api.create_gist(
             "CS-CLI encrypted session data",
@@ -360,7 +408,11 @@ mod mock_tests {
         
         assert!(result.is_err());
         
+<<<<<<< HEAD
         if let Err(CsCliError::GistStorageStructured(GistStorageError::ApiRequestFailed { operation, status, .. })) = result {
+=======
+        if let Err(GistStorageError::ApiRequestFailed { operation, status, .. }) = result {
+>>>>>>> 30887b9 (github auth improvements)
             assert_eq!(operation, "create_gist");
             assert_eq!(status, 500);
         } else {
@@ -379,7 +431,13 @@ mod config_manager_tests {
         let config_path = temp_dir.path().join("test-config.json");
         
         // Create a custom config manager with temp path
+<<<<<<< HEAD
         let manager = crate::common::auth::gist_config_manager::GistConfigManager::new().unwrap();
+=======
+        let manager = super::super::gist_config_manager::GistConfigManager {
+            config_path: config_path.clone(),
+        };
+>>>>>>> 30887b9 (github auth improvements)
 
         let config = GistConfig::new(
             "test-gist-id".to_string(),
@@ -406,7 +464,13 @@ mod config_manager_tests {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("test-config.json");
         
+<<<<<<< HEAD
         let manager = crate::common::auth::gist_config_manager::GistConfigManager::new().unwrap();
+=======
+        let manager = super::super::gist_config_manager::GistConfigManager {
+            config_path: config_path.clone(),
+        };
+>>>>>>> 30887b9 (github auth improvements)
 
         let config = GistConfig::new(
             "test-gist-id".to_string(),
@@ -438,7 +502,13 @@ mod config_manager_tests {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("test-config.json");
         
+<<<<<<< HEAD
         let manager = crate::common::auth::gist_config_manager::GistConfigManager::new().unwrap();
+=======
+        let manager = super::super::gist_config_manager::GistConfigManager {
+            config_path: config_path.clone(),
+        };
+>>>>>>> 30887b9 (github auth improvements)
 
         // Test with valid config
         let valid_config = GistConfig::new(
@@ -461,7 +531,11 @@ mod performance_tests {
 
     #[tokio::test]
     async fn test_encryption_performance() {
+<<<<<<< HEAD
         use crate::common::auth::session::async_session_encryption::AsyncSessionEncryption;
+=======
+        use super::super::async_session_encryption::AsyncSessionEncryption;
+>>>>>>> 30887b9 (github auth improvements)
         
         let encryption = AsyncSessionEncryption::new().unwrap();
         

@@ -12,7 +12,11 @@ use crate::gong::auth::GongAuthenticator;
 use crate::gong::cli::{load_config, save_config};
 use crate::gong::config::AppConfig;
 use crate::gong::retriever::TeamCallsRetriever;
+<<<<<<< HEAD
 use crate::{Result, CsCliError};
+=======
+use crate::Result;
+>>>>>>> 30887b9 (github auth improvements)
 
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
@@ -117,6 +121,7 @@ pub async fn run_gong_tui(config: AppConfig) -> Result<ParsedCommand> {
                 eprintln!("Failed to clear invalid session data: {e}");
             }
 
+<<<<<<< HEAD
             if !auth_task_running {
                 auth_task_running = true;
                 let auth_tx = retrieval_tx.clone();
@@ -125,6 +130,14 @@ pub async fn run_gong_tui(config: AppConfig) -> Result<ParsedCommand> {
                     run_authentication(auth_config, auth_tx).await;
                 });
             }
+=======
+            auth_task_running = true;
+            let auth_tx = retrieval_tx.clone();
+            let auth_config = config.clone();
+            tokio::spawn(async move {
+                run_authentication(auth_config, auth_tx).await;
+            });
+>>>>>>> 30887b9 (github auth improvements)
         }
 
         // Handle authentication mode toggle (save preference when user changes it)
@@ -194,12 +207,20 @@ pub async fn run_gong_tui(config: AppConfig) -> Result<ParsedCommand> {
                                     app.auth_progress = 0.0;
                                     app.auth_error = None;
 
+<<<<<<< HEAD
                                     let auth_tx = retrieval_tx.clone();
                                     let auth_config = config.clone();
                                     tokio::spawn(async move {
                                         run_authentication(auth_config, auth_tx).await;
                                     });
                                 }
+=======
+                                let auth_tx = retrieval_tx.clone();
+                                let auth_config = config.clone();
+                                tokio::spawn(async move {
+                                    run_authentication(auth_config, auth_tx).await;
+                                });
+>>>>>>> 30887b9 (github auth improvements)
                                 continue; // Skip normal input processing
                             } else if key.code == KeyCode::Esc {
                                 break Ok(app.get_parsed_command());
@@ -394,6 +415,7 @@ async fn run_authentication(config: AppConfig, tx: mpsc::UnboundedSender<Retriev
                             // Try a simple API call to verify token validity
                             match client.current().user().await {
                                 Ok(_) => {
+<<<<<<< HEAD
                                     // Token is valid, check if we also have gist config
                                     use crate::common::auth::github::gist_config_manager::GistConfigManager;
                                     let has_gist_config = if let Ok(config_manager) = GistConfigManager::new() {
@@ -414,6 +436,17 @@ async fn run_authentication(config: AppConfig, tx: mpsc::UnboundedSender<Retriev
                                         tracing::info!("Valid GitHub token found but no gist config, will create gist");
                                         (false, false) // Token is valid but need to create gist
                                     }
+=======
+                                    tx.send(RetrievalMessage::AuthProgress(
+                                        0.3,
+                                        "GitHub sync already configured, continuing...".to_string(),
+                                    ))
+                                    .ok();
+                                    tracing::info!(
+                                        "Valid GitHub token found in keychain, skipping OAuth"
+                                    );
+                                    false // Token is valid, no OAuth needed
+>>>>>>> 30887b9 (github auth improvements)
                                 }
                                 Err(e) => {
                                     tracing::warn!(
@@ -442,6 +475,7 @@ async fn run_authentication(config: AppConfig, tx: mpsc::UnboundedSender<Retriev
 
         // Clean up stale gist config if token was invalid
         if needs_oauth {
+<<<<<<< HEAD
             use crate::common::auth::github::gist_config_manager::GistConfigManager;
             if let Ok(config_manager) = GistConfigManager::new() {
                 if let Ok(Some(_)) = config_manager.load() {
@@ -454,6 +488,8 @@ async fn run_authentication(config: AppConfig, tx: mpsc::UnboundedSender<Retriev
         }
 
         if needs_oauth {
+=======
+>>>>>>> 30887b9 (github auth improvements)
             tx.send(RetrievalMessage::AuthProgress(
                 0.2,
                 "Setting up GitHub sync...".to_string(),

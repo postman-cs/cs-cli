@@ -16,9 +16,18 @@ path = "src/main.rs"
 impit = { path = "vendor/impit/impit" }
 reqwest = { version = "0.12", features = ["json", "cookies", "gzip", "http3", "blocking"] }
 
+<<<<<<< HEAD
 # Browser automation - CDP (Chrome DevTools Protocol)
 tokio-tungstenite = { version = "0.21", features = ["native-tls"] }  # WebSocket client for CDP
 regex = "1.10"                # Regex for version parsing
+=======
+# WebDriver and browser automation
+fantoccini = { version = "0.22", default-features = false, features = ["native-tls"] }
+zip = "0.6"                   # ZIP file extraction for driver downloads
+regex = "1.10"                # Regex for version parsing
+tar = "0.4"                   # TAR archive extraction for GeckoDriver
+flate2 = "1.0"                # GZIP decompression for tar.gz files
+>>>>>>> 30887b9 (github auth improvements)
 
 # Async runtime - optimized features for our use case
 tokio = { version = "1.0", features = [
@@ -68,7 +77,12 @@ crossterm = "0.28"         # Cross-platform terminal control
 
 # Guided authentication with headless browser
 # Browser automation
+<<<<<<< HEAD
 zstd = { version = "0.13", features = ["zstdmt"] }  # Compressed binary extraction
+=======
+cookie = "0.18"  # Cookie types for fantoccini (must match fantoccini's version)
+zstd = { version = "0.13", features = ["zstdmt"] }  # Compressed driver extraction
+>>>>>>> 30887b9 (github auth improvements)
 
 # Configuration
 figment = { version = "0.10", features = ["env", "json", "toml", "yaml"] }

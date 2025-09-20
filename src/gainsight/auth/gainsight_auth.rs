@@ -126,7 +126,11 @@ impl GainsightAuth {
 
         // Test browsers in order of preference
         let browser_tests = vec![
+<<<<<<< HEAD
             ("Firefox", self.cookie_retriever.retrieve_firefox_cookies_ephemeral()),
+=======
+            ("Firefox", self.cookie_retriever.retrieve_firefox_cookies()),
+>>>>>>> 30887b9 (github auth improvements)
             ("Chrome", self.cookie_retriever.retrieve_chrome_cookies()),
             ("Brave", self.cookie_retriever.retrieve_brave_cookies()),
             ("Edge", self.cookie_retriever.retrieve_edge_cookies()),
@@ -192,7 +196,11 @@ impl GainsightAuth {
 
     /// Get cookies for debugging
     pub fn get_domain_cookies(&self, domain: &str) -> Result<Vec<Cookie>> {
+<<<<<<< HEAD
         let all_cookies = self.cookie_retriever.retrieve_firefox_cookies_ephemeral()?;
+=======
+        let all_cookies = self.cookie_retriever.retrieve_firefox_cookies()?;
+>>>>>>> 30887b9 (github auth improvements)
 
         let gainsight_cookies: Vec<Cookie> = all_cookies
             .into_iter()

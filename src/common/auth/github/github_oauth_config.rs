@@ -192,7 +192,7 @@ mod tests {
 
     fn setup_test_env() {
         env::set_var("GITHUB_CLIENT_ID", "test_client_id_12345");
-        env::set_var("GITHUB_CLIENT_SECRET", "test_secret_123456789012345");
+        env::set_var("GITHUB_CLIENT_SECRET", "fake_test_secret_not_real_123456");
     }
 
     fn cleanup_test_env() {
@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn test_missing_client_id() {
         env::remove_var("GITHUB_CLIENT_ID");
-        env::set_var("GITHUB_CLIENT_SECRET", "test_secret_123456789012345");
+        env::set_var("GITHUB_CLIENT_SECRET", "fake_test_secret_not_real_123456");
         
         let config = GitHubOAuthConfig::from_env();
         assert!(config.is_err());
@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn test_invalid_client_id_too_short() {
         env::set_var("GITHUB_CLIENT_ID", "short");
-        env::set_var("GITHUB_CLIENT_SECRET", "test_secret_123456789012345");
+        env::set_var("GITHUB_CLIENT_SECRET", "fake_test_secret_not_real_123456");
         
         let config = GitHubOAuthConfig::from_env();
         assert!(config.is_err());

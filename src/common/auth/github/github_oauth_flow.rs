@@ -258,7 +258,7 @@ mod tests {
     fn test_oauth_url_generation() {
         // Set up test environment
         std::env::set_var("GITHUB_CLIENT_ID", "test_client_id_12345");
-        std::env::set_var("GITHUB_CLIENT_SECRET", "test_secret_123456789012345");
+        std::env::set_var("GITHUB_CLIENT_SECRET", "fake_test_secret_not_real_123456");
         
         let config = GitHubOAuthConfig::from_env().unwrap();
         let state = "test_state_123456789012345";
@@ -278,7 +278,7 @@ mod tests {
     fn test_query_param_parsing() {
         // Set up test environment
         std::env::set_var("GITHUB_CLIENT_ID", "test_client_id_12345");
-        std::env::set_var("GITHUB_CLIENT_SECRET", "test_secret_123456789012345");
+        std::env::set_var("GITHUB_CLIENT_SECRET", "fake_test_secret_not_real_123456");
         
         let oauth_flow = GitHubOAuthFlow::new().unwrap();
         let query = "code=abc123&state=xyz789&scope=gist";
@@ -297,7 +297,7 @@ mod tests {
     fn test_auth_code_extraction_success() {
         // Set up test environment
         std::env::set_var("GITHUB_CLIENT_ID", "test_client_id_12345");
-        std::env::set_var("GITHUB_CLIENT_SECRET", "test_secret_123456789012345");
+        std::env::set_var("GITHUB_CLIENT_SECRET", "fake_test_secret_not_real_123456");
         
         let oauth_flow = GitHubOAuthFlow::new().unwrap();
         let request = format!(
@@ -318,7 +318,7 @@ mod tests {
     fn test_auth_code_extraction_state_mismatch() {
         // Set up test environment
         std::env::set_var("GITHUB_CLIENT_ID", "test_client_id_12345");
-        std::env::set_var("GITHUB_CLIENT_SECRET", "test_secret_123456789012345");
+        std::env::set_var("GITHUB_CLIENT_SECRET", "fake_test_secret_not_real_123456");
         
         let oauth_flow = GitHubOAuthFlow::new().unwrap();
         let request = "GET /auth/github/callback?code=test_code_123&state=wrong_state HTTP/1.1\r\nHost: localhost:8080\r\n\r\n";
@@ -335,7 +335,7 @@ mod tests {
     fn test_auth_code_extraction_oauth_error() {
         // Set up test environment
         std::env::set_var("GITHUB_CLIENT_ID", "test_client_id_12345");
-        std::env::set_var("GITHUB_CLIENT_SECRET", "test_secret_123456789012345");
+        std::env::set_var("GITHUB_CLIENT_SECRET", "fake_test_secret_not_real_123456");
         
         let oauth_flow = GitHubOAuthFlow::new().unwrap();
         let request = format!(
